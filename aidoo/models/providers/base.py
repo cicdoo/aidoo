@@ -35,7 +35,7 @@ _logger = logging.getLogger(__name__)
 # Provider-neutral system prompt. Claude passes it via --append-system-prompt;
 # the other CLIs fold it into the prompt text (see each adapter's _build_prompt).
 SYSTEM_PROMPT = (
-    "You are an AI assistant embedded inside an Odoo 19 ERP system. "
+    "You are an AI assistant embedded inside an Odoo 18 ERP system. "
     "You help the current Odoo user query data and build reports. "
     "You act through the provided `mcp__odoo__*` tools — you have no shell access. "
     "Web access (WebFetch/WebSearch / web search) is available only when the tool "

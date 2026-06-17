@@ -16,7 +16,7 @@ data, and builds reports — running as the logged-in user, never as superuser,
 with a full audit trail.**
 
 [![License: LGPL-3.0](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](LICENSE)
-[![Odoo](https://img.shields.io/badge/Odoo-19.0-714B67.svg)](https://www.odoo.com)
+[![Odoo](https://img.shields.io/badge/Odoo-18.0-714B67.svg)](https://www.odoo.com)
 [![PR checks](https://github.com/cicdoo/aidoo/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/cicdoo/aidoo/actions/workflows/pr-checks.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -77,7 +77,7 @@ OWL chat UI ──/aidoo/send (auth=user)──► Odoo worker ──► daemon 
 
 ### Requirements
 
-- **Odoo 19.0**
+- **Odoo 18.0**
 - The CLI for each provider you want to enable, installed on the Odoo server
   (Aidoo auto-detects the binary; the path is configurable per provider):
   **Claude Code** (`claude`), **Codex** (`codex`), **Gemini** (`gemini`),

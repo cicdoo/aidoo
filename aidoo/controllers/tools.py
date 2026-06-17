@@ -24,8 +24,8 @@ SQL_MAX_ROWS = 1000
 # Read-only model methods callable via orm_call.
 SAFE_METHODS = {
     "name_search", "search_count", "read_group", "fields_get",
-    "default_get", "search_read", "read", "name_get", "get_views",
-    "fields_view_get", "web_search_read", "web_read_group",
+    "default_get", "search_read", "read", "get_views",
+    "web_search_read", "web_read_group",
 }
 
 # --- SQL read-only validation -------------------------------------------------
@@ -186,7 +186,7 @@ class AiAssistantTools(http.Controller):
     # ------------------------------------------------------------------
     # Tools
     # ------------------------------------------------------------------
-    @http.route("/aidoo/tool/model_introspect", type="jsonrpc",
+    @http.route("/aidoo/tool/model_introspect", type="json",
                 auth="ai_bridge", methods=["POST"])
     def model_introspect(self, model=None, **kw):
         self._guard()
@@ -214,7 +214,7 @@ class AiAssistantTools(http.Controller):
 
         return self._run("model_introspect", _do, {"model_name": model})
 
-    @http.route("/aidoo/tool/orm_search_read", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_search_read", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_search_read(self, model=None, domain=None, fields=None,
                         limit=80, offset=0, order="", **kw):
@@ -240,7 +240,7 @@ class AiAssistantTools(http.Controller):
                              "domain": domain, "fields": fields,
                              "limit": limit, "offset": offset, "order": order}})
 
-    @http.route("/aidoo/tool/orm_read", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_read", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_read(self, model=None, ids=None, fields=None, **kw):
         self._guard()
@@ -255,7 +255,7 @@ class AiAssistantTools(http.Controller):
         return self._run("orm_read", _do,
                          {"model_name": model, "record_ids": str(ids)})
 
-    @http.route("/aidoo/tool/orm_call", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_call", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_call(self, model=None, method=None, args=None, kwargs=None, **kw):
         self._guard()
@@ -279,7 +279,7 @@ class AiAssistantTools(http.Controller):
         return self._run("orm_call", _do,
                          {"model_name": model, "method": method})
 
-    @http.route("/aidoo/tool/sql_select", type="jsonrpc",
+    @http.route("/aidoo/tool/sql_select", type="json",
                 auth="ai_bridge", methods=["POST"])
     def sql_select(self, query=None, params=None, max_rows=1000, **kw):
         self._guard()
@@ -320,7 +320,7 @@ class AiAssistantTools(http.Controller):
     # ------------------------------------------------------------------
     # Write tools — gated per-user (M2M + zero-trust) and by Odoo ACLs.
     # ------------------------------------------------------------------
-    @http.route("/aidoo/tool/orm_create", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_create", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_create(self, model=None, values=None, **kw):
         self._guard()
@@ -338,7 +338,7 @@ class AiAssistantTools(http.Controller):
         return self._run("orm_create", _do,
                          {"model_name": model, "arguments": {"values": values}})
 
-    @http.route("/aidoo/tool/orm_write", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_write", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_write(self, model=None, ids=None, values=None, **kw):
         self._guard()
@@ -357,7 +357,7 @@ class AiAssistantTools(http.Controller):
                          {"model_name": model, "record_ids": str(ids),
                           "arguments": {"values": values}})
 
-    @http.route("/aidoo/tool/orm_unlink", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_unlink", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_unlink(self, model=None, ids=None, **kw):
         self._guard()
@@ -378,7 +378,7 @@ class AiAssistantTools(http.Controller):
     # Action tools — invoke business logic (allowlisted methods / wizards /
     # server actions). Write-class: gated per-user + stripped by zero-trust.
     # ------------------------------------------------------------------
-    @http.route("/aidoo/tool/orm_action", type="jsonrpc",
+    @http.route("/aidoo/tool/orm_action", type="json",
                 auth="ai_bridge", methods=["POST"])
     def orm_action(self, model=None, ids=None, method=None,
                    args=None, kwargs=None, **kw):
@@ -403,7 +403,7 @@ class AiAssistantTools(http.Controller):
                           "method": method,
                           "arguments": {"args": args, "kwargs": kwargs}})
 
-    @http.route("/aidoo/tool/run_wizard", type="jsonrpc",
+    @http.route("/aidoo/tool/run_wizard", type="json",
                 auth="ai_bridge", methods=["POST"])
     def run_wizard(self, model=None, values=None, method=None,
                    args=None, kwargs=None, **kw):
@@ -435,7 +435,7 @@ class AiAssistantTools(http.Controller):
                           "arguments": {"values": values, "args": args,
                                         "kwargs": kwargs}})
 
-    @http.route("/aidoo/tool/run_server_action", type="jsonrpc",
+    @http.route("/aidoo/tool/run_server_action", type="json",
                 auth="ai_bridge", methods=["POST"])
     def run_server_action(self, action=None, ids=None, **kw):
         self._guard()

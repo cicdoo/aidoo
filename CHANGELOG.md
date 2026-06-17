@@ -2,7 +2,7 @@
 
 All notable changes to **Aidoo** are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
+Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 `## [Unreleased]`; a maintainer assigns the version at release time.
 
 ## [Unreleased]
@@ -14,6 +14,43 @@ Add bullets here under ### Added / Changed / Fixed / Removed / Security.
 When adding or changing a provider, say which adapter
 (`models/providers/<code>.py`) and whether the provider/CLI contract changed.
 -->
+
+## [18.0.1.0.0] — Odoo 18.0 backport
+
+Backport of the 19.0 release to **Odoo 18.0**. No functional change — only the
+framework APIs that differ between 18.0 and 19.0 were reverted. Feature parity
+with `19.0.1.0.0` is preserved.
+
+### Changed (ported to Odoo 18.0)
+- **Groups & app category** — reverted `res.groups.privilege` (19-only) back to a
+  `category_id` Many2one on each `res.groups` record, pointing at the existing
+  `module_category_aidoo` (`security/aidoo_security.xml`). The role block in
+  `models/res_users.py` now reads `group.category_id` over `self.groups_id`
+  instead of `group.privilege_id` over `self.all_group_ids`.
+- **Controller routes** — `type="jsonrpc"` → `type="json"` on every
+  `@http.route` in `controllers/main.py` and `controllers/tools.py` (Odoo 18
+  registers only the `http` and `json` dispatchers).
+- **SQL constraints** — `models.Constraint(...)` (19-only) → the classic
+  `_sql_constraints` list in `models/aidoo_tool.py`.
+- **System prompt** — provider-neutral prompt now says "Odoo 18" instead of
+  "Odoo 19" (`models/providers/base.py`).
+- Test fixture in `tests/test_ir_http_auth.py` uses the 18 field name `groups_id`
+  (was `group_ids`).
+- **Docs & metadata** — `README.md` (Odoo badge + Requirements), `SECURITY.md`
+  (supported versions), `CONTRIBUTING.md` (target version + rebase branch),
+  `.github/pull_request_template.md` and `.github/ISSUE_TEMPLATE/bug_report.yml`
+  now reference **18.0**.
+
+### Removed
+- Dropped `name_get` and `fields_view_get` from the `orm_call` `SAFE_METHODS`
+  allowlist in `controllers/tools.py`; both were removed from the Odoo framework
+  in 17.0 (superseded by `display_name`/`_compute_display_name` and
+  `get_views`/`get_view`), so they were dead entries that no model exposes on 18.
+
+> `from odoo.modules.registry import Registry` and the absence of an `act_window`
+> `inline` target are valid on both 18.0 and 19.0, so they were left unchanged.
+> `partner._bus_send(...)` also works as-is — `res.partner` inherits
+> `bus.listener.mixin` on 18.0.
 
 ## [19.0.1.0.0] — First public release
 
@@ -80,5 +117,6 @@ First release of **Aidoo**, the unified successor to the per-provider modules
   Each provider's CLI (`claude` / `codex` / `gemini` / `grok`) must be installed
   on the server for that provider to be usable.
 
-[Unreleased]: https://github.com/cicdoo/aidoo/compare/19.0.1.0.0...HEAD
+[Unreleased]: https://github.com/cicdoo/aidoo/compare/18.0.1.0.0...HEAD
+[18.0.1.0.0]: https://github.com/cicdoo/aidoo/compare/19.0.1.0.0...18.0.1.0.0
 [19.0.1.0.0]: https://github.com/cicdoo/aidoo/releases/tag/19.0.1.0.0

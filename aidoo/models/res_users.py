@@ -137,10 +137,9 @@ class ResUsers(models.Model):
             priv = "Portal/public user (limited access)"
         lines.append("Privilege level: %s" % priv)
 
-        # Odoo 19: a group's app grouping lives on res.groups.privilege.
         roles = sorted(
-            "%s / %s" % (g.privilege_id.name, g.name)
-            for g in self.all_group_ids if g.privilege_id
+            "%s / %s" % (g.category_id.name, g.name)
+            for g in self.groups_id if g.category_id
         )
         if roles:
             lines.append("Roles:")

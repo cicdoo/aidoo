@@ -11,7 +11,7 @@
 
 ## Checklist
 
-- [ ] Targets Odoo 19.0 and follows the existing code style
+- [ ] Targets Odoo 18.0 and follows the existing code style
 - [ ] Added/updated tests under `tests/` (tagged `aidoo`) and they pass locally
 - [ ] Updated `CHANGELOG.md` (bullet under `## [Unreleased]`)
 - [ ] Updated `SECURITY.md` if this touches a safety-critical path (else N/A)

@@ -28,5 +28,6 @@ class AiAssistantTool(models.Model):
         help="Read-only tools stay available when zero-trust mode is on.")
     active = fields.Boolean(default=True)
 
-    # Odoo 19: SQL constraints are declared as models.Constraint attributes.
-    _name_uniq = models.Constraint("unique(name)", "Tool name must be unique.")
+    _sql_constraints = [
+        ("name_uniq", "unique(name)", "Tool name must be unique."),
+    ]

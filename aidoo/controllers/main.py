@@ -30,7 +30,7 @@ class AiAssistantChat(http.Controller):
     # ------------------------------------------------------------------
     # Provider catalogue (drives the picker + auth panel)
     # ------------------------------------------------------------------
-    @http.route("/aidoo/providers", type="jsonrpc", auth="user")
+    @http.route("/aidoo/providers", type="json", auth="user")
     def providers(self):
         user = request.env.user
         out = []
@@ -44,42 +44,42 @@ class AiAssistantChat(http.Controller):
     # ------------------------------------------------------------------
     # Per-user, per-provider authentication
     # ------------------------------------------------------------------
-    @http.route("/aidoo/auth/status", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/status", type="json", auth="user")
     def auth_status(self, provider=None):
         return self._adapter(provider)._auth_status(request.env.user)
 
-    @http.route("/aidoo/auth/start", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/start", type="json", auth="user")
     def auth_start(self, provider=None):
         """oauth_code: returns {url}. device_poll: returns {url, code}."""
         return self._adapter(provider)._auth_start(request.env.user)
 
-    @http.route("/aidoo/auth/complete", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/complete", type="json", auth="user")
     def auth_complete(self, provider=None, code=None):
         return self._adapter(provider)._auth_complete(request.env.user, code)
 
-    @http.route("/aidoo/auth/import", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/import", type="json", auth="user")
     def auth_import(self, provider=None, creds=None):
         return self._adapter(provider)._auth_import(request.env.user, creds)
 
-    @http.route("/aidoo/auth/key", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/key", type="json", auth="user")
     def auth_key(self, provider=None, key=None):
         return self._adapter(provider)._auth_set_key(request.env.user, key)
 
-    @http.route("/aidoo/auth/logout", type="jsonrpc", auth="user")
+    @http.route("/aidoo/auth/logout", type="json", auth="user")
     def auth_logout(self, provider=None):
         return self._adapter(provider)._auth_logout(request.env.user)
 
     # ------------------------------------------------------------------
     # Conversations
     # ------------------------------------------------------------------
-    @http.route("/aidoo/sessions", type="jsonrpc", auth="user")
+    @http.route("/aidoo/sessions", type="json", auth="user")
     def sessions(self):
         recs = request.env["aidoo.session"].search(
             [("user_id", "=", request.env.uid)], limit=50)
         return [{"id": s.id, "name": s.name, "state": s.state,
                  "provider": s.provider} for s in recs]
 
-    @http.route("/aidoo/new", type="jsonrpc", auth="user")
+    @http.route("/aidoo/new", type="json", auth="user")
     def new(self, provider=None):
         vals = {"user_id": request.env.uid}
         if provider in _PROVIDER_CODES:
@@ -88,7 +88,7 @@ class AiAssistantChat(http.Controller):
         return {"id": session.id, "name": session.name, "state": session.state,
                 "provider": session.provider}
 
-    @http.route("/aidoo/messages", type="jsonrpc", auth="user")
+    @http.route("/aidoo/messages", type="json", auth="user")
     def messages(self, session_id=None):
         session = self._session(session_id)
         return {
@@ -114,12 +114,12 @@ class AiAssistantChat(http.Controller):
             return request.make_response(
                 json.dumps({"error": str(e)}), headers, status=400)
 
-    @http.route("/aidoo/send", type="jsonrpc", auth="user")
+    @http.route("/aidoo/send", type="json", auth="user")
     def send(self, session_id=None, body=None, attachment_ids=None):
         session = self._session(session_id)
         return session.send_message(body, attachment_ids=attachment_ids)
 
-    @http.route("/aidoo/stop", type="jsonrpc", auth="user")
+    @http.route("/aidoo/stop", type="json", auth="user")
     def stop(self, session_id=None):
         session = self._session(session_id)
         session.action_stop()

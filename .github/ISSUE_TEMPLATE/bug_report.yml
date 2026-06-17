@@ -12,7 +12,7 @@ body:
     attributes:
       label: Versions
       description: Aidoo version, Odoo version, AI provider + its CLI version (claude/codex/gemini/grok), OS.
-      placeholder: "Aidoo 19.0.1.0.0, Odoo 19.0, provider=claude CLI 2.1.x, Ubuntu 24.04"
+      placeholder: "Aidoo 18.0.1.0.0, Odoo 18.0, provider=claude CLI 2.1.x, Ubuntu 24.04"
     validations:
       required: true
   - type: textarea
