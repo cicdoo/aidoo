@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<templates xml:space="preserve">
+
+    <t t-name="aidoo.ChatAction">
+        <div t-if="state.ready" class="o_ai_chat d-flex h-100">
+            <!-- Sidebar: provider picker + conversation list -->
+            <div class="o_ai_sidebar d-flex flex-column border-end">
+                <div class="p-2 border-bottom">
+                    <select class="form-select form-select-sm mb-2"
+                            t-model="state.selectedProvider">
+                        <t t-foreach="state.providers" t-as="p" t-key="p.code">
+                            <option t-att-value="p.code" t-esc="p.label"/>
+                        </t>
+                    </select>
+                    <button class="btn btn-primary w-100" t-on-click="_newSession">
+                        <i class="fa fa-plus me-1"/> New chat
+                    </button>
+                </div>
+                <div class="flex-grow-1 overflow-auto">
+                    <t t-foreach="state.sessions" t-as="s" t-key="s.id">
+                        <div t-attf-class="o_ai_session_item p-2 {{ s.id === state.currentId ? 'active' : '' }}"
+                             t-on-click="() => this._openSession(s.id)">
+                            <i class="fa fa-comment-o me-1"/>
+                            <span t-esc="s.name"/>
+                            <span class="badge bg-secondary ms-1 text-uppercase"
+                                  style="font-size:0.6rem;" t-esc="s.provider"/>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- Main: auth gate (per provider) OR messages + composer -->
+            <div class="o_ai_main d-flex flex-column flex-grow-1">
+
+                <!-- Auth gate: shown until the current conversation's provider is connected -->
+                <div t-if="!isAuthed"
+                     class="o_ai_auth d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
+                    <div class="o_ai_auth_card p-4">
+                        <i class="fa fa-robot fa-3x text-primary mb-3"/>
+                        <h3 class="mb-2">Connect <t t-esc="currentProvider.label"/></h3>
+                        <p class="text-muted mb-4">
+                            This conversation runs on <b><t t-esc="currentProvider.label"/></b>.
+                            Connect once to start chatting.
+                        </p>
+
+                        <!-- oauth_code (Claude): open URL, paste code back -->
+                        <t t-if="currentProvider.auth_mode === 'oauth_code'">
+                            <button t-if="state.authStep === 'idle'"
+                                    class="btn btn-primary btn-lg" t-on-click="_startAuth">
+                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
+                            </button>
+                            <div t-if="state.authStep !== 'idle'" class="text-start">
+                                <p class="mb-2">
+                                    1. Authorize in the tab that just opened.<br/>
+                                    2. Copy the code shown and paste it below.
+                                </p>
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control"
+                                           placeholder="Paste authorization code here"
+                                           t-model="state.authCode"
+                                           t-on-keydown="(ev) => ev.key === 'Enter' &amp;&amp; this._completeAuth()"/>
+                                    <button class="btn btn-primary"
+                                            t-att-disabled="state.authStep === 'exchanging'"
+                                            t-on-click="_completeAuth">
+                                        <t t-if="state.authStep === 'exchanging'">Connecting…</t>
+                                        <t t-else="">Connect</t>
+                                    </button>
+                                </div>
+                                <button class="btn btn-link btn-sm p-0" t-on-click="_startAuth">
+                                    Re-open the login
+                                </button>
+                            </div>
+                        </t>
+
+                        <!-- device_poll (Codex): show URL + code, poll until done -->
+                        <t t-if="currentProvider.auth_mode === 'device_poll'">
+                            <button t-if="!state.polling"
+                                    class="btn btn-primary btn-lg" t-on-click="_startDeviceAuth">
+                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
+                            </button>
+                            <div t-if="state.polling" class="text-start">
+                                <p class="mb-2">
+                                    1. A verification page was opened
+                                    <a t-if="state.deviceUrl" t-att-href="state.deviceUrl"
+                                       target="_blank" rel="noopener noreferrer">(re-open)</a>.<br/>
+                                    2. Enter this code there:
+                                </p>
+                                <div t-if="state.deviceCode" class="fs-4 fw-bold mb-2"
+                                     t-esc="state.deviceCode"/>
+                                <div class="text-muted">
+                                    <i class="fa fa-spinner fa-spin me-1"/> Waiting for you to finish…
+                                </div>
+                            </div>
+                        </t>
+
+                        <!-- import_or_key (Gemini / Grok): paste creds OR API key -->
+                        <t t-if="currentProvider.auth_mode === 'import_or_key'">
+                            <div class="text-start">
+                                <label class="form-label fw-bold">Import credentials</label>
+                                <textarea class="form-control mb-1" rows="4"
+                                          placeholder="Paste the JSON contents of your credentials file"
+                                          t-model="state.credsInput"/>
+                                <button class="btn btn-primary mb-3" t-on-click="_submitImport">
+                                    Import &amp; connect
+                                </button>
+                                <label class="form-label fw-bold">…or use an API key</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control"
+                                           placeholder="Paste API key" t-model="state.apiKeyInput"/>
+                                    <button class="btn btn-outline-primary" t-on-click="_submitKey">
+                                        Save key
+                                    </button>
+                                </div>
+                            </div>
+                        </t>
+
+                        <div t-if="state.authError" class="alert alert-danger mt-3 mb-0"
+                             t-esc="state.authError"/>
+                    </div>
+                </div>
+
+                <!-- Chat surface (current provider connected) -->
+                <t t-if="isAuthed">
+                    <AiMessageList messages="state.messages" running="state.running"
+                                   onOpenArtifact.bind="openArtifact"/>
+                    <div t-if="state.running" class="px-2 pb-1">
+                        <button class="btn btn-sm btn-link text-danger" t-on-click="onStop">
+                            <i class="fa fa-stop me-1"/> Stop
+                        </button>
+                    </div>
+                    <AiComposer onSend.bind="onSend" disabled="state.running"
+                                sessionId="state.currentId"/>
+                </t>
+            </div>
+
+            <!-- Artifact panel: rendered charts/reports, on the far right -->
+            <div t-if="state.artifactOpen and state.artifact"
+                 class="o_ai_artifact d-flex flex-column border-start">
+                <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
+                    <i class="fa fa-area-chart me-2"/>
+                    <span class="fw-bold">Preview</span>
+                    <button class="btn btn-sm btn-link ms-auto p-0 me-2"
+                            title="Open in new tab" t-on-click="openArtifactNewTab">
+                        <i class="fa fa-external-link"/>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0" title="Close"
+                            t-on-click="closeArtifact">
+                        <i class="fa fa-times"/>
+                    </button>
+                </div>
+                <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3">
+                    <ReportFrame html="state.artifact"/>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

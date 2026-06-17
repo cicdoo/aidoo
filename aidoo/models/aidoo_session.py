@@ -1,0 +1,492 @@
+# -*- coding: utf-8 -*-
+# Copyright 2026 CICDoo (https://cicdoo.com)
+# SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+# Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import os
+import re
+import secrets
+import time
+import uuid
+
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
+
+# Providers selectable per conversation. Each maps to an aidoo.provider.<code>
+# adapter AbstractModel that owns all provider-specific behavior.
+PROVIDERS = [
+    ("claude", "Claude"),
+    ("codex", "Codex"),
+    ("gemini", "Gemini"),
+    ("grok", "Grok"),
+]
+
+# Tools the model is allowed to call (Phase 1 = read-only). Kept in sync with the
+# MCP forwarder's advertised tools and the CLI --allowedTools list.
+READ_TOOLS = [
+    "orm_search_read",
+    "orm_read",
+    "orm_call",
+    "model_introspect",
+    "sql_select",
+]
+
+# Mutating tools (Phase 2). Each is individually grantable per user and is
+# stripped entirely when zero-trust mode is on.
+WRITE_TOOLS = [
+    "orm_create",
+    "orm_write",
+    "orm_unlink",
+    "orm_action",
+    "run_wizard",
+    "run_server_action",
+]
+
+# Built-in web tools (the CLI's native WebFetch/WebSearch / web search). Unlike
+# the other tools these are NOT served by the mcp__odoo__* bridge — they are the
+# CLI's own built-ins, normally hard-denied. They are opt-in per user (granted
+# via res.users.aidoo_tool_ids) and deliberately kept OUT of READ_TOOLS so an
+# empty selection never auto-grants web access.
+WEB_TOOLS = ["web_fetch", "web_search"]
+WEB_TOOL_BUILTINS = {"web_fetch": "WebFetch", "web_search": "WebSearch"}
+
+ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + WEB_TOOLS
+# sql_select is read-only (SELECT-only), so it survives zero-trust mode. Web
+# tools don't mutate Odoo data, so they survive zero-trust too.
+READONLY_TOOL_SET = set(READ_TOOLS) | set(WEB_TOOLS)
+
+# Default fnmatch patterns for methods orm_action/run_wizard may invoke.
+DEFAULT_ACTION_METHOD_PATTERNS = ["action_*", "button_*"]
+
+# Hard floor: every CLI built-in tool is denied so the model can ONLY act through
+# our mcp__odoo__* tools (Claude enforces this via settings.json; other CLIs via
+# their own allow/exclude mechanisms). Only list tool names a CLI actually knows.
+DISALLOWED_BUILTINS = [
+    "Bash", "Write", "Edit", "NotebookEdit", "Read",
+    "Glob", "Grep", "WebFetch", "WebSearch",
+    "Task", "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+    "TaskUpdate", "Skill", "Workflow", "ToolSearch", "AskUserQuestion",
+    "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree",
+    "Monitor", "PushNotification", "ScheduleWakeup", "RemoteTrigger",
+    "CronCreate", "CronDelete", "CronList", "BashOutput", "KillShell",
+    "TodoWrite", "ListMcpResources", "ReadMcpResource",
+]
+
+# --- File upload support -------------------------------------------------
+UPLOAD_TEXT_EXTS = {
+    ".txt", ".csv", ".tsv", ".json", ".xml", ".md", ".markdown", ".rst",
+    ".log", ".yaml", ".yml", ".ini", ".conf", ".cfg", ".toml", ".env",
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".htm", ".css", ".scss",
+    ".sql", ".sh", ".c", ".h", ".cpp", ".hpp", ".java", ".go", ".rb", ".php",
+}
+UPLOAD_PDF_EXTS = {".pdf"}
+UPLOAD_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+ALLOWED_UPLOAD_EXTS = UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS
+
+# Subdirectory of the scratch dir that holds uploaded files. The Read tool is
+# allowed ONLY under this path — never the scratch root (which holds the bridge
+# token + settings).
+UPLOADS_SUBDIR = "uploads"
+
+DEFAULT_MAX_UPLOAD_MB = 15
+
+# Bounded history replayed into the prompt for providers that cannot resume a
+# server-side transcript (Gemini / Grok).
+HISTORY_MAX_MESSAGES = 12
+HISTORY_MAX_CHARS = 8000
+
+
+class AiAssistantSession(models.Model):
+    _name = "aidoo.session"
+    _description = "Aidoo AI Assistant Conversation Session"
+    _order = "write_date desc, id desc"
+
+    name = fields.Char(default=lambda self: _("New conversation"), required=True)
+    user_id = fields.Many2one(
+        "res.users", string="User", required=True, ondelete="cascade",
+        default=lambda self: self.env.user, index=True,
+    )
+    provider = fields.Selection(
+        PROVIDERS, string="AI Provider", required=True, copy=True, index=True,
+        default=lambda self: self._default_provider(),
+        help="Which AI assistant drives this conversation.",
+    )
+    # UUID we generate, used to name the scratch dir (same for every provider).
+    scratch_uuid = fields.Char(copy=False, index=True)
+    # The provider's own conversation id used for resume. For Claude this is the
+    # UUID we mint (--session-id/--resume); for Codex/Gemini/Grok it is captured
+    # from the CLI's stream on the first turn.
+    cli_session_id = fields.Char(
+        string="CLI Session Id", copy=False, index=True,
+        help="Provider conversation id passed to the CLI for continuity.")
+    state = fields.Selection(
+        [("idle", "Idle"), ("running", "Running"),
+         ("done", "Done"), ("error", "Error")],
+        default="idle", required=True, copy=False,
+    )
+    turn_count = fields.Integer(default=0, copy=False)
+    working_dir = fields.Char(copy=False)
+    last_run_pid = fields.Integer(copy=False)
+    last_error = fields.Text(copy=False)
+
+    message_ids = fields.One2many(
+        "aidoo.message", "session_id", string="Messages")
+
+    # --- Bridge token bookkeeping (only the jti/salt are stored, never the token) ---
+    bridge_jti = fields.Char(copy=False, groups="base.group_system")
+    bridge_salt = fields.Char(copy=False, groups="base.group_system")
+    bridge_exp = fields.Integer(copy=False, groups="base.group_system")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+    @api.model
+    def _default_provider(self):
+        return self._config("default_provider", "claude")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            vals.setdefault("scratch_uuid", str(uuid.uuid4()))
+            # Claude needs a client-chosen UUID; harmless for the others (the
+            # CLI's real id overwrites it on the first turn).
+            vals.setdefault("cli_session_id", str(uuid.uuid4()))
+        return super().create(vals_list)
+
+    def _adapter(self):
+        self.ensure_one()
+        return self.env["aidoo.provider.%s" % self.provider]
+
+    @api.model
+    def _cron_reap_stale(self):
+        """Reset sessions stuck in 'running' past the timeout and GC scratch dirs."""
+        timeout = int(self._config("timeout_s", 900))
+        cutoff = fields.Datetime.now() - __import__("datetime").timedelta(
+            seconds=timeout + 120)
+        stale = self.search([("state", "=", "running"), ("write_date", "<", cutoff)])
+        for session in stale:
+            if session.last_run_pid:
+                try:
+                    os.kill(session.last_run_pid, 9)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            session.write({"state": "error", "last_run_pid": False,
+                           "last_error": "Reaped by cron (stale run)."})
+        return True
+
+    def action_stop(self):
+        """Terminate the running CLI subprocess for this session, if any."""
+        self.ensure_one()
+        if self.last_run_pid:
+            try:
+                os.kill(self.last_run_pid, 15)  # SIGTERM
+            except (ProcessLookupError, PermissionError):
+                pass
+        self.write({"state": "idle", "last_run_pid": False})
+        return True
+
+    # ------------------------------------------------------------------
+    # Scratch working directory (CLI cwd) — NOT under /opt/odoo source
+    # ------------------------------------------------------------------
+    def _get_scratch_dir(self):
+        self.ensure_one()
+        root = self._pconfig(self.provider, "scratch_root",
+                             "/var/lib/odoo/aidoo_%s_scratch" % self.provider)
+        path = os.path.join(root, self.scratch_uuid)
+        try:
+            os.makedirs(path, mode=0o700, exist_ok=True)
+        except OSError as e:
+            raise UserError(_("Cannot create scratch dir %s: %s") % (path, e))
+        if self.working_dir != path:
+            self.working_dir = path
+        return path
+
+    def _uploads_dir(self, create=True):
+        """Directory (under scratch) holding this session's uploaded files."""
+        self.ensure_one()
+        path = os.path.join(self._get_scratch_dir(), UPLOADS_SUBDIR)
+        if create:
+            try:
+                os.makedirs(path, mode=0o700, exist_ok=True)
+            except OSError as e:
+                raise UserError(_("Cannot create uploads dir %s: %s") % (path, e))
+        return path
+
+    # ------------------------------------------------------------------
+    # File uploads
+    # ------------------------------------------------------------------
+    @api.model
+    def _max_upload_bytes(self):
+        return int(self._config("max_upload_mb", DEFAULT_MAX_UPLOAD_MB)) * 1024 * 1024
+
+    @staticmethod
+    def _safe_upload_name(filename):
+        """A traversal-safe basename, restricted to the allowed extensions."""
+        base = os.path.basename(filename or "").strip().replace("\x00", "")
+        base = re.sub(r"[^A-Za-z0-9._-]+", "_", base).lstrip(".") or "file"
+        ext = os.path.splitext(base)[1].lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            raise UserError(_(
+                "File type '%s' is not supported. You can upload text/CSV/code, "
+                "PDF and image (PNG/JPG/GIF/WebP) files.") % (ext or base))
+        return base
+
+    def _store_upload(self, filename, content):
+        """Validate and persist one uploaded file as an ir.attachment + on disk."""
+        self.ensure_one()
+        safe = self._safe_upload_name(filename)
+        if not content:
+            raise UserError(_("Uploaded file '%s' is empty.") % safe)
+        max_bytes = self._max_upload_bytes()
+        if len(content) > max_bytes:
+            raise UserError(_(
+                "File '%s' is too large (limit %s MB).")
+                % (safe, max_bytes // (1024 * 1024)))
+        att = self.env["ir.attachment"].create({
+            "name": safe,
+            "raw": content,
+            "res_model": self._name,
+            "res_id": self.id,
+        })
+        self._write_attachment_to_disk(att)
+        return self._attachment_descriptor(att)
+
+    def _attachment_descriptor(self, att):
+        return {"id": att.id, "name": att.name, "mimetype": att.mimetype or ""}
+
+    def _write_attachment_to_disk(self, att):
+        """Materialize one attachment into the uploads dir; return its abs path."""
+        self.ensure_one()
+        disk_name = "%s_%s" % (att.id, self._safe_upload_name(att.name))
+        path = os.path.join(self._uploads_dir(), disk_name)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(att.raw or b"")
+        return path
+
+    def _materialize_attachments(self, attachment_ids):
+        """Ensure the given (own) attachments exist on disk."""
+        self.ensure_one()
+        if not attachment_ids:
+            return [], self.env["ir.attachment"]
+        atts = self.env["ir.attachment"].browse(attachment_ids).exists().filtered(
+            lambda a: a.res_model == self._name and a.res_id == self.id)
+        paths = [self._write_attachment_to_disk(a) for a in atts]
+        return paths, atts
+
+    # ------------------------------------------------------------------
+    # Configuration helpers
+    # ------------------------------------------------------------------
+    @api.model
+    def _config(self, key, default=None):
+        """Read a shared system parameter ``aidoo.<key>``."""
+        val = self.env["ir.config_parameter"].sudo().get_param("aidoo.%s" % key)
+        return val if val not in (None, False, "") else default
+
+    @api.model
+    def _pconfig(self, provider, key, default=None):
+        """Read a provider-scoped parameter ``aidoo.<provider>.<key>``, falling
+        back to the shared ``aidoo.<key>``, then ``default``."""
+        ICP = self.env["ir.config_parameter"].sudo()
+        val = ICP.get_param("aidoo.%s.%s" % (provider, key))
+        if val not in (None, False, ""):
+            return val
+        return self._config(key, default)
+
+    # ------------------------------------------------------------------
+    # Tool / model gating — single server-side source of truth.
+    # ------------------------------------------------------------------
+    def _effective_tools(self):
+        self.ensure_one()
+        return self.user_id.sudo()._ai_effective_tools()
+
+    @api.model
+    def _ai_excluded_models(self):
+        raw = self._config("excluded_models", "") or ""
+        return {m.strip() for m in raw.split(",") if m.strip()}
+
+    @api.model
+    def _ai_action_method_patterns(self):
+        raw = self._config("action_methods", "") or ""
+        pats = [p.strip() for p in raw.split(",") if p.strip()]
+        return pats or DEFAULT_ACTION_METHOD_PATTERNS
+
+    @api.model
+    def _ai_allowed_server_action_ids(self):
+        raw = self._config("server_action_ids", "") or ""
+        return {int(x) for x in raw.split(",") if x.strip().isdigit()}
+
+    def _target_db(self):
+        """The database the bridge should connect back to."""
+        return self._config("db_name") or self.env.cr.dbname
+
+    def _mint_routing_sid(self, db):
+        """Create a short anonymous Odoo session pinned to ``db`` and return its
+        sid, so the bridge's loopback calls resolve to this exact database."""
+        from odoo.http import root
+        try:
+            store = root.session_store
+            sess = store.new()
+            sess.db = db
+            store.save(sess)
+            return sess.sid
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: could not mint routing session")
+            return ""
+
+    @api.model
+    def _delete_routing_sid(self, sid):
+        if not sid:
+            return
+        from odoo.http import root
+        try:
+            store = root.session_store
+            store.delete(store.get(sid))
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ------------------------------------------------------------------
+    # Bridge token: a short-lived, session-scoped HMAC capability.
+    # ------------------------------------------------------------------
+    def _signing_secret(self):
+        self.ensure_one()
+        db_secret = self.env["ir.config_parameter"].sudo().get_param(
+            "database.secret") or ""
+        salt = self.sudo().bridge_salt or ""
+        return (db_secret + "|" + salt).encode()
+
+    def _mint_bridge_token(self, ttl_seconds=900):
+        self.ensure_one()
+        salt = secrets.token_urlsafe(24)
+        jti = secrets.token_urlsafe(18)
+        exp = int(time.time()) + ttl_seconds
+        self.sudo().write({"bridge_salt": salt, "bridge_jti": jti, "bridge_exp": exp})
+        payload = {
+            "sid": self.id, "uid": self.user_id.id, "db": self._target_db(),
+            "scope": "ai_bridge", "jti": jti, "exp": exp,
+        }
+        body = base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":")).encode()).rstrip(b"=")
+        sig = hmac.new(self._signing_secret(), body, hashlib.sha256).digest()
+        sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=")
+        return (body + b"." + sig_b64).decode()
+
+    @api.model
+    def _verify_bridge_token(self, token):
+        """Validate a bridge token. Returns the (sudo) session record or None."""
+        try:
+            body_b64, sig_b64 = token.encode().split(b".")
+            padded = body_b64 + b"=" * (-len(body_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded))
+        except Exception:
+            return None
+        if payload.get("scope") != "ai_bridge":
+            return None
+        if payload.get("db") != self.env.cr.dbname:
+            return None
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        session = self.sudo().browse(payload.get("sid"))
+        if not session.exists():
+            return None
+        expected = hmac.new(
+            session._signing_secret(), body_b64, hashlib.sha256).digest()
+        expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=")
+        if not hmac.compare_digest(sig_b64, expected_b64):
+            return None
+        if not session.bridge_jti or session.bridge_jti != payload.get("jti"):
+            return None
+        if int(session.bridge_exp or 0) < int(time.time()):
+            return None
+        return session
+
+    # ------------------------------------------------------------------
+    # Prompt assembly
+    # ------------------------------------------------------------------
+    def _compose_prompt(self, body, paths):
+        """Append an attachment manifest to the user's text so the model knows
+        which uploaded files it can open with the Read tool."""
+        if not paths:
+            return body
+        listing = "\n".join("- %s" % p for p in paths)
+        note = _(
+            "The user attached the following file(s), saved in your working "
+            "directory. Use the Read tool to open them — text/CSV/code is read "
+            "verbatim, images are viewed visually, and PDFs page-by-page:\n%s"
+        ) % listing
+        return (body + "\n\n" + note) if body else note
+
+    def _history_for_prompt(self):
+        """Bounded transcript of this conversation, for providers that cannot
+        resume a server-side session and must replay context into the prompt."""
+        self.ensure_one()
+        msgs = self.message_ids.filtered(lambda m: m.role in ("user", "assistant"))
+        msgs = msgs.sorted("id")[-HISTORY_MAX_MESSAGES:]
+        if not msgs:
+            return ""
+        text = "\n\n".join(
+            "%s: %s" % (("User" if m.role == "user" else "Assistant"), m.body or "")
+            for m in msgs)
+        if len(text) > HISTORY_MAX_CHARS:
+            text = "…" + text[-HISTORY_MAX_CHARS:]
+        return text
+
+    # ------------------------------------------------------------------
+    # Public entry point (called from the controller)
+    # ------------------------------------------------------------------
+    def send_message(self, body, attachment_ids=None):
+        """Persist the user message and launch a CLI turn in the background."""
+        self.ensure_one()
+        body = (body or "").strip()
+        if self.state == "running":
+            raise UserError(_("The assistant is still working on the previous message."))
+        max_runs = int(self._config("max_concurrent_runs", 0) or 0)
+        if max_runs > 0:
+            active = self.search_count([("state", "=", "running")])
+            if active >= max_runs:
+                raise UserError(_(
+                    "The AI assistant is busy right now (%(active)s of %(max)s runs "
+                    "in progress). Please wait a moment and send your message again.",
+                    active=active, max=max_runs))
+        adapter = self._adapter()
+        if not adapter._is_authenticated(self.user_id.sudo()):
+            raise UserError(_(
+                "You need to connect your %s account before chatting.")
+                % adapter._provider_label)
+
+        paths, atts = self._materialize_attachments(attachment_ids)
+        if not body and not atts:
+            raise UserError(_("Empty message."))
+
+        user_msg = self.env["aidoo.message"].create({
+            "session_id": self.id,
+            "role": "user",
+            "body": body,
+            "attachments": [self._attachment_descriptor(a) for a in atts] or False,
+        })
+        if self.turn_count == 0 and self.name in (_("New conversation"), False):
+            title = body or (atts[:1].name or "")
+            self.name = (title[:60] + ("…" if len(title) > 60 else "")) or self.name
+
+        is_first = self.turn_count == 0
+        identity = self.user_id._ai_identity_prompt(set(self._effective_tools()))
+        prompt = adapter._build_prompt(self, body, paths, is_first, identity)
+        self.write({"state": "running"})
+        token = self._mint_bridge_token()
+        self.env["aidoo.runner"]._launch(self, prompt, is_first, token)
+        return {"message_id": user_msg.id, "session_id": self.id}
+
+    def _post_report(self, html):
+        """Create a ``report``-role message holding raw report HTML and push it
+        to the live chat."""
+        self.ensure_one()
+        rec = self.env["aidoo.message"].create({
+            "session_id": self.id, "role": "report", "body": html or ""})
+        self.env["aidoo.runner"]._emit_message(self, rec)
+        return rec

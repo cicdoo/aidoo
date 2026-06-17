@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+
+    <record id="view_users_form_ai" model="ir.ui.view">
+        <field name="name">res.users.form.ai</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Aidoo AI Assistant" name="aidoo"
+                      groups="aidoo.group_ai_user">
+                    <div class="text-muted mb-2">
+                        Each user connects their own AI account(s) from the
+                        <b>AI Assistant</b> chat — per conversation, per provider
+                        (Claude / Codex / Gemini / Grok). Credentials are stored
+                        privately per user and are never shared.
+                    </div>
+                    <group>
+                        <field name="aidoo_cloud_project"
+                               placeholder="(optional) Google Cloud project for Gemini"/>
+                        <button name="action_aidoo_logout" type="object"
+                                string="Disconnect all AI accounts"
+                                class="btn-secondary"
+                                confirm="Disconnect every connected AI provider for this user? They will need to log in again."/>
+                    </group>
+                    <group string="Tool Permissions"
+                           groups="aidoo.group_ai_manager">
+                        <field name="aidoo_tool_ids"
+                               widget="many2many_tags"
+                               placeholder="Empty = all read-only tools"/>
+                        <field name="aidoo_zero_trust_mode"/>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Simplified "My Preferences" form -->
+    <record id="view_users_form_simple_ai" model="ir.ui.view">
+        <field name="name">res.users.preferences.form.ai</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form_simple_modif"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group" position="after">
+                <group string="Aidoo AI Assistant" groups="aidoo.group_ai_user">
+                    <field name="aidoo_cloud_project"
+                           placeholder="(optional) Google Cloud project for Gemini"/>
+                    <button name="action_aidoo_logout" type="object"
+                            string="Disconnect all AI accounts"
+                            class="btn-secondary"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
