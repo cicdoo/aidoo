@@ -1,24 +1,30 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
+//
+// Colors reference Odoo's palette variables ($o-gray-*, $o-view-background-color,
+// etc.) rather than hardcoded hex. This file is recompiled inside the
+// `web.assets_web_dark` bundle, where Odoo flips those variables to their dark
+// values, so the same rules adapt automatically to light and dark mode.
 .o_ai_auth {
-    background-color: #fff;
+    background-color: $o-view-background-color;
 
     .o_ai_auth_card {
         max-width: 460px;
-        border: 1px solid #dee2e6;
+        border: 1px solid $o-gray-300;
         border-radius: 12px;
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
     }
 }
 
 .o_ai_chat {
-    background-color: #fff;
+    background-color: $o-view-background-color;
+    color: $o-main-text-color;
 
     .o_ai_sidebar {
         width: 260px;
         min-width: 260px;
-        background-color: #f8f9fa;
+        background-color: $o-gray-100;
 
         .o_ai_session_item {
             cursor: pointer;
@@ -29,10 +35,10 @@
             text-overflow: ellipsis;
 
             &:hover {
-                background-color: #e9ecef;
+                background-color: $o-gray-200;
             }
             &.active {
-                background-color: #dee2e6;
+                background-color: $o-gray-300;
                 font-weight: 600;
             }
         }
@@ -76,11 +82,12 @@
             li { margin: .15rem 0; }
 
             code {
-                background-color: #eef1f4;
+                background-color: $o-gray-200;
                 padding: .1em .35em;
                 border-radius: 4px;
                 font-size: .9em;
             }
+            // Code blocks stay dark in both themes (syntax-highlight surface).
             pre.o_ai_code {
                 background-color: #1e1e1e;
                 color: #f1f1f1;
@@ -98,10 +105,10 @@
             }
 
             blockquote.o_ai_quote {
-                border-left: 3px solid #ced4da;
+                border-left: 3px solid $o-gray-400;
                 margin: 0 0 .5rem;
                 padding: .1rem 0 .1rem .75rem;
-                color: #555;
+                color: $o-gray-600;
             }
 
             table.o_ai_table {
@@ -110,16 +117,16 @@
                 border-collapse: collapse;
 
                 th, td {
-                    border: 1px solid #dee2e6;
+                    border: 1px solid $o-gray-300;
                     padding: .35rem .6rem;
                     text-align: left;
                     vertical-align: top;
                 }
-                th { background-color: #f1f3f5; font-weight: 600; }
+                th { background-color: $o-gray-200; font-weight: 600; }
             }
 
             a { text-decoration: underline; }
-            hr { margin: .6rem 0; border: 0; border-top: 1px solid #dee2e6; }
+            hr { margin: .6rem 0; border: 0; border-top: 1px solid $o-gray-300; }
         }
 
         &.o_ai_msg_user {
@@ -127,21 +134,23 @@
             align-items: flex-end;
 
             .o_ai_msg_body {
-                background-color: #e7f1ff;
+                background-color: $o-component-active-bg;
+                color: $o-main-text-color;
                 padding: 8px 12px;
                 border-radius: 12px;
             }
         }
 
         &.o_ai_msg_assistant .o_ai_msg_body {
-            background-color: #f1f3f5;
+            background-color: $o-gray-200;
+            color: $o-main-text-color;
             padding: 8px 12px;
             border-radius: 12px;
         }
 
         &.o_ai_msg_error .o_ai_msg_body {
-            background-color: #f8d7da;
-            color: #842029;
+            background-color: rgba($o-danger, .15);
+            color: $o-danger;
             padding: 8px 12px;
             border-radius: 12px;
         }
@@ -152,29 +161,29 @@
         width: 100%;
         max-width: 360px;
         text-align: left;
-        border: 1px solid #dee2e6;
+        border: 1px solid $o-gray-300;
         border-radius: 8px;
-        background-color: #fff;
+        background-color: $o-view-background-color;
         padding: 8px 12px;
         margin: .25rem 0;
-        color: #212529;
+        color: $o-main-text-color;
 
         &:hover {
-            background-color: #f1f3f5;
-            border-color: #ced4da;
+            background-color: $o-gray-200;
+            border-color: $o-gray-400;
         }
-        .fa-area-chart { color: #714b67; }
+        .fa-area-chart { color: $o-brand-primary; }
     }
 
     // Collapsed-by-default tool calls.
     .o_ai_tools_toggle {
-        color: #6c757d;
+        color: $o-gray-600;
 
-        &:hover { color: #212529; }
+        &:hover { color: $o-main-text-color; }
     }
 
     .o_ai_tool_chip {
-        background-color: #eef2f7;
+        background-color: $o-gray-200;
         border-radius: 10px;
         padding: 2px 8px;
         margin-bottom: 2px;
@@ -182,8 +191,8 @@
     }
 
     .o_ai_attachment_chip {
-        background-color: #eef2f7;
-        border: 1px solid #dee2e6;
+        background-color: $o-gray-200;
+        border: 1px solid $o-gray-300;
         border-radius: 10px;
         padding: 2px 8px;
         max-width: 260px;
@@ -192,10 +201,10 @@
             border: 0;
             background: none;
             line-height: 1;
-            color: #6c757d;
+            color: $o-gray-600;
 
             &:hover {
-                color: #842029;
+                color: $o-danger;
             }
         }
     }
@@ -210,17 +219,17 @@
         width: 42%;
         min-width: 360px;
         max-width: 760px;
-        background-color: #fff;
+        background-color: $o-view-background-color;
 
         .o_ai_artifact_header {
-            background-color: #f8f9fa;
-            color: #555;
+            background-color: $o-gray-100;
+            color: $o-gray-700;
 
             .btn-link {
-                color: #6c757d;
+                color: $o-gray-600;
                 text-decoration: none;
 
-                &:hover { color: #212529; }
+                &:hover { color: $o-main-text-color; }
             }
         }
 
