@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Aidoo horizontal wordmark — Spark Bubble icon + "aidoo". -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" width="760" height="220">
+  <defs>
+    <linearGradient id="wm-bg" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#8a5e7d"/>
+      <stop offset="1" stop-color="#5d3d53"/>
+    </linearGradient>
+    <linearGradient id="wm-spark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7b5170"/>
+      <stop offset="1" stop-color="#5f3f56"/>
+    </linearGradient>
+  </defs>
+
+  <!-- icon (scaled 0.39 of the 512 app icon, padded) -->
+  <g transform="translate(10,10) scale(0.39)">
+    <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#wm-bg)"/>
+    <path fill="#ffffff" d="M148 110 H364 A52 52 0 0 1 416 162 V268 A52 52 0 0 1 364 320
+      H232 L188 380 L182 320 H148 A52 52 0 0 1 96 268 V162 A52 52 0 0 1 148 110 Z"/>
+    <path fill="url(#wm-spark)" d="M256 122 Q271 197 346 212 Q271 227 256 302
+      Q241 227 166 212 Q241 197 256 122 Z"/>
+    <path fill="url(#wm-spark)" opacity="0.92" d="M350 150 Q356 174 380 180
+      Q356 186 350 210 Q344 186 320 180 Q344 174 350 150 Z"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="232" y="148" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
+        font-size="150" font-weight="700" letter-spacing="-4" fill="#5d3d53">aidoo</text>
+</svg>
