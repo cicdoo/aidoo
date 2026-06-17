@@ -7,7 +7,14 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **Dark mode visibility** — the chat UI (`static/src/scss/aidoo.scss`) hardcoded
+  light-mode colors, so backgrounds, message bubbles, borders and text became
+  unreadable when Odoo's dark mode was enabled. Colors now reference Odoo's
+  palette variables (`$o-gray-*`, `$o-view-background-color`, `$o-main-text-color`,
+  `$o-component-active-bg`, `$o-danger`, `$o-brand-primary`), which the
+  `web.assets_web_dark` bundle flips automatically — so the stylesheet adapts to
+  both themes from a single source, with light mode unchanged.
 
 <!--
 Add bullets here under ### Added / Changed / Fixed / Removed / Security.
