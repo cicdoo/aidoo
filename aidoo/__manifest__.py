@@ -34,7 +34,7 @@ gemini / grok).
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '19.0.1.0.0',
+    'version': '18.0.1.0.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus'],
     'external_dependencies': {'python': ['requests']},
