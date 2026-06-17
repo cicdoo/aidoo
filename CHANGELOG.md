@@ -1,84 +1,84 @@
 # Changelog
 
-All notable changes to **Claudoo** are documented here. The format is based on
+All notable changes to **Aidoo** are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
+Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 `## [Unreleased]`; a maintainer assigns the version at release time.
 
 ## [Unreleased]
 
-### Added
-- **Rendered charts & HTML reports in chat** — the assistant can now produce
-  visual output instead of raw markup. HTML emitted in a fenced ` ```html `
-  block (or an untagged fence whose content is HTML) renders as a CSS/SVG chart
-  or report inside a **sandboxed iframe** (`sandbox="allow-same-origin"`, no
-  scripts — styles are isolated and the markup's own JS never runs). Rendered
-  output opens in a dedicated **artifact panel on the right**, with the latest
-  chart auto-opening and inline "Chart" cards to reopen any previous one. A new
-  `report` message role plus a `claudoo.session._post_report(html)` helper let
-  server-side code push a full report straight into the conversation.
+_Nothing yet._
 
-- **Contribution gates** — a `pr-checks` CI workflow (CHANGELOG, DCO sign-off,
-  SECURITY.md-when-relevant, flake8) plus branch protection, and `CONTRIBUTING.md`
-  guidance covering AI-assisted contributions and the Developer Certificate of
-  Origin (`DCO`).
+<!--
+Add bullets here under ### Added / Changed / Fixed / Removed / Security.
+When adding or changing a provider, say which adapter
+(`models/providers/<code>.py`) and whether the provider/CLI contract changed.
+-->
 
-### Changed
-- **Tool calls are collapsed by default** in each assistant message, behind a
-  toggle that shows the call count (and a spinner while any call is still
-  running); expand to see the per-tool chips.
+## [19.0.1.0.0] — First public release
 
-## [18.0.1.0.1] — 2026-06-11
+First release of **Aidoo**, the unified successor to the per-provider modules
+`claudoo` / `codexoo` / `geminoo` / `grokoo`: one in-Odoo AI assistant with the
+**AI provider chosen per conversation**, on Odoo **19.0**.
 
 ### Added
-- **Max Concurrent Runs** setting (`claudoo.max_concurrent_runs`, under
-  *Settings → Claudoo AI Assistant*) — a soft global cap on how many CLI
-  subprocesses may run at once across all users, to bound peak memory and
-  protect the host from OOM. `0` = unlimited.
-
-### Changed
-- **Namespaced all `res.config.settings` and `res.users` fields** from the
-  generic `ai_*` prefix to `claudoo_*`, matching the module's own
-  `claudoo_tool_ids` and removing any overlap with sibling modules on these
-  shared models (notably the previously shared `res.users` zero-trust column).
-  A pre-migration (`18.0.1.0.1`) preserves each user's zero-trust selection
-  across the rename. Field *labels* and behaviour are unchanged.
-- **Dropped the unused `mail` dependency** — the addon drives `web` and `bus`
-  directly and never used any `mail` feature; `depends` is now `['web', 'bus']`.
-
-### Removed
-- GitHub Actions CI workflow and tracked `__pycache__/*.pyc` build artifacts.
-
-[18.0.1.0.1]: https://github.com/cicdoo/claudoo/releases/tag/18.0.1.0.1
-
-## [18.0.1.0.0] — First public release
-
-First open-source release of Claudoo, an in-Odoo AI assistant that drives the
-Claude Code CLI over a sandboxed, permission-aware bridge.
-
-### Features
-- **Chat client action** (OWL) with real-time streaming over the Odoo bus.
+- **Per-conversation provider choice** — pick **Claude** (Anthropic Claude Code),
+  **Codex** (OpenAI), **Gemini** (Google) or **Grok** (xAI) when starting a chat;
+  each `aidoo.session` stores its `provider`. A provider picker and per-session
+  badge live in the chat UI; the instance default is set in *Settings → Aidoo*.
+- **Provider-adapter architecture** — everything provider-specific lives behind
+  `aidoo.provider.<code>` adapter `AbstractModel`s in `models/providers/`
+  (`base.py` defines the contract; `claude/codex/gemini/grok.py` implement it).
+  Each adapter owns CLI invocation (`_prepare_run`), stream parsing into a common
+  op format (`_normalize_event`), prompt assembly (`_build_prompt`) and
+  authentication. The session/runner/bridge/uploads/tool-gating core is shared.
+- **Per-user, per-provider authentication** with the right flow for each engine:
+  Claude OAuth (paste-back code), Codex device-code login (poll), and
+  Gemini/Grok credential-import **or** API key. Credentials are stored privately
+  per user and per provider, mode `0600`, never in the database.
+- **Chat client action** (OWL) with real-time streaming over the Odoo bus, file
+  uploads (sandboxed `Read`), and a right-hand **artifact panel** that renders
+  charts / HTML reports in a sandboxed iframe (no scripts). A `report` message
+  role plus `aidoo.session._post_report(html)` let server code push a report into
+  the conversation.
 - **Permission-aware ORM tools** — every action runs as the *current user*
   (never superuser); `ir.model.access` and record rules are always enforced.
 - **Read-only SQL reporting** (`sql_select`) gated to the *AI SQL Analyst* group,
-  guarded by a SELECT-only text validator plus Postgres `SET TRANSACTION READ ONLY`
+  guarded by a SELECT-only validator plus Postgres `SET TRANSACTION READ ONLY`
   and a statement timeout.
-- **Per-user OAuth** ("Login with Claude") — no shared API key; credentials are
-  stored privately per user, mode `0600`, never in the database.
-- **Hard-denied built-ins** — the model can act *only* through the `mcp__odoo__*`
-  tools; Bash/Read/Write/Web/agent-spawners are denied.
-- **Immutable audit log** (`claudoo.tool_log`) written on a separate committed
+- **Hard-denied built-ins** — the model can act *only* through `mcp__odoo__*`
+  tools; Bash/Write/Web/agent-spawners are denied (each CLI via its own
+  allow/deny/exclude mechanism).
+- **Immutable audit log** (`aidoo.tool_log`) written on a separate committed
   cursor so it survives rollbacks.
 - **Zero-trust mode** (global default + per-user override) that strips all write
-  tools.
-- **Test suite** covering the SQL guard, bridge-token mint/verify, tool-access
-  policy, the `ai_bridge` auth method, and the audit log.
+  tools, and per-user tool grants (`res.users.aidoo_tool_ids`).
+- **Test suite** (`--test-tags aidoo`) covering the SQL guard, bridge-token
+  mint/verify, tool-access policy, the `ai_bridge` auth method, the audit log,
+  and a cross-provider adapter contract suite (`test_providers.py`).
+
+### Changed
+- **One set of models, one config namespace.** Models are `aidoo.*`; system
+  parameters are `aidoo.<provider>.<key>` with fallback to a shared `aidoo.<key>`
+  (see `aidoo.session._pconfig`). The session id field is `cli_session_id` and
+  the message id field is `cli_msg_id` (provider-neutral).
+- **Read sandbox parity** — the `read_guard.py` upload-dir sandbox now applies
+  across all providers (each enforces it with its CLI's own mechanism).
+
+### Ported to Odoo 19.0
+- `res.groups` grouping moved to `res.groups.privilege` (groups lost
+  `category_id`); user groups field is `group_ids`/`all_group_ids`; controller
+  routes use `type="jsonrpc"`; SQL constraints use `models.Constraint`;
+  `from odoo.modules.registry import Registry`; the `act_window` `inline` target
+  was removed.
 
 ### Licensing
-- **Dual-licensed**: open-source **LGPL-3.0-or-later** *or* a **commercial license**
-  from CICDoo (see `COMMERCIAL_LICENSE.md`). Every source file carries an SPDX
-  `LGPL-3.0-or-later OR LicenseRef-Claudoo-Commercial` notice.
-- Runs on **both Odoo Community and Enterprise** editions (depends only on
-  Community modules: `web`, `bus`, `mail`).
+- **Dual-licensed**: open-source **LGPL-3.0-or-later** *or* a **commercial
+  license** from CICDoo (see `COMMERCIAL_LICENSE.md`). Every source file carries
+  an SPDX `LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial` notice.
+- Runs on **both Odoo Community and Enterprise** (depends only on `web`, `bus`).
+  Each provider's CLI (`claude` / `codex` / `gemini` / `grok`) must be installed
+  on the server for that provider to be usable.
 
-[18.0.1.0.0]: https://github.com/cicdoo/claudoo/releases/tag/18.0.1.0.0
+[Unreleased]: https://github.com/cicdoo/aidoo/compare/19.0.1.0.0...HEAD
+[19.0.1.0.0]: https://github.com/cicdoo/aidoo/releases/tag/19.0.1.0.0

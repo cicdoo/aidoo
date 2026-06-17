@@ -1,13 +1,13 @@
 # Security Policy
 
-Claudoo bridges a large-language-model agent to your Odoo database, so we take
+Aidoo bridges a large-language-model agent to your Odoo database, so we take
 security seriously and welcome responsible disclosure.
 
 ## Supported versions
 
 | Version  | Supported |
 |----------|-----------|
-| 18.0.x   | ✅        |
+| 19.0.x   | ✅        |
 
 ## Reporting a vulnerability
 
@@ -17,7 +17,7 @@ Instead, email **security@cicdoo.com** with:
 
 - a description of the issue and its impact,
 - steps to reproduce (a proof-of-concept is ideal),
-- the Claudoo version and your Odoo version.
+- the Aidoo version and your Odoo version.
 
 We aim to acknowledge reports within **3 business days** and to provide a
 remediation timeline after triage. We will credit reporters in the release notes
@@ -25,7 +25,7 @@ unless you prefer to remain anonymous.
 
 ## Scope & design notes
 
-Claudoo's threat model assumes the LLM output is **untrusted**. The defenses that
+Aidoo's threat model assumes the LLM output is **untrusted**. The defenses that
 are in scope for security reports include:
 
 - **No superuser execution** — tool endpoints abort if `request.env.su` is true;
@@ -40,7 +40,7 @@ are in scope for security reports include:
 - **Per-user credential isolation** — OAuth credentials are stored per user with
   mode `0600` and never exposed on a record.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
-  and `claudoo.session._post_report` output) is rendered in an
+  and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own
   scripts never execute and its styles are isolated from the Odoo UI; the parent
   only reads the frame to size it. `allow-scripts` is deliberately never combined
