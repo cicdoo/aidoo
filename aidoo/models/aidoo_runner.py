@@ -239,12 +239,14 @@ class AiAssistantRunner(models.AbstractModel):
         elif kind == "tool_result":
             self._patch_tool_result(env, session, op, msg_map)
         elif kind == "done":
-            if op.get("text"):
+            # A final result event often repeats the full assistant text. Only
+            # materialize it when nothing streamed this turn — otherwise it would
+            # duplicate the message already built from the streamed text blocks.
+            if op.get("text") and not produced_text["any"]:
                 rec = self._get_msg(env, session, op.get("msg_id"), msg_map)
-                if not (rec.body or "").strip():
-                    rec.body = op["text"]
-                    self._emit_message(session, rec)
+                rec.body = op["text"]
                 produced_text["any"] = True
+                self._emit_message(session, rec)
             session.write({"state": "done"})
             self._emit(session, {"kind": "done"})
         elif kind == "error":
