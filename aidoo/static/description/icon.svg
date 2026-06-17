@@ -1,37 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2026 CICDoo (https://cicdoo.com)
      SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
-     Aidoo app icon — "Spark Bubble": a chat bubble (assistant) with an AI spark. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+     Aidoo logo — "Spark Bubble", transparent (no square): purple chat bubble
+     with a white AI spark. Tightly cropped so it sits inline without padding. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="88 102 336 286" width="336" height="286">
   <defs>
-    <linearGradient id="aidoo-bg" x1="0" y1="0" x2="0.85" y2="1">
-      <stop offset="0" stop-color="#8a5e7d"/>
+    <linearGradient id="aidoo-bubble" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#7b5170"/>
       <stop offset="1" stop-color="#5d3d53"/>
     </linearGradient>
-    <linearGradient id="aidoo-spark" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7b5170"/>
-      <stop offset="1" stop-color="#5f3f56"/>
-    </linearGradient>
-    <filter id="aidoo-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="7" stdDeviation="11" flood-color="#2a1c27" flood-opacity="0.22"/>
-    </filter>
   </defs>
 
-  <!-- App-icon rounded square -->
-  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#aidoo-bg)"/>
-
-  <!-- Speech bubble with a small tail (the assistant) -->
-  <path filter="url(#aidoo-shadow)" fill="#ffffff" d="M148 110
+  <!-- Speech bubble with a small tail (purple) -->
+  <path fill="url(#aidoo-bubble)" d="M148 110
     H364 A52 52 0 0 1 416 162
     V268 A52 52 0 0 1 364 320
     H232 L188 380 L182 320
     H148 A52 52 0 0 1 96 268
     V162 A52 52 0 0 1 148 110 Z"/>
 
-  <!-- AI spark (4-point sparkle) -->
-  <path fill="url(#aidoo-spark)" d="M256 122
+  <!-- AI spark (white knockout) -->
+  <path fill="#ffffff" d="M256 122
     Q271 197 346 212 Q271 227 256 302 Q241 227 166 212 Q241 197 256 122 Z"/>
-  <!-- secondary spark -->
-  <path fill="url(#aidoo-spark)" opacity="0.92" d="M350 150
+  <path fill="#ffffff" opacity="0.95" d="M350 150
     Q356 174 380 180 Q356 186 350 210 Q344 186 320 180 Q344 174 350 150 Z"/>
 </svg>
