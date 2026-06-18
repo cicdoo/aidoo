@@ -39,6 +39,21 @@ are in scope for security reports include:
   through the `mcp__odoo__*` tools.
 - **Per-user credential isolation** — OAuth credentials are stored per user with
   mode `0600` and never exposed on a record.
+- **Background & bot runs act as a real user** — scheduled agents
+  (`aidoo.scheduled`) and the Discuss bot (`models/discuss_channel.py`) do not add
+  a new execution path: each goes through the same `aidoo.session.send_message` /
+  runner as the chat, executing as the agent's configured user or the messaging
+  user respectively (never superuser). Tool gating, per-user credentials, record
+  rules and the audit log all apply unchanged. The Discuss bot only answers
+  internal users in the *AI Assistant User* group and is loop-guarded against its
+  own messages.
+- **View context is access-checked** — the "Ask Aidoo" actions and the floating
+  companion seed a conversation with the record or list the user is viewing.
+  `/aidoo/new` validates the user's read access to that model/record before
+  storing it (`context_model` / `context_res_id` / `context_domain`), and the
+  first-turn focus note is resolved under the user's own rights — a record or
+  model the user cannot read is silently dropped, so context seeding never
+  discloses data the user could not already see.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own

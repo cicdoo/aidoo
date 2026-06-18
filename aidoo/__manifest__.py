@@ -36,7 +36,7 @@ gemini / grok).
     'category': 'Productivity/AI',
     'version': '18.0.1.0.0',
     'license': 'LGPL-3',
-    'depends': ['web', 'bus'],
+    'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},
     'data': [
         'security/aidoo_security.xml',
@@ -46,6 +46,7 @@ gemini / grok).
         'views/res_config_settings_views.xml',
         'views/res_users_views.xml',
         'views/aidoo_log_views.xml',
+        'views/aidoo_scheduled_views.xml',
     ],
     'assets': {
         'web.assets_backend': [
@@ -63,6 +64,12 @@ gemini / grok).
             'aidoo/static/src/components/composer.xml',
             'aidoo/static/src/chat_action.js',
             'aidoo/static/src/chat_action.xml',
+            'aidoo/static/src/cog_menu_item.js',
+            'aidoo/static/src/cog_menu_item.xml',
+            'aidoo/static/src/view_context_service.js',
+            'aidoo/static/src/view_patches.js',
+            'aidoo/static/src/floating_button.js',
+            'aidoo/static/src/floating_button.xml',
         ],
     },
     'application': True,

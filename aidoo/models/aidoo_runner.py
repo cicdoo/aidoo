@@ -111,6 +111,10 @@ class AiAssistantRunner(models.AbstractModel):
                 session.write({"state": "error", "last_error": str(e)})
                 runner._emit(session, {"kind": "error", "error": str(e)})
                 cr.commit()
+                try:
+                    session._deliver_result(False)
+                except Exception:  # noqa: BLE001
+                    _logger.exception("AI assistant: result delivery failed")
 
     def _execute(self, env, session, ctx):
         adapter = self._adapter(session)
@@ -216,6 +220,12 @@ class AiAssistantRunner(models.AbstractModel):
                 session.write({"state": "done"})
                 self._emit(session, {"kind": "done"})
         env.cr.commit()
+        # Notify non-chat origins (scheduled agents, Discuss bot). A delivery
+        # failure must never crash the worker or roll back the finished turn.
+        try:
+            session._deliver_result(rc == 0)
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: result delivery failed")
 
     # ------------------------------------------------------------------
     # Apply one normalized op to the DB + bus

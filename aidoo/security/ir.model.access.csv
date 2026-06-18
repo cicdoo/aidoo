@@ -6,3 +6,5 @@ access_ai_session_manager,ai.session.manager,model_aidoo_session,group_ai_manage
 access_ai_message_manager,ai.message.manager,model_aidoo_message,group_ai_manager,1,1,1,1
 access_ai_tool_user,ai.tool.user,model_aidoo_tool,group_ai_user,1,0,0,0
 access_ai_tool_manager,ai.tool.manager,model_aidoo_tool,group_ai_manager,1,1,1,1
+access_ai_scheduled_user,ai.scheduled.user,model_aidoo_scheduled,group_ai_user,1,1,1,1
+access_ai_scheduled_manager,ai.scheduled.manager,model_aidoo_scheduled,group_ai_manager,1,1,1,1
