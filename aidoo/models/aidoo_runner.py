@@ -107,6 +107,7 @@ class AiAssistantRunner(models.AbstractModel):
                 runner._execute(env, session, ctx)
             except Exception as e:
                 _logger.exception("AI assistant run failed")
+                runner._finalize_pending_tools(env, session, "error")
                 session.write({"state": "error", "last_error": str(e)})
                 runner._emit(session, {"kind": "error", "error": str(e)})
                 cr.commit()
@@ -201,6 +202,11 @@ class AiAssistantRunner(models.AbstractModel):
                 produced_text["any"] = True
 
         session.write({"last_run_pid": False, "turn_count": session.turn_count + 1})
+        # Any tool call still marked "running" never received its result event
+        # (CLI exited mid-tool, timed out, or was stopped). Settle it so the
+        # chip doesn't spin forever once the frontend reloads.
+        self._finalize_pending_tools(
+            env, session, "done" if rc == 0 else "error", msg_map)
         if session.state == "running":
             if rc != 0:
                 session.write({"state": "error", "last_error": stderr[:2000]})
@@ -277,12 +283,41 @@ class AiAssistantRunner(models.AbstractModel):
         Msg = env["aidoo.message"]
         for rec_id in msg_map.values():
             rec = Msg.browse(rec_id)
-            calls = rec.tool_calls or []
+            # Rebuild with fresh dicts so the assignment differs from the cached
+            # value; mutating the cached list in place would make Odoo treat it
+            # as unchanged and skip the DB write, leaving the chip stuck on
+            # "running" once the frontend reloads from the DB.
+            calls = [dict(c) for c in (rec.tool_calls or [])]
             changed = False
             for call in calls:
                 if call.get("id") == tid:
                     call["result"] = (op.get("text") or "")[:4000]
                     call["status"] = "error" if op.get("is_error") else "done"
+                    changed = True
+            if changed:
+                rec.tool_calls = calls
+                self._emit_message(session, rec)
+
+    def _finalize_pending_tools(self, env, session, status, msg_map=None):
+        """Settle any tool calls left in the ``running`` state at turn end.
+
+        A call stays ``running`` when its result event never streamed (CLI
+        exited mid-tool, timed out, or was stopped). Flip those to a terminal
+        status so the chip stops spinning. Scans this turn's records when
+        ``msg_map`` is given, else every message in the session (error path)."""
+        Msg = env["aidoo.message"]
+        if msg_map is not None:
+            recs = Msg.browse([r for r in msg_map.values()])
+        else:
+            recs = session.message_ids
+        for rec in recs:
+            # Rebuild with fresh dicts; mutating the cached list in place looks
+            # unchanged to Odoo and the write would be skipped.
+            calls = [dict(c) for c in (rec.tool_calls or [])]
+            changed = False
+            for call in calls:
+                if call.get("status") not in ("done", "error"):
+                    call["status"] = status
                     changed = True
             if changed:
                 rec.tool_calls = calls

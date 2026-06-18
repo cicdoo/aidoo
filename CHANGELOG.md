@@ -8,6 +8,23 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Fixed
+- **Tool-call chip stuck spinning** — a completed tool call could keep showing the
+  running spinner after its turn finished. Two causes in `models/aidoo_runner.py`:
+  (1) `_patch_tool_result` mutated the `tool_calls` JSON list in place and
+  reassigned the same object, so Odoo saw no change and skipped the DB write —
+  the `done`/`error` status was lost on the frontend's post-turn reload. It now
+  rebuilds the list with fresh dicts so the write persists. (2) A call whose
+  result event never streamed (CLI exited mid-tool, timed out, or was stopped)
+  stayed `running` forever; a new `_finalize_pending_tools` helper settles any
+  lingering `running` calls to a terminal status on every turn-end path (clean
+  done, non-zero exit, timeout, and the worker's exception handler).
+- **Stacked tool-call folds** — a single assistant turn arrives as several
+  messages (Claude tags each with its own id), so tool-only messages each
+  rendered a separate collapsible "N tool calls" fold. `message_list.js` now
+  exposes a `displayMessages` getter that merges consecutive assistant messages
+  into one bubble — combining their bodies, tool calls and attachments — so a
+  turn shows a single fold instead of a stack. Merging works on shallow clones,
+  leaving the upstream chat state untouched.
 - **Dark mode visibility** — the chat UI (`static/src/scss/aidoo.scss`) hardcoded
   light-mode colors, so backgrounds, message bubbles, borders and text became
   unreadable when Odoo's dark mode was enabled. Colors now reference Odoo's
