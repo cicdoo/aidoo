@@ -50,4 +50,20 @@
         <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
     </record>
 
+    <!-- A user only sees/manages their own scheduled agents. -->
+    <record id="rule_scheduled_own" model="ir.rule">
+        <field name="name">AI scheduled agents: own only</field>
+        <field name="model_id" ref="model_aidoo_scheduled"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
+    </record>
+
+    <!-- Managers see all scheduled agents. -->
+    <record id="rule_scheduled_manager" model="ir.rule">
+        <field name="name">AI scheduled agents: manager all</field>
+        <field name="model_id" ref="model_aidoo_scheduled"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
+    </record>
+
 </odoo>

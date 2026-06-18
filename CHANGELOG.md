@@ -7,6 +7,57 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Scheduled AI agents** — a new `aidoo.scheduled` model
+  (`models/aidoo_scheduled.py`) lets a user save a prompt + provider + schedule
+  that runs autonomously. A master cron ("Aidoo: run scheduled agents",
+  `data/aidoo_action.xml`, every 15 min) launches each due agent as a normal
+  `aidoo.session` owned by the agent's user — so it runs with that user's
+  credentials, tool grant and permissions through the existing runner — and
+  delivers the answer by **email**, to a **record's chatter**, or leaves it as a
+  **chat** conversation. Backend list/form views + menu
+  (`views/aidoo_scheduled_views.xml`) with own/manager record rules and ACLs.
+- **Aidoo in Discuss** — Aidoo now answers as a bot in the Discuss app.
+  `models/discuss_channel.py` extends `discuss.channel._message_post_after_hook`
+  (OdooBot's pattern): a human message in a channel the bot belongs to launches a
+  turn as the message author and posts the reply back into the channel. It is
+  loop-guarded against the bot's own posts, and tells unauthenticated users to
+  connect their provider in the Aidoo app. The bot partner is created at runtime
+  (see note below).
+- **Floating "Ask Aidoo" companion** — a button on form and list views
+  (`static/src/floating_button.js`/`.xml`) opens a chat panel that **floats over
+  the current view** (the record/list stays visible and usable behind it), with
+  **expand**, **minimize** and **close**. It reuses the existing message list,
+  composer and bus streaming. Seeded with the view's context — the record on a
+  form, or the **filtered record set** (the list's effective search domain) on a
+  list — captured live via a reactive service (`static/src/view_context_service.js`)
+  fed by form/list controller patches (`static/src/view_patches.js`).
+- **"Ask Aidoo" record action** — a form-view cog-menu item
+  (`static/src/cog_menu_item.js`/`.xml`) opens the full Aidoo app seeded with the
+  current record, for users in the *AI Assistant User* group.
+- **Conversation context seeding** — `aidoo.session` gains `context_model`,
+  `context_res_id` and `context_domain`. `_compose_prompt` prepends a focus note
+  on the first turn (the record, or the model + filter domain), resolved under the
+  user's own rights so an unreadable record is silently dropped. `/aidoo/new`
+  accepts and validates the context.
+
+### Changed
+- **Post-run delivery hook** — the runner now calls
+  `aidoo.session._deliver_result(ok)` at every terminal state
+  (`models/aidoo_runner.py`); plain chat is unaffected, while scheduled agents and
+  the Discuss bot use it to deliver their answer. Adds a `_last_assistant_text()`
+  helper on the session.
+- **New module dependency: `mail`** — required by the Discuss bot and the
+  email/chatter delivery of scheduled agents (`__manifest__.py`).
+
+### Note
+- **Discuss bot partner is created at runtime**, not via XML data or a
+  `post_init_hook` — creating a `res.partner` during module data-load races other
+  apps' required fields (e.g. `account.autopost_bills`), whose defaults the data
+  loader does not fill in. `aidoo.session._aidoo_bot_partner()` creates it lazily
+  via the ORM (defaults applied correctly) and is invoked when the Aidoo app is
+  opened (`/aidoo/providers`) and from the Discuss hook.
+
 ### Fixed
 - **Tool-call chip stuck spinning** — a completed tool call could keep showing the
   running spinner after its turn finished. Two causes in `models/aidoo_runner.py`:

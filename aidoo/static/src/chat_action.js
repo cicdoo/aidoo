@@ -41,7 +41,15 @@ export class AiChatAction extends Component {
             // Artifact panel (right side): rendered chart/report HTML.
             artifact: null,
             artifactOpen: false,
+            // Focus record when opened from a form via "Ask Aidoo".
+            contextLabel: "",
         });
+
+        // When opened from "Ask Aidoo" on a record, params carry the focus record.
+        const params = this.props.action?.params || this.props.params || {};
+        this._initContext = params.context_model
+            ? { context_model: params.context_model, context_res_id: params.context_res_id }
+            : null;
 
         onWillStart(async () => {
             const info = await rpc("/aidoo/providers");
@@ -225,7 +233,10 @@ export class AiChatAction extends Component {
     // ------------------------------------------------------------------
     async _initChat() {
         await this._loadSessions();
-        if (!this.state.sessions.length) {
+        if (this._initContext) {
+            await this._newSession(this._initContext);
+            this._initContext = null;  // only seed the very first conversation
+        } else if (!this.state.sessions.length) {
             await this._newSession();
         } else {
             await this._openSession(this.state.sessions[0].id);
@@ -236,8 +247,14 @@ export class AiChatAction extends Component {
         this.state.sessions = await rpc("/aidoo/sessions");
     }
 
-    async _newSession() {
-        const s = await rpc("/aidoo/new", { provider: this.state.selectedProvider });
+    async _newSession(context = null) {
+        // Also used as a click handler (receives the event) — only a real
+        // context object carries context_model.
+        const ctx = context && context.context_model ? context : null;
+        const s = await rpc("/aidoo/new", {
+            provider: this.state.selectedProvider,
+            ...(ctx || {}),
+        });
         this.state.sessions.unshift(s);
         await this._openSession(s.id);
     }
@@ -251,6 +268,7 @@ export class AiChatAction extends Component {
         this.aiBus.register(id, (p) => this._onBusEvent(p));
         const data = await rpc("/aidoo/messages", { session_id: id });
         this.state.currentProvider = data.provider;
+        this.state.contextLabel = data.context_label || "";
         this.state.messages = data.messages;
         this.state.running = data.state === "running";
         this.state.artifact = null;

@@ -124,6 +124,10 @@
 
                 <!-- Chat surface (current provider connected) -->
                 <t t-if="isAuthed">
+                    <div t-if="state.contextLabel"
+                         class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
+                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
+                    </div>
                     <AiMessageList messages="state.messages" running="state.running"
                                    onOpenArtifact.bind="openArtifact"/>
                     <div t-if="state.running" class="px-2 pb-1">

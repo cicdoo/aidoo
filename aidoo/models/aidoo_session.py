@@ -14,7 +14,8 @@ import time
 import uuid
 
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, MissingError, UserError
+from odoo.tools import html2plaintext, plaintext2html
 
 _logger = logging.getLogger(__name__)
 
@@ -134,6 +135,26 @@ class AiAssistantSession(models.Model):
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
     last_error = fields.Text(copy=False)
+
+    # Optional record this conversation is focused on (set when opened from a
+    # form view via "Ask Aidoo"). Used to seed the first prompt and the UI chip.
+    context_model = fields.Char(copy=False)
+    context_res_id = fields.Integer(copy=False)
+    # For list focus: the effective search domain (JSON) the user has applied,
+    # so the assistant can query exactly the records the user is looking at.
+    context_domain = fields.Text(copy=False)
+
+    # Set when the session was launched by a scheduled agent (delivery routes
+    # back to it when the turn finishes).
+    scheduled_id = fields.Many2one(
+        "aidoo.scheduled", string="Scheduled Agent", ondelete="set null",
+        copy=False, index=True)
+
+    # Set for conversations driven from the Discuss bot — the reply is posted
+    # back into this channel when the turn finishes.
+    discuss_channel_id = fields.Many2one(
+        "discuss.channel", string="Discuss Channel", ondelete="cascade",
+        copy=False, index=True)
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
@@ -409,18 +430,74 @@ class AiAssistantSession(models.Model):
     # ------------------------------------------------------------------
     # Prompt assembly
     # ------------------------------------------------------------------
-    def _compose_prompt(self, body, paths):
-        """Append an attachment manifest to the user's text so the model knows
-        which uploaded files it can open with the Read tool."""
-        if not paths:
-            return body
-        listing = "\n".join("- %s" % p for p in paths)
+    def _context_label(self):
+        """Human-readable label for the focused context, under the user's own
+        rights: the record's name on a form, else the model's name on a list.
+        Empty string if there is none or it is not readable."""
+        self.ensure_one()
+        if not self.context_model or self.context_model not in self.env:
+            return ""
+        model_label = self.env["ir.model"]._get(self.context_model).name \
+            or self.context_model
+        if not self.context_res_id:
+            return model_label  # list/model-level focus
+        try:
+            rec = self.env[self.context_model].browse(self.context_res_id)
+            if not rec.exists():
+                return ""
+            return rec.display_name or model_label
+        except (AccessError, MissingError):
+            return ""
+
+    def _context_note(self):
+        """A note telling the model which Odoo record/model the user is looking
+        at. Only emitted on the first turn of a session opened with a focus
+        context, and only when the user may actually read it."""
+        self.ensure_one()
+        if self.turn_count != 0 or not self.context_model:
+            return ""
+        label = self._context_label()
+        if not label:
+            return ""
+        if self.context_res_id:
+            return _(
+                "The user is currently viewing the Odoo record %(model)s,%(rid)s "
+                "(\"%(label)s\"). Treat it as the focus of this conversation; use "
+                "the ORM tools to read it before answering."
+            ) % {"model": self.context_model, "rid": self.context_res_id,
+                 "label": label}
         note = _(
-            "The user attached the following file(s), saved in your working "
-            "directory. Use the Read tool to open them — text/CSV/code is read "
-            "verbatim, images are viewed visually, and PDFs page-by-page:\n%s"
-        ) % listing
-        return (body + "\n\n" + note) if body else note
+            "The user is currently looking at the \"%(label)s\" list (model "
+            "%(model)s)."
+        ) % {"label": label, "model": self.context_model}
+        if self.context_domain:
+            note += " " + _(
+                "It is filtered to the records matching this Odoo domain: %s. Use "
+                "orm_search_read with that domain to see exactly those records."
+            ) % self.context_domain
+        else:
+            note += " " + _(
+                "Treat this model as the focus of the conversation; use the ORM "
+                "tools to query its records before answering.")
+        return note
+
+    def _compose_prompt(self, body, paths):
+        """Compose the prompt text: the user's body plus, when relevant, a
+        focus-record note and an attachment manifest the model can act on."""
+        parts = []
+        note = self._context_note()
+        if note:
+            parts.append(note)
+        if body:
+            parts.append(body)
+        if paths:
+            listing = "\n".join("- %s" % p for p in paths)
+            parts.append(_(
+                "The user attached the following file(s), saved in your working "
+                "directory. Use the Read tool to open them — text/CSV/code is read "
+                "verbatim, images are viewed visually, and PDFs page-by-page:\n%s"
+            ) % listing)
+        return "\n\n".join(parts)
 
     def _history_for_prompt(self):
         """Bounded transcript of this conversation, for providers that cannot
@@ -490,3 +567,121 @@ class AiAssistantSession(models.Model):
             "session_id": self.id, "role": "report", "body": html or ""})
         self.env["aidoo.runner"]._emit_message(self, rec)
         return rec
+
+    # ------------------------------------------------------------------
+    # Post-run delivery hook (called by the runner at terminal state)
+    # ------------------------------------------------------------------
+    def _last_assistant_text(self):
+        """The body of the most recent non-empty assistant message, if any."""
+        self.ensure_one()
+        msgs = self.message_ids.filtered(
+            lambda m: m.role == "assistant" and m.body)
+        return msgs.sorted("id")[-1].body if msgs else ""
+
+    def _deliver_result(self, ok):
+        """Called by the runner once a turn reaches a terminal state.
+
+        Plain chat sessions need nothing — they already streamed to the bus.
+        Non-chat origins (scheduled agents, the Discuss bot) extend this to
+        deliver the result elsewhere. ``ok`` is True on a clean (rc == 0) run."""
+        self.ensure_one()
+        if self.scheduled_id:
+            self.scheduled_id._deliver(self, ok)
+        if self.discuss_channel_id:
+            self._deliver_discuss(ok)
+
+    # ------------------------------------------------------------------
+    # Discuss bot
+    # ------------------------------------------------------------------
+    @api.model
+    def _aidoo_bot_partner(self):
+        """The Discuss bot partner, created on first use (ORM create applies the
+        required res.partner defaults the XML data loader would miss)."""
+        partner = self.env.ref("aidoo.partner_aidoo_bot", raise_if_not_found=False)
+        if partner:
+            return partner
+        partner = self.env["res.partner"].sudo().create({
+            "name": "Aidoo",
+            "email": "aidoo@example.com",
+        })
+        self.env["ir.model.data"].sudo().create({
+            "name": "partner_aidoo_bot",
+            "module": "aidoo",
+            "model": "res.partner",
+            "res_id": partner.id,
+            "noupdate": True,
+        })
+        return partner
+
+    def _post_bot_message(self, body):
+        """Post ``body`` (plain text) into this session's Discuss channel as the
+        Aidoo bot. message_post fires the bus notification on its own."""
+        self.ensure_one()
+        bot = self._aidoo_bot_partner()
+        if not bot or not self.discuss_channel_id:
+            return
+        self.discuss_channel_id.sudo().message_post(
+            author_id=bot.id,
+            body=plaintext2html(body or ""),
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+            silent=True,
+        )
+
+    def _deliver_discuss(self, ok):
+        self.ensure_one()
+        body = self._last_assistant_text()
+        if not body:
+            body = self.last_error if not ok else _("(no response)")
+        self._post_bot_message(body)
+
+    @api.model
+    def _maybe_handle_discuss(self, channel, msg_values):
+        """React to a human message in a channel the Aidoo bot belongs to.
+
+        Launches a turn as the message author and lets ``_deliver_discuss`` post
+        the answer back when it finishes. Bails (the loop guard) on the bot's own
+        messages and on anything that isn't a human comment."""
+        msg_values = msg_values or {}
+        bot = self._aidoo_bot_partner()
+        if not bot:
+            return
+        if msg_values.get("message_type") != "comment":
+            return
+        author_id = msg_values.get("author_id")
+        if not author_id or author_id == bot.id:
+            return  # loop guard: never answer our own posts
+        if bot not in channel.channel_partner_ids:
+            return  # the bot is not part of this conversation
+
+        author = self.env["res.partner"].browse(author_id)
+        user = author.user_ids[:1]
+        if not user or not user.has_group("aidoo.group_ai_user"):
+            return  # only internal users granted the assistant
+
+        body_text = html2plaintext(msg_values.get("body") or "").strip()
+        if not body_text:
+            return
+
+        session = self.with_user(user).search([
+            ("discuss_channel_id", "=", channel.id),
+            ("user_id", "=", user.id),
+        ], limit=1)
+        if not session:
+            session = self.with_user(user).create({
+                "user_id": user.id,
+                "provider": self._default_provider(),
+                "discuss_channel_id": channel.id,
+                "name": channel.name or _("Discuss"),
+            })
+
+        adapter = session._adapter()
+        if not adapter._is_authenticated(user.sudo()):
+            session._post_bot_message(_(
+                "Please connect your %s account in the Aidoo app before chatting "
+                "with me here.") % adapter._provider_label)
+            return
+        try:
+            session.send_message(body_text)
+        except UserError as e:
+            session._post_bot_message(str(e))

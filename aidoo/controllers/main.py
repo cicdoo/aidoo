@@ -5,7 +5,7 @@
 import json
 
 from odoo import http
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
 from ..models.aidoo_session import PROVIDERS
@@ -33,6 +33,10 @@ class AiAssistantChat(http.Controller):
     @http.route("/aidoo/providers", type="json", auth="user")
     def providers(self):
         user = request.env.user
+        # Ensure the Discuss bot partner exists so users can DM it. Done from a
+        # runtime request (full registry) rather than module data, which races
+        # the load order of other apps' required res.partner fields.
+        request.env["aidoo.session"].sudo()._aidoo_bot_partner()
         out = []
         for code, _label in PROVIDERS:
             desc = user._ai_provider(code)._descriptor()
@@ -80,13 +84,42 @@ class AiAssistantChat(http.Controller):
                  "provider": s.provider} for s in recs]
 
     @http.route("/aidoo/new", type="json", auth="user")
-    def new(self, provider=None):
+    def new(self, provider=None, context_model=None, context_res_id=None,
+            context_domain=None):
         vals = {"user_id": request.env.uid}
         if provider in _PROVIDER_CODES:
             vals["provider"] = provider
+        # Optional focus context (from "Ask Aidoo"): a record on a form, or the
+        # filtered record set on a list. Only stored when the user may actually
+        # read it — never seed a reference to something outside their rights.
+        if context_model and context_model in request.env:
+            try:
+                Model = request.env[context_model]
+                Model.check_access("read")
+            except AccessError:
+                Model = None
+            if Model is not None:
+                vals["context_model"] = context_model
+                if context_res_id:
+                    try:
+                        rec = Model.browse(int(context_res_id))
+                        rec.check_access("read")
+                        if rec.exists():
+                            vals["context_res_id"] = rec.id
+                    except (AccessError, ValueError):
+                        pass
+                elif context_domain:
+                    # A list focus: keep the domain as a compact JSON string.
+                    try:
+                        dom = json.loads(context_domain)
+                        if isinstance(dom, list):
+                            vals["context_domain"] = json.dumps(dom)
+                    except (ValueError, TypeError):
+                        pass
         session = request.env["aidoo.session"].create(vals)
         return {"id": session.id, "name": session.name, "state": session.state,
-                "provider": session.provider}
+                "provider": session.provider,
+                "context_label": session._context_label()}
 
     @http.route("/aidoo/messages", type="json", auth="user")
     def messages(self, session_id=None):
@@ -96,6 +129,7 @@ class AiAssistantChat(http.Controller):
             "name": session.name,
             "state": session.state,
             "provider": session.provider,
+            "context_label": session._context_label(),
             "messages": session.message_ids._to_frontend(),
         }
 

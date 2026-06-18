@@ -241,3 +241,52 @@
         }
     }
 }
+
+// --- Floating "Ask Aidoo" companion (form / list views) ------------------
+.o_aidoo_fab_wrap {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1040;
+
+    .o_aidoo_fab_btn {
+        width: 52px;
+        height: 52px;
+        padding: 0;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+// The chat panel floats over the view (which stays visible/usable behind it).
+.o_aidoo_panel {
+    position: fixed;
+    right: 24px;
+    bottom: 88px;                       // sits just above the FAB
+    z-index: 1041;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    height: 560px;
+    max-height: calc(100vh - 112px);
+    background-color: $o-view-background-color;
+    border: 1px solid $o-gray-300;
+    border-radius: 8px;
+    overflow: hidden;
+
+    &.o_aidoo_panel--expanded {
+        width: 880px;
+        max-width: calc(100vw - 48px);
+        height: calc(100vh - 112px);
+    }
+
+    .o_aidoo_panel_header {
+        background-color: $o-brand-primary;
+        color: #fff;
+        flex: 0 0 auto;
+    }
+
+    // Reuse the chat sub-components inside the compact panel.
+    .o_ai_message_list { min-height: 0; flex: 1 1 auto; }
+}
