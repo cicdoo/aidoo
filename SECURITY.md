@@ -54,6 +54,15 @@ are in scope for security reports include:
   first-turn focus note is resolved under the user's own rights — a record or
   model the user cannot read is silently dropped, so context seeding never
   discloses data the user could not already see.
+- **Conversation management is owner-scoped** — the favorite (`/aidoo/favorite`),
+  discard (`/aidoo/discard`) and listing routes resolve the session through the
+  same ownership check as the rest of the chat API (`_session()` rejects a session
+  the acting user does not own, on top of the `aidoo.session` record rule). The
+  empty-conversation cleanup (`aidoo.session._prune_empty()`) only ever unlinks the
+  acting user's own message-less, non-running sessions and explicitly skips
+  Discuss- and scheduled-agent-linked sessions; `/aidoo/discard` is additionally
+  guarded server-side to delete only when the session has no messages, so a real
+  conversation — or another user's — can never be removed through these endpoints.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own

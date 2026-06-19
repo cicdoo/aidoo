@@ -18,15 +18,29 @@
                     <button class="btn btn-primary w-100" t-on-click="_newSession">
                         <i class="fa fa-plus me-1"/> New chat
                     </button>
+                    <div class="o_ai_search input-group input-group-sm mt-2">
+                        <span class="input-group-text"><i class="fa fa-search"/></span>
+                        <input type="text" class="form-control"
+                               placeholder="Search conversations"
+                               t-model="state.searchQuery"/>
+                        <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ state.favoritesOnly ? 'active' : '' }}"
+                                title="Show favorites only"
+                                t-on-click="() => state.favoritesOnly = !state.favoritesOnly">
+                            <i t-attf-class="fa {{ state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
+                        </button>
+                    </div>
                 </div>
                 <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="state.sessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 {{ s.id === state.currentId ? 'active' : '' }}"
+                    <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
+                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
                             <i class="fa fa-comment-o me-1"/>
-                            <span t-esc="s.name"/>
+                            <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
                             <span class="badge bg-secondary ms-1 text-uppercase"
                                   style="font-size:0.6rem;" t-esc="s.provider"/>
+                            <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
+                               title="Favorite"
+                               t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
                         </div>
                     </t>
                 </div>
