@@ -195,3 +195,26 @@ class TestProviders(TransactionCase):
         self.assertEqual(
             self._adapter("gemini")._pconfig("fallback_model", "gemini-2.5-flash"),
             "gemini-2.5-flash")
+
+    def test_gemini_sanitize_bare_array_to_string(self):
+        """A bare array (no `items`) becomes a JSON-string param — Gemini flash
+        rejects array properties without `items`. Typed arrays stay arrays."""
+        from odoo.addons.aidoo.models.providers.gemini import _sanitize_schema
+        out = _sanitize_schema({"type": "object", "properties": {
+            "domain": {"type": "array", "default": []},
+            "ids": {"type": "array", "items": {"type": "integer"}}}})
+        self.assertEqual(out["properties"]["domain"]["type"], "string")
+        self.assertIn("JSON", out["properties"]["domain"]["description"])
+        self.assertEqual(out["properties"]["ids"]["type"], "array")
+        self.assertEqual(out["properties"]["ids"]["items"]["type"], "integer")
+
+    def test_tool_exec_coerces_json_string_args(self):
+        """JSON-string array/object args (from models that can't type them) are
+        parsed back to structures; real lists and plain strings pass through."""
+        ex = self.env["aidoo.tool.exec"]
+        coerced = ex._coerce_json_args({
+            "model": "res.partner", "domain": '[["customer_rank", ">", 0]]',
+            "fields": ["name"]})
+        self.assertEqual(coerced["domain"], [["customer_rank", ">", 0]])
+        self.assertEqual(coerced["fields"], ["name"])
+        self.assertEqual(coerced["model"], "res.partner")

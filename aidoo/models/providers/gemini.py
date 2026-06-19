@@ -76,6 +76,15 @@ def _sanitize_schema(schema):
     if "items" in schema:
         out["type"] = "array"
         out["items"] = _sanitize_schema(schema["items"]) or {"type": "string"}
+    # Gemini (notably gemini-2.5-flash) rejects an array property with no `items`
+    # (Code Assist 400). Odoo's bare arrays — `domain`, `*args`, sql `params` —
+    # hold heterogeneous/nested values the OpenAPI subset can't type, so expose
+    # them as a JSON string the model fills; aidoo.tool.exec parses it back.
+    if out.get("type") == "array" and "items" not in out:
+        desc = (out.get("description") or "").strip()
+        hint = ('Pass as a JSON array string, e.g. '
+                '[["field", "operator", value]].')
+        return {"type": "string", "description": (desc + " " + hint).strip()}
     out.setdefault("type", "object" if "properties" in out else "string")
     return out
 

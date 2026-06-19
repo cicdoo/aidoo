@@ -100,6 +100,13 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Gemini 400 on tool schemas (gemini-2.5-flash)** — flash rejects an array
+  property with no `items` (`GenerateContentRequest...parameters.properties[...]
+  .items: missing field`), which pro tolerated. Odoo's freeform arrays (`domain`,
+  `*args`, sql `params`) can't be typed in the OpenAPI subset, so they are now
+  exposed to the model as a JSON-string param (with a hint), and `aidoo.tool.exec`
+  parses the string back to a list/dict. The MCP bridge path (Claude/Codex/Grok)
+  is unaffected — it still sends real arrays, which pass through unchanged.
 - **Gemini rate-limit (429) resilience** — the native Gemini adapter now mirrors
   the node CLI's retry instead of failing the turn: exponential backoff with
   enough attempts, honoring the `Retry-After` header and gRPC
