@@ -36,6 +36,12 @@ class ResConfigSettings(models.TransientModel):
         help="Absolute path to the gemini binary. Empty = auto-detect (PATH).")
     aidoo_gemini_model = fields.Char(
         string="Gemini Model", config_parameter="aidoo.gemini.model", default="")
+    aidoo_gemini_fallback_model = fields.Char(
+        string="Gemini Fallback Model",
+        config_parameter="aidoo.gemini.fallback_model", default="gemini-2.5-flash",
+        help="Lighter model to fall back to when the primary stays rate-limited "
+             "(429). It uses a separate quota bucket, so replies recover instead "
+             "of failing. Empty disables fallback.")
     aidoo_gemini_auth_mode = fields.Selection(
         [("oauth_import", "Import Google OAuth credentials (AI Ultra)"),
          ("api_key", "Gemini API key")],

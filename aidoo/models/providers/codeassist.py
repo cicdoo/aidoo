@@ -16,6 +16,7 @@ the real API. It handles OAuth token refresh, Code Assist onboarding/project
 resolution, and streaming ``generateContent`` (SSE) with function-calling.
 """
 import json
+import random
 import re
 import ssl
 import time
@@ -42,7 +43,15 @@ DEFAULT_METADATA = {
 
 
 class CodeAssistError(Exception):
-    """Raised for any non-2xx / transport failure talking to Google."""
+    """Raised for any non-2xx / transport failure talking to Google.
+
+    ``status`` is the HTTP status when known; ``is_rate_limit`` is True for 429
+    RESOURCE_EXHAUSTED so callers can branch (e.g. fall back to another model)."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+        self.is_rate_limit = status == 429
 
 
 class CodeAssistClient:
@@ -54,21 +63,30 @@ class CodeAssistClient:
     so the caller can persist it (mode 0600) for the next turn.
     """
 
-    def __init__(self, creds, save_creds=None, project=None, timeout=120):
+    def __init__(self, creds, save_creds=None, project=None, timeout=120,
+                 on_retry=None):
         self._creds = dict(creds or {})
         self._save = save_creds
         self._project = project or None
         self._timeout = timeout
+        # Optional callback(attempt:int, delay_s:float, reason) invoked before
+        # each backoff wait, so the caller can surface a "retrying in Ns" notice.
+        self._on_retry = on_retry
         self._ctx = ssl.create_default_context()
 
     # ------------------------------------------------------------------
     # Low-level HTTP (stdlib only; no gzip so SSE streams arrive raw)
     # ------------------------------------------------------------------
-    # Bounded retry on 429 RESOURCE_EXHAUSTED. The Code Assist free/standard
-    # tiers rate-limit aggressively (quota resets in ~seconds); a couple of short
-    # waits turn a transient 429 into success without blocking the run deadline.
-    _RETRY_429 = 2
-    _RETRY_429_CAP_S = 20
+    # Retry on 429 RESOURCE_EXHAUSTED / 503 with exponential backoff, mirroring
+    # the node gemini CLI's retryWithBackoff (maxAttempts 10, 5s initial, ×2,
+    # 30s cap, honors Retry-After). Code Assist standard-tier rate-limits hard;
+    # waiting the quota-reset window turns transient 429s into success. Total
+    # wait stays well under the run deadline (aidoo.timeout_s, 900s).
+    _MAX_ATTEMPTS = 6           # total tries (>= 2)
+    _INITIAL_DELAY_S = 5
+    _MAX_DELAY_S = 30           # cap for the exponential fallback
+    _HINT_CAP_S = 90           # absolute cap when honoring a server reset hint
+    _MAX_NET_RETRIES = 2        # transient network blips only
 
     def _request(self, url, *, data=None, headers=None, method="POST", stream=False):
         attempt = 0
@@ -82,29 +100,84 @@ class CodeAssistClient:
             except urllib.error.HTTPError as e:
                 body = ""
                 try:
-                    body = e.read().decode("utf-8", "replace")[:1000]
+                    body = e.read().decode("utf-8", "replace")[:2000]
                 except Exception:  # noqa: BLE001
                     pass
-                if e.code == 429 and attempt < self._RETRY_429:
-                    time.sleep(self._retry_delay(body, attempt))
+                if e.code in (429, 503) and attempt < self._MAX_ATTEMPTS - 1:
+                    delay = self._retry_delay(e.headers, body, attempt)
+                    self._notify_retry(attempt + 1, delay, e.code)
+                    time.sleep(delay)
                     attempt += 1
                     continue
-                raise CodeAssistError("HTTP %s for %s: %s" % (e.code, url, body))
+                raise CodeAssistError(
+                    "HTTP %s for %s: %s" % (e.code, url, body), status=e.code)
             except (urllib.error.URLError, OSError) as e:
+                # Transient network blip (ECONNRESET/ETIMEDOUT/…): a couple of
+                # short retries; a real outage still fails fast.
+                if attempt < self._MAX_NET_RETRIES:
+                    delay = self._backoff(attempt)
+                    self._notify_retry(attempt + 1, delay, "network")
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
                 raise CodeAssistError("Network error for %s: %s" % (url, e))
             if stream:
                 return resp
             with resp:
                 return resp.read().decode("utf-8", "replace")
 
+    def _notify_retry(self, attempt, delay, reason):
+        if self._on_retry:
+            try:
+                self._on_retry(attempt, delay, reason)
+            except Exception:  # noqa: BLE001 — a status callback must never break the run
+                pass
+
     @classmethod
-    def _retry_delay(cls, body, attempt):
-        """Seconds to wait before a 429 retry — honor the API's reset hint."""
-        delay = 5 * (attempt + 1)
+    def _backoff(cls, attempt):
+        """Exponential backoff (5s, 10s, 20s, …) capped at _MAX_DELAY_S, jittered."""
+        base = min(cls._INITIAL_DELAY_S * (2 ** attempt), cls._MAX_DELAY_S)
+        return round(base * (0.8 + 0.4 * random.random()), 1)
+
+    @classmethod
+    def _retry_delay(cls, resp_headers, body, attempt):
+        """Seconds to wait before a 429/503 retry. Priority: Retry-After header
+        -> gRPC RetryInfo.retryDelay -> body "reset after Ns" -> exp backoff."""
+        ra = None
+        try:
+            ra = resp_headers.get("Retry-After") if resp_headers else None
+        except Exception:  # noqa: BLE001
+            ra = None
+        if ra:
+            try:
+                return min(int(float(ra)), cls._HINT_CAP_S)
+            except (TypeError, ValueError):
+                pass  # HTTP-date form — ignore, fall through
+        ri = cls._parse_retry_info(body)
+        if ri is not None:
+            return min(ri, cls._HINT_CAP_S)
         m = re.search(r"reset(?:s)? (?:after|in) (\d+)\s*s", body or "")
         if m:
-            delay = int(m.group(1)) + 1
-        return min(delay, cls._RETRY_429_CAP_S)
+            return min(int(m.group(1)) + 1, cls._HINT_CAP_S)
+        return cls._backoff(attempt)
+
+    @staticmethod
+    def _parse_retry_info(body):
+        """Extract RetryInfo.retryDelay (e.g. "57s") from a Google error body."""
+        try:
+            data = json.loads(body)
+        except (ValueError, TypeError):
+            return None
+        err = data.get("error") if isinstance(data, dict) else None
+        for d in ((err or {}).get("details") or []):
+            if isinstance(d, dict) and "RetryInfo" in (d.get("@type") or ""):
+                rd = d.get("retryDelay")
+                if isinstance(rd, str) and rd.endswith("s"):
+                    try:
+                        return int(float(rd[:-1])) + 1
+                    except ValueError:
+                        return None
+        return None
 
     def _post_json(self, url, payload, headers):
         # default=str so tool results carrying non-JSON-native values (datetime,

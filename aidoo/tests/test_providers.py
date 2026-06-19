@@ -164,3 +164,34 @@ class TestProviders(TransactionCase):
             self.assertEqual(d["parameters"]["type"], "object")
         # No grants -> no tool block.
         self.assertIsNone(adapter._function_declarations([]))
+
+    # ------------------------------------------------------------------
+    # Code Assist 429 / rate-limit handling
+    # ------------------------------------------------------------------
+    def test_codeassist_error_rate_limit_flag(self):
+        from odoo.addons.aidoo.models.providers.codeassist import CodeAssistError
+        self.assertTrue(CodeAssistError("x", status=429).is_rate_limit)
+        self.assertFalse(CodeAssistError("x", status=500).is_rate_limit)
+        self.assertFalse(CodeAssistError("x").is_rate_limit)
+
+    def test_codeassist_retry_delay_precedence(self):
+        """Retry-After header > RetryInfo.retryDelay > body "reset after Ns" >
+        exponential backoff; explicit hints capped, backoff bounded."""
+        from odoo.addons.aidoo.models.providers.codeassist import (
+            CodeAssistClient as C)
+        self.assertEqual(C._retry_delay({"Retry-After": "12"}, "", 0), 12)
+        ri = ('{"error":{"details":[{"@type":'
+              '"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"57s"}]}}')
+        self.assertEqual(C._retry_delay({}, ri, 0), 58)
+        self.assertEqual(C._retry_delay({}, "quota will reset after 30s.", 0), 31)
+        big = '{"error":{"details":[{"@type":"x.RetryInfo","retryDelay":"999s"}]}}'
+        self.assertEqual(C._retry_delay({}, big, 0), C._HINT_CAP_S)
+        # Exponential fallback (no hint) is bounded by _MAX_DELAY_S (+ jitter).
+        self.assertLessEqual(C._retry_delay({}, "no hint", 6),
+                             C._MAX_DELAY_S * 1.2 + 0.01)
+
+    def test_gemini_fallback_model_default(self):
+        """The native Gemini adapter defaults its fallback model to flash."""
+        self.assertEqual(
+            self._adapter("gemini")._pconfig("fallback_model", "gemini-2.5-flash"),
+            "gemini-2.5-flash")

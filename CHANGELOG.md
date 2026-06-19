@@ -92,6 +92,14 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Gemini rate-limit (429) resilience** — the native Gemini adapter now mirrors
+  the node CLI's retry instead of failing the turn: exponential backoff with
+  enough attempts, honoring the `Retry-After` header and gRPC
+  `RetryInfo`/quota-reset hints, plus a one-shot fallback to a lighter model
+  (`aidoo.gemini.fallback_model`, default `gemini-2.5-flash` — a separate quota
+  bucket) when the primary stays limited. A transient "rate-limited, retrying…"
+  notice (new `notice` bus event) shows during the wait. Replies no longer
+  hard-fail on transient `429 RESOURCE_EXHAUSTED`.
 - **Gemini session resume error** — Gemini headless cannot reliably resume a
   server-side session, yet the adapter passed `--resume <id>` with a pre-minted
   UUID the CLI had never stored, aborting the turn with "No previous sessions

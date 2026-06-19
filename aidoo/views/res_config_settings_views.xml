@@ -66,6 +66,9 @@
                         <setting string="Model">
                             <field name="aidoo_gemini_model"/>
                         </setting>
+                        <setting string="Fallback Model" help="Lighter model used when the primary is rate-limited (429); separate quota bucket. Empty disables.">
+                            <field name="aidoo_gemini_fallback_model" placeholder="gemini-2.5-flash"/>
+                        </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_gemini_auth_mode"/>
                         </setting>

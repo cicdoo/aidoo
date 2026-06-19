@@ -172,9 +172,28 @@ class AidooProviderGemini(AidooProvider):
                 pass
 
         cached_project = self._read_text(self._project_path(user))
+        runner = env["aidoo.runner"]
+
+        def _on_retry(attempt, delay, reason):
+            # Surface a live "retrying…" notice during the client's backoff wait
+            # (emitted on its own committed cursor, so it reaches the chat even
+            # while this worker is blocked in time.sleep).
+            if reason == 429:
+                text = _("Gemini is rate-limited — retrying in %ss…") % int(delay)
+            else:
+                text = _("Gemini is busy — retrying in %ss…") % int(delay)
+            runner._emit_notice(ctx, text)
+
         client = CodeAssistClient(
-            creds, save_creds=_save, project=cached_project or None)
+            creds, save_creds=_save, project=cached_project or None,
+            on_retry=_on_retry)
         model = self._model()
+        # Lighter model to fall back to when the primary stays rate-limited (a
+        # separate quota bucket). Empty disables fallback; same-as-primary is a
+        # no-op. Mirrors the gemini CLI's onPersistent429 -> flash behaviour.
+        fallback_model = (self._pconfig("fallback_model", "gemini-2.5-flash")
+                          or "").strip()
+        fallback_used = False
 
         try:
             project = client.ensure_project(DEFAULT_METADATA)
@@ -191,25 +210,43 @@ class AidooProviderGemini(AidooProvider):
 
         for rnd in range(max_rounds):
             msg_id = "g%s-%s" % (session.turn_count, rnd)
-            upid = uuid.uuid4().hex
-            model_parts = []
-            func_calls = []
-            try:
-                for resp in client.stream_generate(
-                        model, contents,
-                        system_instruction=system_instruction,
-                        tools=tools, user_prompt_id=upid):
-                    for part in CodeAssistClient.iter_parts(resp):
-                        if part.get("functionCall"):
-                            model_parts.append(part)
-                            func_calls.append(part["functionCall"])
-                        elif part.get("text") and not part.get("thought"):
-                            model_parts.append(part)
-                            yield {"op": "text", "msg_id": msg_id,
-                                   "text": part["text"]}
-            except CodeAssistError as e:
-                yield {"op": "error", "text": _("Gemini request failed: %s") % e}
-                return
+            # Stream one model round, with a one-shot fallback to the lighter
+            # model if the primary is still rate-limited after the client's
+            # own backoff. Re-running a round is only safe before any text has
+            # streamed for it (so we never duplicate output).
+            while True:
+                upid = uuid.uuid4().hex
+                model_parts = []
+                func_calls = []
+                produced = False
+                try:
+                    for resp in client.stream_generate(
+                            model, contents,
+                            system_instruction=system_instruction,
+                            tools=tools, user_prompt_id=upid):
+                        for part in CodeAssistClient.iter_parts(resp):
+                            if part.get("functionCall"):
+                                model_parts.append(part)
+                                func_calls.append(part["functionCall"])
+                            elif part.get("text") and not part.get("thought"):
+                                model_parts.append(part)
+                                produced = True
+                                yield {"op": "text", "msg_id": msg_id,
+                                       "text": part["text"]}
+                    break  # round streamed successfully
+                except CodeAssistError as e:
+                    if (e.is_rate_limit and fallback_model
+                            and fallback_model != model
+                            and not fallback_used and not produced):
+                        fallback_used = True
+                        model = fallback_model
+                        runner._emit_notice(ctx, _(
+                            "Gemini rate-limited — switching to %s for this "
+                            "reply…") % fallback_model)
+                        continue  # retry this round on the fallback model
+                    yield {"op": "error",
+                           "text": _("Gemini request failed: %s") % e}
+                    return
 
             if not func_calls:
                 return  # turn complete; the runner finalizes the 'done' state

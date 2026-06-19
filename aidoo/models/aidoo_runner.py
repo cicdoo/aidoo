@@ -392,3 +392,23 @@ class AiAssistantRunner(models.AbstractModel):
 
     def _emit_message(self, session, rec):
         self._emit(session, {"kind": "message", "message": rec._to_frontend()[0]})
+
+    def _emit_notice(self, ctx, text):
+        """Emit a transient ``notice`` bus event on its OWN committed cursor.
+
+        A notice (e.g. "rate-limited, retrying in Ns…") must reach the client
+        while the run worker is blocked in a backoff ``time.sleep`` — there is no
+        commit on the worker's cursor during that wait, so we emit + commit on a
+        separate short cursor (same pattern as the audit log). Best-effort: a
+        failure here never disturbs the run. The notice is transient and not
+        persisted as a message."""
+        try:
+            with Registry(ctx["dbname"]).cursor() as cr:
+                env = api.Environment(cr, ctx["uid"], {})
+                session = env["aidoo.session"].browse(ctx["session_id"])
+                session.user_id.partner_id._bus_send(
+                    "aidoo", {"kind": "notice", "text": text,
+                              "session_id": session.id})
+                cr.commit()
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: notice emit failed")
