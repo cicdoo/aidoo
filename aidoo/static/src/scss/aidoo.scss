@@ -26,6 +26,12 @@
         min-width: 260px;
         background-color: $o-gray-100;
 
+        // Favorites filter toggle sits in the search input group; gold when on.
+        .o_ai_fav_filter.active {
+            color: #f5b301;
+            border-color: #f5b301;
+        }
+
         .o_ai_session_item {
             cursor: pointer;
             border-radius: 4px;
@@ -40,6 +46,29 @@
             &.active {
                 background-color: $o-gray-300;
                 font-weight: 600;
+            }
+
+            .o_ai_session_name {
+                min-width: 0;
+            }
+
+            // Per-conversation star: muted and revealed on hover, gold when set.
+            .o_ai_session_star {
+                flex: 0 0 auto;
+                padding: 0 2px;
+                color: $o-gray-500;
+                opacity: 0;
+
+                &.fa-star {
+                    color: #f5b301;
+                    opacity: 1;
+                }
+                &:hover {
+                    color: #f5b301;
+                }
+            }
+            &:hover .o_ai_session_star {
+                opacity: 1;
             }
         }
     }

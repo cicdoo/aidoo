@@ -40,8 +40,21 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   on the first turn (the record, or the model + filter domain), resolved under the
   user's own rights so an unreadable record is silently dropped. `/aidoo/new`
   accepts and validates the context.
+- **Bookmark & search conversations** — `aidoo.session` gains an `is_favorite`
+  boolean. The full app's sidebar (`static/src/chat_action.js`/`.xml`) adds a
+  per-conversation **star** toggle (persisted via a new `/aidoo/favorite` route),
+  a **search box** that filters the list by name, and a **"favorites only"**
+  filter; starred conversations sort to the top.
 
 ### Changed
+- **Empty conversations are pruned automatically** — a session is created eagerly
+  when a chat opens, so opening the floating bubble (or the app) and never typing
+  left an empty "New conversation" in history. The app now cleans these up:
+  `aidoo.session._prune_empty()` deletes the user's own message-less, non-running
+  sessions (excluding Discuss/scheduled-linked ones) and runs on every
+  `/aidoo/sessions` load; the floating companion discards its own empty session on
+  **close**, **new chat** and unmount via a new `/aidoo/discard` route (server-side
+  guarded to delete only when the session has no messages).
 - **Post-run delivery hook** — the runner now calls
   `aidoo.session._deliver_result(ok)` at every terminal state
   (`models/aidoo_runner.py`); plain chat is unaffected, while scheduled agents and

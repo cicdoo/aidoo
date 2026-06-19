@@ -78,10 +78,30 @@ class AiAssistantChat(http.Controller):
     # ------------------------------------------------------------------
     @http.route("/aidoo/sessions", type="json", auth="user")
     def sessions(self):
+        # Clean up empty conversations left behind by chats that were opened but
+        # never used (e.g. the floating bubble opened and closed without typing).
+        request.env["aidoo.session"]._prune_empty()
         recs = request.env["aidoo.session"].search(
             [("user_id", "=", request.env.uid)], limit=50)
         return [{"id": s.id, "name": s.name, "state": s.state,
-                 "provider": s.provider} for s in recs]
+                 "provider": s.provider, "is_favorite": s.is_favorite}
+                for s in recs]
+
+    @http.route("/aidoo/favorite", type="json", auth="user")
+    def favorite(self, session_id=None, is_favorite=None):
+        session = self._session(session_id)
+        session.is_favorite = bool(is_favorite)
+        return {"id": session.id, "is_favorite": session.is_favorite}
+
+    @http.route("/aidoo/discard", type="json", auth="user")
+    def discard(self, session_id=None):
+        """Delete a session only if it is empty (no messages, not running).
+        Used when a chat surface is closed without any interaction."""
+        session = self._session(session_id)
+        if not session.message_ids and session.state != "running":
+            session.unlink()
+            return {"deleted": True}
+        return {"deleted": False}
 
     @http.route("/aidoo/new", type="json", auth="user")
     def new(self, provider=None, context_model=None, context_res_id=None,
@@ -119,6 +139,7 @@ class AiAssistantChat(http.Controller):
         session = request.env["aidoo.session"].create(vals)
         return {"id": session.id, "name": session.name, "state": session.state,
                 "provider": session.provider,
+                "is_favorite": session.is_favorite,
                 "context_label": session._context_label()}
 
     @http.route("/aidoo/messages", type="json", auth="user")

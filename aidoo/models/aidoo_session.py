@@ -132,6 +132,8 @@ class AiAssistantSession(models.Model):
         default="idle", required=True, copy=False,
     )
     turn_count = fields.Integer(default=0, copy=False)
+    is_favorite = fields.Boolean(
+        string="Favorite", default=False, copy=False, index=True)
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
     last_error = fields.Text(copy=False)
@@ -179,6 +181,22 @@ class AiAssistantSession(models.Model):
             # CLI's real id overwrites it on the first turn).
             vals.setdefault("cli_session_id", str(uuid.uuid4()))
         return super().create(vals_list)
+
+    @api.model
+    def _prune_empty(self, keep_id=None):
+        """Delete the current user's empty conversations (no messages, not
+        running, and not tied to a Discuss channel or scheduled agent). Used to
+        clean up sessions created eagerly when a chat opens but never used."""
+        domain = [
+            ("user_id", "=", self.env.uid),
+            ("message_ids", "=", False),
+            ("state", "!=", "running"),
+            ("discuss_channel_id", "=", False),
+            ("scheduled_id", "=", False),
+        ]
+        if keep_id:
+            domain.append(("id", "!=", int(keep_id)))
+        self.search(domain).unlink()
 
     def _adapter(self):
         self.ensure_one()

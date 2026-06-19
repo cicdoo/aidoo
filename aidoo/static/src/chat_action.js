@@ -24,6 +24,8 @@ export class AiChatAction extends Component {
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
             sessions: [],
+            searchQuery: "",       // sidebar: filter conversations by name
+            favoritesOnly: false,  // sidebar: show only starred conversations
             currentId: null,
             currentProvider: "claude",
             messages: [],
@@ -245,6 +247,30 @@ export class AiChatAction extends Component {
 
     async _loadSessions() {
         this.state.sessions = await rpc("/aidoo/sessions");
+    }
+
+    // Sidebar list after applying the search box / favorites filter, with
+    // starred conversations sorted to the top (recency order is otherwise
+    // preserved from the server).
+    get filteredSessions() {
+        const q = this.state.searchQuery.trim().toLowerCase();
+        let list = this.state.sessions;
+        if (q) {
+            list = list.filter((s) => (s.name || "").toLowerCase().includes(q));
+        }
+        if (this.state.favoritesOnly) {
+            list = list.filter((s) => s.is_favorite);
+        }
+        return [...list].sort(
+            (a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
+    }
+
+    async _toggleFavorite(session) {
+        session.is_favorite = !session.is_favorite;
+        await rpc("/aidoo/favorite", {
+            session_id: session.id,
+            is_favorite: session.is_favorite,
+        });
     }
 
     async _newSession(context = null) {

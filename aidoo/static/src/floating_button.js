@@ -42,6 +42,7 @@ export class FloatingAidoo extends Component {
         onWillDestroy(() => {
             if (this.state.sessionId) {
                 this.aiBus.unregister(this.state.sessionId);
+                this._discardIfEmpty(this.state.sessionId);
             }
         });
         onWillStart(async () => {
@@ -100,6 +101,8 @@ export class FloatingAidoo extends Component {
         this.state.expanded = false;
         if (this.state.sessionId) {
             this.aiBus.unregister(this.state.sessionId);
+            // Drop the conversation if it was never used (no messages sent).
+            this._discardIfEmpty(this.state.sessionId);
         }
         this.state.sessionId = null;
         this.state.messages = [];
@@ -124,10 +127,25 @@ export class FloatingAidoo extends Component {
     async newChat() {
         if (this.state.sessionId) {
             this.aiBus.unregister(this.state.sessionId);
+            // Drop the outgoing conversation if it was never used.
+            this._discardIfEmpty(this.state.sessionId);
         }
         this.state.sessionId = null;
         this.state.messages = [];
         await this._startSession();
+    }
+
+    // Best-effort cleanup of a session that has no messages. The server only
+    // deletes it when it is genuinely empty, so an active chat is never lost.
+    async _discardIfEmpty(id) {
+        if (!id) {
+            return;
+        }
+        try {
+            await rpc("/aidoo/discard", { session_id: id });
+        } catch {
+            // Non-fatal: a stale empty will be pruned next time the app opens.
+        }
     }
 
     _bind(id) {
