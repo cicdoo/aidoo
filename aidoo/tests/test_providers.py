@@ -173,6 +173,10 @@ class TestProviders(TransactionCase):
         self.assertTrue(CodeAssistError("x", status=429).is_rate_limit)
         self.assertFalse(CodeAssistError("x", status=500).is_rate_limit)
         self.assertFalse(CodeAssistError("x").is_rate_limit)
+        # 404 (model unavailable) is flagged for fallback too.
+        self.assertTrue(CodeAssistError("x", status=404).is_not_found)
+        self.assertFalse(CodeAssistError("x", status=404).is_rate_limit)
+        self.assertFalse(CodeAssistError("x", status=429).is_not_found)
 
     def test_codeassist_retry_delay_precedence(self):
         """Retry-After header > RetryInfo.retryDelay > body "reset after Ns" >

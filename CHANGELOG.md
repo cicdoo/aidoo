@@ -100,6 +100,11 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Gemini unavailable-model (404) fallback** — if the configured model is not
+  enabled on the account/tier (404 NOT_FOUND, e.g. `gemini-3.5-flash`), the
+  adapter now falls back to `aidoo.gemini.fallback_model` with a notice instead of
+  failing. Available on the tested tier: `gemini-2.5-flash` (default),
+  `gemini-2.5-pro`, `gemini-3-flash` (rate-limited).
 - **Gemini 400 on tool schemas (gemini-2.5-flash)** — flash rejects an array
   property with no `items` (`GenerateContentRequest...parameters.properties[...]
   .items: missing field`), which pro tolerated. Odoo's freeform arrays (`domain`,

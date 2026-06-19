@@ -100,6 +100,9 @@ class CodeAssistError(Exception):
         super().__init__(message)
         self.status = status
         self.is_rate_limit = status == 429
+        # 404: the requested model isn't available on this account/tier — treat
+        # like rate-limit for fallback purposes (switch to a known-good model).
+        self.is_not_found = status == 404
 
 
 class CodeAssistClient:

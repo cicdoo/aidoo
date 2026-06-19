@@ -253,14 +253,22 @@ class AidooProviderGemini(AidooProvider):
                                        "text": part["text"]}
                     break  # round streamed successfully
                 except CodeAssistError as e:
-                    if (e.is_rate_limit and fallback_model
+                    # Fall back to the lighter model when the primary is either
+                    # rate-limited (429) or unavailable on this tier (404). Only
+                    # safe before any text streamed this round (no duplication).
+                    if ((e.is_rate_limit or e.is_not_found) and fallback_model
                             and fallback_model != model
                             and not fallback_used and not produced):
                         fallback_used = True
+                        if e.is_not_found:
+                            note = _("Model %(bad)s is unavailable — using "
+                                     "%(fb)s instead…") % {
+                                "bad": model, "fb": fallback_model}
+                        else:
+                            note = _("Gemini rate-limited — switching to %s for "
+                                     "this reply…") % fallback_model
                         model = fallback_model
-                        runner._emit_notice(ctx, _(
-                            "Gemini rate-limited — switching to %s for this "
-                            "reply…") % fallback_model)
+                        runner._emit_notice(ctx, note)
                         continue  # retry this round on the fallback model
                     yield {"op": "error",
                            "text": _("Gemini request failed: %s") % e}
