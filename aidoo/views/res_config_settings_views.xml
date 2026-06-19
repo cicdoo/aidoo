@@ -98,6 +98,19 @@
                         </setting>
                     </block>
 
+                    <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
+                        <setting string="Enable Antigravity"
+                                 help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">
+                            <field name="aidoo_antigravity_enabled"/>
+                        </setting>
+                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
+                            <field name="aidoo_antigravity_cli_path" placeholder="auto-detect"/>
+                        </setting>
+                        <setting string="Model">
+                            <field name="aidoo_antigravity_model"/>
+                        </setting>
+                    </block>
+
                     <block title="Tools &amp; Security" name="aidoo_security">
                         <setting string="Enable SQL Reporting Tool"
                                  help="Read-only SQL for the AI SQL Analyst group.">

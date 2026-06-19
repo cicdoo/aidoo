@@ -72,6 +72,20 @@ class ResConfigSettings(models.TransientModel):
         string="Grok Output Format",
         config_parameter="aidoo.grok.output_format", default="streaming-json")
 
+    aidoo_antigravity_enabled = fields.Boolean(
+        string="Enable Antigravity (experimental)",
+        config_parameter="aidoo.antigravity.enabled", default=False,
+        help="Show the experimental Antigravity (agy) provider in the picker. "
+             "Its web tools cannot be sandboxed (ungated internet access) — do "
+             "not enable for zero-trust deployments. See SECURITY.md.")
+    aidoo_antigravity_cli_path = fields.Char(
+        string="Antigravity CLI Path",
+        config_parameter="aidoo.antigravity.cli_path",
+        help="Absolute path to the agy binary. Empty = auto-detect (PATH).")
+    aidoo_antigravity_model = fields.Char(
+        string="Antigravity Model", config_parameter="aidoo.antigravity.model",
+        default="", help="Empty uses the account default model.")
+
     # --- Shared run controls ---
     aidoo_max_turns = fields.Integer(
         string="Max Turns", config_parameter="aidoo.max_turns", default=30)

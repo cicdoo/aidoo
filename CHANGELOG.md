@@ -8,6 +8,21 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Native (in-process) Gemini provider** — Gemini now talks to the Google Code
+  Assist API directly from Python (`models/providers/codeassist.py`) and runs the
+  agent tool-calling loop in-process, instead of driving the Node `gemini` CLI,
+  which cannot complete HTTPS to Google in some egress environments (responses
+  reset mid-body). Reuses the existing `oauth_creds.json` import flow; streams
+  responses and executes Odoo tools in-process. The legacy CLI adapter is kept
+  unregistered in `models/providers/gemini_cli.py` as a fallback.
+- **Antigravity provider** — a new `aidoo.provider.antigravity` adapter drives
+  Google's Antigravity `agy` CLI for individual / Google One users who are blocked
+  from the Gemini CLI. Text-only; experimental and opt-in
+  (`aidoo.antigravity.enabled`) because its web tools cannot be sandboxed (see
+  SECURITY.md).
+- **In-process provider runner path** — `aidoo.runner` gains a native execution
+  path (`_is_native` providers drive an `_run_stream` generator) that reuses the
+  existing op/message/bus machinery without spawning a subprocess.
 - **Scheduled AI agents** — a new `aidoo.scheduled` model
   (`models/aidoo_scheduled.py`) lets a user save a prompt + provider + schedule
   that runs autonomously. A master cron ("Aidoo: run scheduled agents",
@@ -47,6 +62,11 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   filter; starred conversations sort to the top.
 
 ### Changed
+- **Single tool-execution path** — tool enforcement + audit moved out of the HTTP
+  controller into a shared `aidoo.tool.exec` model (`models/aidoo_tool_exec.py`).
+  The loopback MCP bridge controller (`controllers/tools.py`) is now a thin
+  delegator, and native in-process providers call the same executor directly, so
+  `su=False` and the immutable audit log apply identically on both paths.
 - **Empty conversations are pruned automatically** — a session is created eagerly
   when a chat opens, so opening the floating bubble (or the app) and never typing
   left an empty "New conversation" in history. The app now cleans these up:
@@ -72,6 +92,13 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Gemini session resume error** — Gemini headless cannot reliably resume a
+  server-side session, yet the adapter passed `--resume <id>` with a pre-minted
+  UUID the CLI had never stored, aborting the turn with "No previous sessions
+  found for this project." Gemini no longer passes `--resume` (history is replayed
+  into the prompt), and `cli_session_id` is only pre-minted for providers that
+  client-mint it (`_mints_session_id`, i.e. Claude); the others learn their id
+  from the CLI stream.
 - **Tool-call chip stuck spinning** — a completed tool call could keep showing the
   running spinner after its turn finished. Two causes in `models/aidoo_runner.py`:
   (1) `_patch_tool_result` mutated the `tool_calls` JSON list in place and
