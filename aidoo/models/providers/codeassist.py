@@ -42,6 +42,54 @@ DEFAULT_METADATA = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Proactive client-side rate limiting (token bucket) — keep total request rate
+# under the tier's RPM so we don't trip 429s in the first place. Shared per
+# quota key (the cloudaicompanionProject, the boundary the quota is enforced on)
+# across all runs in THIS Odoo worker process. Note: not coordinated across
+# multiple worker processes — each process self-limits to the configured RPM.
+# ---------------------------------------------------------------------------
+import threading  # noqa: E402
+
+_LIMITERS = {}
+_LIMITERS_LOCK = threading.Lock()
+
+
+class _TokenBucket:
+    def __init__(self, rpm):
+        self.capacity = float(max(1, rpm))
+        self.rate = self.capacity / 60.0      # tokens per second
+        self.tokens = self.capacity
+        self.updated = time.monotonic()
+        self.lock = threading.Lock()
+
+    def acquire(self):
+        """Block until a token is available; return seconds waited."""
+        waited = 0.0
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                self.tokens = min(
+                    self.capacity, self.tokens + (now - self.updated) * self.rate)
+                self.updated = now
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    return waited
+                deficit = (1.0 - self.tokens) / self.rate
+            nap = min(deficit, 0.5)
+            time.sleep(nap)
+            waited += nap
+
+
+def _get_limiter(key, rpm):
+    with _LIMITERS_LOCK:
+        lim = _LIMITERS.get(key)
+        if lim is None or lim.capacity != float(max(1, rpm)):
+            lim = _TokenBucket(rpm)
+            _LIMITERS[key] = lim
+        return lim
+
+
 class CodeAssistError(Exception):
     """Raised for any non-2xx / transport failure talking to Google.
 
@@ -64,7 +112,7 @@ class CodeAssistClient:
     """
 
     def __init__(self, creds, save_creds=None, project=None, timeout=120,
-                 on_retry=None):
+                 on_retry=None, rpm=120):
         self._creds = dict(creds or {})
         self._save = save_creds
         self._project = project or None
@@ -72,6 +120,8 @@ class CodeAssistClient:
         # Optional callback(attempt:int, delay_s:float, reason) invoked before
         # each backoff wait, so the caller can surface a "retrying in Ns" notice.
         self._on_retry = on_retry
+        # Proactive requests-per-minute cap on Code Assist calls (0 disables).
+        self._rpm = int(rpm or 0)
         self._ctx = ssl.create_default_context()
 
     # ------------------------------------------------------------------
@@ -89,6 +139,10 @@ class CodeAssistClient:
     _MAX_NET_RETRIES = 2        # transient network blips only
 
     def _request(self, url, *, data=None, headers=None, method="POST", stream=False):
+        # Proactive pacing for Code Assist calls only (not the OAuth token
+        # endpoint), shared per project so concurrent runs stay under the RPM cap.
+        if self._rpm and url.startswith(CODE_ASSIST_ENDPOINT):
+            _get_limiter(self._project or "_global", self._rpm).acquire()
         attempt = 0
         while True:
             req = urllib.request.Request(url, data=data, method=method)

@@ -69,6 +69,9 @@
                         <setting string="Fallback Model" help="Lighter model used when the primary is rate-limited (429); separate quota bucket. Empty disables.">
                             <field name="aidoo_gemini_fallback_model" placeholder="gemini-2.5-flash"/>
                         </setting>
+                        <setting string="Requests/min Cap" help="Proactive cap on Code Assist requests per minute (per project, per worker). 0 disables. Limits are also per-model.">
+                            <field name="aidoo_gemini_rpm_limit"/>
+                        </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_gemini_auth_mode"/>
                         </setting>

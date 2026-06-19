@@ -89,7 +89,11 @@ class AidooProviderGemini(AidooProvider):
     _provider_label = "Gemini"
     _accent_color = "#714b67"
     _config_dir_name = ".gemini"
-    _default_model = "gemini-2.5-pro"
+    # Default to flash: on Code Assist the pro model has a much lower per-model
+    # rate limit, so it 429s on almost every turn; flash has the headroom for a
+    # smooth chat. Admins who want pro can set aidoo.gemini.model = gemini-2.5-pro
+    # (and keep aidoo.gemini.fallback_model = gemini-2.5-flash for graceful 429s).
+    _default_model = "gemini-2.5-flash"
     _auth_ui_mode = "import_or_key"
     _uses_system_prompt_flag = False
     _is_native = True
@@ -177,16 +181,21 @@ class AidooProviderGemini(AidooProvider):
         def _on_retry(attempt, delay, reason):
             # Surface a live "retrying…" notice during the client's backoff wait
             # (emitted on its own committed cursor, so it reaches the chat even
-            # while this worker is blocked in time.sleep).
+            # while this worker is blocked in time.sleep). Stay quiet for the
+            # first quick retry that recovers on its own; only speak up for a
+            # longer wait or a later attempt, so the chat isn't noisy.
+            if attempt < 2 and delay < 8:
+                return
             if reason == 429:
                 text = _("Gemini is rate-limited — retrying in %ss…") % int(delay)
             else:
                 text = _("Gemini is busy — retrying in %ss…") % int(delay)
             runner._emit_notice(ctx, text)
 
+        rpm = int(self._pconfig("rpm_limit", 120) or 0)
         client = CodeAssistClient(
             creds, save_creds=_save, project=cached_project or None,
-            on_retry=_on_retry)
+            on_retry=_on_retry, rpm=rpm)
         model = self._model()
         # Lighter model to fall back to when the primary stays rate-limited (a
         # separate quota bucket). Empty disables fallback; same-as-primary is a

@@ -62,6 +62,14 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   filter; starred conversations sort to the top.
 
 ### Changed
+- **Gemini default model is now `gemini-2.5-flash`** (was `gemini-2.5-pro`). On
+  Code Assist the rate limit is **per-model**, and pro's is far lower than
+  flash's — so pro 429s on nearly every turn while flash has the headroom for a
+  smooth chat. Set `aidoo.gemini.model = gemini-2.5-pro` to opt back into pro
+  (keep `aidoo.gemini.fallback_model = gemini-2.5-flash` for graceful 429s). Also
+  added a proactive `aidoo.gemini.rpm_limit` (default 120) client-side cap on
+  Code Assist requests/min (per project, per worker), and quieted the rate-limit
+  notice so quick transient retries no longer flash a status.
 - **Single tool-execution path** — tool enforcement + audit moved out of the HTTP
   controller into a shared `aidoo.tool.exec` model (`models/aidoo_tool_exec.py`).
   The loopback MCP bridge controller (`controllers/tools.py`) is now a thin

@@ -42,6 +42,13 @@ class ResConfigSettings(models.TransientModel):
         help="Lighter model to fall back to when the primary stays rate-limited "
              "(429). It uses a separate quota bucket, so replies recover instead "
              "of failing. Empty disables fallback.")
+    aidoo_gemini_rpm_limit = fields.Integer(
+        string="Gemini Requests/min Cap",
+        config_parameter="aidoo.gemini.rpm_limit", default=120,
+        help="Proactive client-side cap on Code Assist requests per minute "
+             "(per project, per Odoo worker), to stay under the tier's quota. "
+             "0 disables. Note: rate limits are also per-model — pro is far "
+             "lower than flash regardless of this cap.")
     aidoo_gemini_auth_mode = fields.Selection(
         [("oauth_import", "Import Google OAuth credentials (AI Ultra)"),
          ("api_key", "Gemini API key")],
