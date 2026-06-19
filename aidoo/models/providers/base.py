@@ -23,7 +23,6 @@ only the five axes that actually diverge:
 This base implements the Claude-shaped defaults (per-user OAuth, JSON MCP config,
 identity appended to the prompt) so each adapter overrides as little as possible.
 """
-import json
 import logging
 import os
 
@@ -98,6 +97,11 @@ class AidooProvider(models.AbstractModel):
     # True when the CLI takes the system prompt via a dedicated flag rather than
     # folded into the user prompt text (Claude: --append-system-prompt).
     _uses_system_prompt_flag = True
+    # Auth panel customisation (import_or_key mode). Defaults keep the existing
+    # Gemini/Grok panel unchanged; providers override to guide the user.
+    _auth_key_supported = True       # show the "…or use an API key" field?
+    _auth_import_placeholder = "Paste the JSON contents of your credentials file"
+    _auth_import_help = ""           # extra instructions shown above the textarea
 
     # ------------------------------------------------------------------
     # Descriptor consumed by the frontend (provider picker + auth panel)
@@ -109,6 +113,9 @@ class AidooProvider(models.AbstractModel):
             "label": self._provider_label,
             "accent": self._accent_color,
             "auth_mode": self._auth_ui_mode,
+            "auth_key": self._auth_key_supported,
+            "auth_import_placeholder": self._auth_import_placeholder,
+            "auth_import_help": self._auth_import_help,
         }
 
     # ------------------------------------------------------------------

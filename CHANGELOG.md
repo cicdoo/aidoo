@@ -8,6 +8,62 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Antigravity provider (experimental)** — a new `aidoo.provider.antigravity`
+  adapter (`models/providers/antigravity.py`) adds Google's Antigravity `agy` CLI
+  as a fifth provider, alongside Claude/Codex/Gemini/Grok. It is **off by default**
+  and shown in the picker only when an admin enables `aidoo.antigravity.enabled`
+  (the `/aidoo/providers` controller skips providers flagged `_experimental` until
+  enabled). Settings (`res.config.settings` + the *Antigravity (Google) —
+  experimental* block) add `aidoo.antigravity.{enabled,cli_path,model}`.
+
+  How it works (and why it differs from the other providers):
+  - **Text-only.** `agy` is a TUI agent with **no structured/streaming output**
+    (no `--output-format`/JSON; confirmed against the binary). Print mode (`agy -p`)
+    returns only the final answer as plain text, so there is **no token streaming,
+    no tool-call chips, and no artifact panel** — the conversation gets a single
+    final assistant message. The shared runner reads JSONL and skips non-JSON, so
+    `_normalize_event` is a no-op and the answer is recovered in `_post_run`: argv is
+    a no-interpolation `bash -c` wrapper that redirects `agy`'s stdout/stderr to
+    files in the scratch dir, and `_post_run` reads the captured text.
+  - **MCP bridge** is wired per-run via a workspace config
+    `<scratch>/.agents/mcp_config.json` (verified `agy` loads workspace MCP config
+    when run from that cwd), reusing the shared `_bridge_env`. No
+    `--dangerously-skip-permissions`: in print mode the allowed MCP tools
+    auto-proceed while the deny rules below still apply.
+  - **Auth** reuses the `import_or_key` flow: the user runs `agy` once on a machine
+    with a browser and pastes the resulting `~/.gemini/antigravity-cli/
+    antigravity-oauth-token` (a portable OAuth token file — verified it
+    authenticates a fresh `$HOME`). The connect screen now renders provider-specific
+    instructions and hides the unused API-key field (driven by new descriptor fields
+    `auth_key`/`auth_import_help`/`auth_import_placeholder` on `aidoo.provider`;
+    Gemini/Grok panels are unchanged). Per-`$HOME` isolation keeps users separate;
+    `agy` refreshes the token in place.
+
+  Safety model (verified empirically): `agy`'s permission engine recognises **only
+  the actions `command`, `write_file` and `mcp`** (every other name is rejected as
+  "unknown action"). The adapter writes `~/.gemini/antigravity-cli/settings.json`
+  with `{"permissions":{"deny":["command(*)","write_file(*)"]}}`, which **denies the
+  built-in shell and file-write tools even in headless mode** while leaving the gated
+  Odoo MCP tools usable. `--sandbox`, `strict` mode and `excludeTools` do **not**
+  block these — only the `permissions.deny` list does.
+
+  Known limitations / findings (see also `SECURITY.md`):
+  - **Web tools cannot be sandboxed.** `agy` exposes no permission action for its
+    `read_url_content`/`search_web`/`browser` tools, so an Antigravity conversation
+    has **ungated outbound internet access** — a data-exfiltration vector under the
+    untrusted-LLM threat model. This is the reason it is opt-in and **must not be
+    enabled for zero-trust/untrusted-data deployments**.
+  - **Aborts the whole turn on the first MCP tool error** — `agy` does not feed tool
+    errors back to the model for self-correction (other CLIs do), so an imperfect
+    exploratory call ends the turn. The adapter's prompt adds a "tool discipline"
+    nudge to make complete, well-formed calls, but real multi-step tasks may be
+    fragile.
+  - **Exits `0` even on hard errors**, writing them only to
+    `~/.gemini/antigravity-cli/log/cli-*.log`; `_post_run` tails that log and
+    surfaces the error so a failure is not silently reported as success.
+  - The consumer/subscription backend is **rate-limited** (a free-tier quota), and
+    its OAuth **refresh token rotates on use** (re-importing a stale token snapshot
+    after it has been refreshed elsewhere will fail — import once per user `$HOME`).
 - **Scheduled AI agents** — a new `aidoo.scheduled` model
   (`models/aidoo_scheduled.py`) lets a user save a prompt + provider + schedule
   that runs autonomously. A master cron ("Aidoo: run scheduled agents",

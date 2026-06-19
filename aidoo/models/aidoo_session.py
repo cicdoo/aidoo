@@ -26,6 +26,7 @@ PROVIDERS = [
     ("codex", "Codex"),
     ("gemini", "Gemini"),
     ("grok", "Grok"),
+    ("antigravity", "Antigravity"),
 ]
 
 # Tools the model is allowed to call (Phase 1 = read-only). Kept in sync with the

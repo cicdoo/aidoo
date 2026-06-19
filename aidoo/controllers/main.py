@@ -39,7 +39,12 @@ class AiAssistantChat(http.Controller):
         request.env["aidoo.session"].sudo()._aidoo_bot_partner()
         out = []
         for code, _label in PROVIDERS:
-            desc = user._ai_provider(code)._descriptor()
+            adapter = user._ai_provider(code)
+            # Experimental providers (e.g. Antigravity, whose web tools can't be
+            # sandboxed) stay hidden until explicitly enabled by an admin.
+            if getattr(adapter, "_experimental", False) and not adapter._pconfig("enabled"):
+                continue
+            desc = adapter._descriptor()
             desc["authenticated"] = user._ai_is_authenticated(code)
             out.append(desc)
         return {"providers": out,

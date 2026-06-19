@@ -47,6 +47,24 @@ are in scope for security reports include:
   rules and the audit log all apply unchanged. The Discuss bot only answers
   internal users in the *AI Assistant User* group and is loop-guarded against its
   own messages.
+- **Per-provider tool gating — and the Antigravity exception.** Every provider
+  confines the model to the gated `mcp__odoo__*` tools by disabling the CLI's own
+  built-ins (Claude/Gemini/Codex/Grok deny shell/write/web through their CLI tool
+  config). The **experimental Antigravity (`agy`) provider is the one exception**:
+  `agy`'s permission engine only recognises the actions `command`, `write_file` and
+  `mcp`, so the adapter denies the built-in **shell** (`command(*)`) and
+  **file-write** (`write_file(*)`) via the per-user
+  `~/.gemini/antigravity-cli/settings.json`, but `agy` exposes **no permission
+  action for its web tools** (`read_url_content` / `search_web` / `browser`), which
+  therefore **cannot be disabled**. An Antigravity conversation thus has **ungated
+  outbound internet access** — a data-exfiltration vector under the untrusted-LLM
+  threat model (the model could read data via MCP and post it to an attacker URL).
+  For this reason Antigravity is **off by default and opt-in**
+  (`aidoo.antigravity.enabled`, hidden from the picker until an admin enables it)
+  and **must not be enabled for zero-trust / untrusted-data deployments** until
+  `agy` gains a way to deny its web tools. (`agy` also exits `0` even on hard
+  errors, writing them only to its log; the adapter surfaces the logged error so a
+  failure is not silently reported as success.)
 - **View context is access-checked** — the "Ask Aidoo" actions and the floating
   companion seed a conversation with the record or list the user is viewing.
   `/aidoo/new` validates the user's read access to that model/record before

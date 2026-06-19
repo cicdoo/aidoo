@@ -114,20 +114,26 @@
                         <t t-if="currentProvider.auth_mode === 'import_or_key'">
                             <div class="text-start">
                                 <label class="form-label fw-bold">Import credentials</label>
+                                <div t-if="currentProvider.auth_import_help"
+                                     class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
+                                     style="white-space: pre-line;"
+                                     t-esc="currentProvider.auth_import_help"/>
                                 <textarea class="form-control mb-1" rows="4"
-                                          placeholder="Paste the JSON contents of your credentials file"
+                                          t-att-placeholder="currentProvider.auth_import_placeholder"
                                           t-model="state.credsInput"/>
                                 <button class="btn btn-primary mb-3" t-on-click="_submitImport">
                                     Import &amp; connect
                                 </button>
-                                <label class="form-label fw-bold">…or use an API key</label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control"
-                                           placeholder="Paste API key" t-model="state.apiKeyInput"/>
-                                    <button class="btn btn-outline-primary" t-on-click="_submitKey">
-                                        Save key
-                                    </button>
-                                </div>
+                                <t t-if="currentProvider.auth_key">
+                                    <label class="form-label fw-bold">…or use an API key</label>
+                                    <div class="input-group">
+                                        <input type="password" class="form-control"
+                                               placeholder="Paste API key" t-model="state.apiKeyInput"/>
+                                        <button class="btn btn-outline-primary" t-on-click="_submitKey">
+                                            Save key
+                                        </button>
+                                    </div>
+                                </t>
                             </div>
                         </t>
 
