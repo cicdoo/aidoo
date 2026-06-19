@@ -7,3 +7,4 @@ from . import claude
 from . import codex
 from . import gemini
 from . import grok
+from . import antigravity

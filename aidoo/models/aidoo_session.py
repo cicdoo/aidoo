@@ -26,6 +26,7 @@ PROVIDERS = [
     ("codex", "Codex"),
     ("gemini", "Gemini"),
     ("grok", "Grok"),
+    ("antigravity", "Antigravity"),
 ]
 
 # Tools the model is allowed to call (Phase 1 = read-only). Kept in sync with the
@@ -177,9 +178,16 @@ class AiAssistantSession(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             vals.setdefault("scratch_uuid", str(uuid.uuid4()))
-            # Claude needs a client-chosen UUID; harmless for the others (the
-            # CLI's real id overwrites it on the first turn).
-            vals.setdefault("cli_session_id", str(uuid.uuid4()))
+            # Only providers that MINT their conversation id client-side (Claude:
+            # --session-id) get a pre-generated UUID. Providers that learn their
+            # id from the CLI stream (Codex/Gemini/Grok) must start with an EMPTY
+            # cli_session_id: a fabricated UUID would make their --resume/-r fire
+            # with an id the CLI has never stored, aborting the turn with
+            # "No previous sessions found for this project."
+            code = vals.get("provider") or self._default_provider()
+            model_name = "aidoo.provider.%s" % code
+            if model_name in self.env and self.env[model_name]._mints_session_id:
+                vals.setdefault("cli_session_id", str(uuid.uuid4()))
         return super().create(vals_list)
 
     @api.model

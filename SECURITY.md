@@ -28,8 +28,17 @@ unless you prefer to remain anonymous.
 Aidoo's threat model assumes the LLM output is **untrusted**. The defenses that
 are in scope for security reports include:
 
-- **No superuser execution** — tool endpoints abort if `request.env.su` is true;
-  every ORM call runs as the acting user with `ir.model.access` + record rules.
+- **No superuser execution** — tool enforcement + audit live in one place, the
+  `aidoo.tool.exec` model, which aborts if `self.env.su` is true; every ORM call
+  runs as the acting user with `ir.model.access` + record rules. Both callers go
+  through it: the loopback MCP bridge controller (CLI providers) and the native
+  in-process providers — so the per-user grant, model denylist and immutable
+  audit log apply identically regardless of how a tool is reached.
+- **Native (in-process) providers** — some providers (Gemini) run the agent loop
+  inside Odoo and execute tools by calling `aidoo.tool.exec` directly (no CLI
+  subprocess, no loopback HTTP, no MCP bridge token). They still run as the acting
+  user (`su=False`) with the same gating + audit; the model's built-in surface is
+  limited to the declared Odoo tools (no shell/file/web).
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
   `SET TRANSACTION READ ONLY` with a statement timeout.
@@ -39,6 +48,12 @@ are in scope for security reports include:
   through the `mcp__odoo__*` tools.
 - **Per-user credential isolation** — OAuth credentials are stored per user with
   mode `0600` and never exposed on a record.
+- **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
+  ships built-in web tools (read_url_content / search_web / browser) that its
+  permission engine **cannot deny** — so it has ungated internet access, a
+  data-exfiltration vector under the untrusted-LLM threat model. It is hidden
+  from the picker unless `aidoo.antigravity.enabled` is set, and must not be
+  enabled for zero-trust deployments. Its shell + file-write tools *are* denied.
 - **Background & bot runs act as a real user** — scheduled agents
   (`aidoo.scheduled`) and the Discuss bot (`models/discuss_channel.py`) do not add
   a new execution path: each goes through the same `aidoo.session.send_message` /
