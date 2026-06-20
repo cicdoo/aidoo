@@ -100,6 +100,13 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Native Gemini honors the configured Code Assist project** — the native
+  adapter ignored `res.users.aidoo_cloud_project` / `aidoo.gemini.cloud_project`
+  and always auto-onboarded into Google's individual/standard managed project. It
+  now uses the configured project (per-user first, then shared) as the
+  authoritative `cloudaicompanionProject`, which is required to use a Gemini Code
+  Assist **Enterprise** tier (granted per GCP project + per-account license). No
+  configured project keeps the previous auto behavior.
 - **Gemini unavailable-model (404) fallback** — if the configured model is not
   enabled on the account/tier (404 NOT_FOUND, e.g. `gemini-3.5-flash`), the
   adapter now falls back to `aidoo.gemini.fallback_model` with a notice instead of

@@ -184,7 +184,16 @@ class AidooProviderGemini(AidooProvider):
             except Exception:  # noqa: BLE001 — token persistence is best-effort
                 pass
 
+        # Code Assist project resolution. A CONFIGURED project (the user's own
+        # aidoo_cloud_project, else the shared aidoo.gemini.cloud_project) is
+        # authoritative — required to use a Gemini Code Assist *Enterprise* tier,
+        # which is granted on a specific GCP project + per-account license. With
+        # no configured project we fall back to the cached/auto-onboarded one
+        # (Google's individual/standard-tier managed project).
+        configured_project = ((user.aidoo_cloud_project or "").strip()
+                              or (self._pconfig("cloud_project", "") or "").strip())
         cached_project = self._read_text(self._project_path(user))
+        init_project = configured_project or cached_project or None
         runner = env["aidoo.runner"]
 
         def _on_retry(attempt, delay, reason):
@@ -203,7 +212,7 @@ class AidooProviderGemini(AidooProvider):
 
         rpm = int(self._pconfig("rpm_limit", 120) or 0)
         client = CodeAssistClient(
-            creds, save_creds=_save, project=cached_project or None,
+            creds, save_creds=_save, project=init_project,
             on_retry=_on_retry, rpm=rpm)
         model = self._model()
         # Lighter model to fall back to when the primary stays rate-limited (a
@@ -218,7 +227,9 @@ class AidooProviderGemini(AidooProvider):
         except CodeAssistError as e:
             yield {"op": "error", "text": _("Gemini authentication failed: %s") % e}
             return
-        if project and project != cached_project:
+        # Cache only an AUTO-resolved project; a configured one is authoritative
+        # and must not be overwritten by/stored as a stale cache.
+        if (not configured_project and project and project != cached_project):
             self._write_user_file(user, self._project_path(user), project)
 
         system_instruction = "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or "")

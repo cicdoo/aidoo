@@ -62,7 +62,11 @@ class ResConfigSettings(models.TransientModel):
     aidoo_gemini_cloud_project = fields.Char(
         string="Shared Google Cloud Project",
         config_parameter="aidoo.gemini.cloud_project",
-        help="Fallback GOOGLE_CLOUD_PROJECT when a user sets none.")
+        help="Code Assist project (GCP project id) used when a user sets no "
+             "personal one. Required to use a Gemini Code Assist ENTERPRISE "
+             "tier — the project where Code Assist is enabled and the per-user "
+             "license assigned. Empty = Google's auto individual/standard "
+             "project. A personal Gmail only ever gets the standard tier.")
     aidoo_gemini_output_format = fields.Selection(
         [("stream-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Gemini Output Format",
