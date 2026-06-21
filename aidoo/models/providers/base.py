@@ -23,7 +23,6 @@ only the five axes that actually diverge:
 This base implements the Claude-shaped defaults (per-user OAuth, JSON MCP config,
 identity appended to the prompt) so each adapter overrides as little as possible.
 """
-import json
 import logging
 import os
 
@@ -98,6 +97,22 @@ class AidooProvider(models.AbstractModel):
     # True when the CLI takes the system prompt via a dedicated flag rather than
     # folded into the user prompt text (Claude: --append-system-prompt).
     _uses_system_prompt_flag = True
+    # Auth panel customisation (import_or_key mode). Defaults keep the existing
+    # Gemini/Grok panel unchanged; providers override to guide the user.
+    _auth_key_supported = True       # show the "…or use an API key" field?
+    _auth_import_placeholder = "Paste the JSON contents of your credentials file"
+    _auth_import_help = ""           # extra instructions shown above the textarea
+    # True when the conversation id is CLIENT-minted and handed to the CLI on the
+    # first turn (Claude: --session-id <uuid> we generate). Providers that learn
+    # their conversation id FROM the CLI's stream (Codex thread id, Grok/Gemini
+    # session id) leave this False, so cli_session_id stays empty until a real id
+    # is captured — never a fabricated UUID the CLI has never stored.
+    _mints_session_id = False
+    # True for in-process (no subprocess) providers: the runner skips CLI path
+    # resolution and drives ``_run_stream`` directly instead of spawning a CLI.
+    # Used by the native Gemini adapter, which talks to the Code Assist API from
+    # Python because the Node gemini CLI cannot complete HTTPS to Google here.
+    _is_native = False
 
     # ------------------------------------------------------------------
     # Descriptor consumed by the frontend (provider picker + auth panel)
@@ -109,6 +124,9 @@ class AidooProvider(models.AbstractModel):
             "label": self._provider_label,
             "accent": self._accent_color,
             "auth_mode": self._auth_ui_mode,
+            "auth_key": self._auth_key_supported,
+            "auth_import_placeholder": self._auth_import_placeholder,
+            "auth_import_help": self._auth_import_help,
         }
 
     # ------------------------------------------------------------------
@@ -259,6 +277,19 @@ class AidooProvider(models.AbstractModel):
         """Optional fallback text when the CLI streamed no assistant message
         (e.g. read it from a --output-last-message file). Return None if N/A."""
         return None
+
+    # ------------------------------------------------------------------
+    # THE native run hook — implemented by in-process (``_is_native``) providers
+    # ------------------------------------------------------------------
+    def _run_stream(self, env, session, ctx):
+        """Drive an in-process turn, yielding the SAME ops ``_normalize_event``
+        emits (text / tool_use / tool_result / done / error). The runner applies
+        each op exactly as for CLI providers. The adapter owns the whole turn:
+        model calls, the tool-calling loop (executed in-process via
+        ``aidoo.tool.exec``), and conversation continuity. Only called when
+        ``_is_native`` is True."""
+        raise NotImplementedError(
+            "Native provider %s must implement _run_stream" % self._provider_code)
 
     # ------------------------------------------------------------------
     # THE stream parser — normalize one CLI event into common ops.

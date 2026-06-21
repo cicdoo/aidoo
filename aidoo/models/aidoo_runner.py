@@ -41,7 +41,10 @@ class AiAssistantRunner(models.AbstractModel):
     # ------------------------------------------------------------------
     def _launch(self, session, prompt, is_first, token):
         adapter = self._adapter(session)
-        cli_path = adapter._resolve_cli_path()
+        # Native (in-process) providers spawn no subprocess: skip CLI path
+        # resolution, the loopback bridge token/routing sid, and the CLI auth env.
+        native = adapter._is_native
+        cli_path = "" if native else adapter._resolve_cli_path()
         scratch = session._get_scratch_dir()
         model = adapter._model()
         max_turns = int(session._config("max_turns", 30))
@@ -49,12 +52,13 @@ class AiAssistantRunner(models.AbstractModel):
         base_url = session._config("base_url", "http://127.0.0.1:8069")
         python_bin = session._config("python_bin", "") or sys.executable
         target_db = session._target_db()
-        routing_sid = session._mint_routing_sid(target_db)
+        routing_sid = "" if native else session._mint_routing_sid(target_db)
         bridge_script = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "bridge", "mcp_server.py")
-        oauth_env = adapter._oauth_env(session.user_id)
+        oauth_env = {} if native else adapter._oauth_env(session.user_id)
         # Align the CLI's stored account identity with this Odoo user (Claude).
-        adapter._sync_cli_account(session.user_id)
+        if not native:
+            adapter._sync_cli_account(session.user_id)
         allowed_tools = sorted(session._effective_tools())
         excluded_models = sorted(session._ai_excluded_models())
         identity = session.user_id._ai_identity_prompt(set(allowed_tools))
@@ -104,12 +108,20 @@ class AiAssistantRunner(models.AbstractModel):
             session = env["aidoo.session"].browse(ctx["session_id"])
             runner = env["aidoo.runner"]
             try:
-                runner._execute(env, session, ctx)
+                if runner._adapter(session)._is_native:
+                    runner._execute_native(env, session, ctx)
+                else:
+                    runner._execute(env, session, ctx)
             except Exception as e:
                 _logger.exception("AI assistant run failed")
+                runner._finalize_pending_tools(env, session, "error")
                 session.write({"state": "error", "last_error": str(e)})
                 runner._emit(session, {"kind": "error", "error": str(e)})
                 cr.commit()
+                try:
+                    session._deliver_result(False)
+                except Exception:  # noqa: BLE001
+                    _logger.exception("AI assistant: result delivery failed")
 
     def _execute(self, env, session, ctx):
         adapter = self._adapter(session)
@@ -201,6 +213,11 @@ class AiAssistantRunner(models.AbstractModel):
                 produced_text["any"] = True
 
         session.write({"last_run_pid": False, "turn_count": session.turn_count + 1})
+        # Any tool call still marked "running" never received its result event
+        # (CLI exited mid-tool, timed out, or was stopped). Settle it so the
+        # chip doesn't spin forever once the frontend reloads.
+        self._finalize_pending_tools(
+            env, session, "done" if rc == 0 else "error", msg_map)
         if session.state == "running":
             if rc != 0:
                 session.write({"state": "error", "last_error": stderr[:2000]})
@@ -210,6 +227,55 @@ class AiAssistantRunner(models.AbstractModel):
                 session.write({"state": "done"})
                 self._emit(session, {"kind": "done"})
         env.cr.commit()
+        # Notify non-chat origins (scheduled agents, Discuss bot). A delivery
+        # failure must never crash the worker or roll back the finished turn.
+        try:
+            session._deliver_result(rc == 0)
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: result delivery failed")
+
+    # ------------------------------------------------------------------
+    # Native (in-process) execution — no subprocess, no stdout pump.
+    # The adapter's ``_run_stream`` generator yields the same ops the CLI
+    # parser would; we apply them with the identical machinery, plus a
+    # turn deadline checked between ops.
+    # ------------------------------------------------------------------
+    def _execute_native(self, env, session, ctx):
+        adapter = self._adapter(session)
+        _logger.info("AI assistant: native run provider=%s (session %s)",
+                     ctx["provider"], ctx["session_id"])
+        self._emit(session, {"kind": "started"})
+        env.cr.commit()
+
+        deadline = time.time() + ctx["timeout_s"]
+        msg_map = {}
+        produced_text = {"any": False}
+        try:
+            for op in adapter._run_stream(env, session, ctx):
+                if time.time() > deadline:
+                    raise TimeoutError("Run exceeded timeout")
+                if op:
+                    self._apply_op(env, session, op, msg_map, produced_text)
+                    env.cr.commit()
+        finally:
+            if ctx.get("routing_sid"):
+                env["aidoo.session"]._delete_routing_sid(ctx["routing_sid"])
+
+        session.write({"last_run_pid": False,
+                       "turn_count": session.turn_count + 1})
+        # An error op (yielded by the adapter) already set state="error" via
+        # _apply_op; otherwise settle the turn as done.
+        errored = session.state == "error"
+        self._finalize_pending_tools(
+            env, session, "error" if errored else "done", msg_map)
+        if session.state == "running":
+            session.write({"state": "done"})
+            self._emit(session, {"kind": "done"})
+        env.cr.commit()
+        try:
+            session._deliver_result(not errored)
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: result delivery failed")
 
     # ------------------------------------------------------------------
     # Apply one normalized op to the DB + bus
@@ -277,12 +343,41 @@ class AiAssistantRunner(models.AbstractModel):
         Msg = env["aidoo.message"]
         for rec_id in msg_map.values():
             rec = Msg.browse(rec_id)
-            calls = rec.tool_calls or []
+            # Rebuild with fresh dicts so the assignment differs from the cached
+            # value; mutating the cached list in place would make Odoo treat it
+            # as unchanged and skip the DB write, leaving the chip stuck on
+            # "running" once the frontend reloads from the DB.
+            calls = [dict(c) for c in (rec.tool_calls or [])]
             changed = False
             for call in calls:
                 if call.get("id") == tid:
                     call["result"] = (op.get("text") or "")[:4000]
                     call["status"] = "error" if op.get("is_error") else "done"
+                    changed = True
+            if changed:
+                rec.tool_calls = calls
+                self._emit_message(session, rec)
+
+    def _finalize_pending_tools(self, env, session, status, msg_map=None):
+        """Settle any tool calls left in the ``running`` state at turn end.
+
+        A call stays ``running`` when its result event never streamed (CLI
+        exited mid-tool, timed out, or was stopped). Flip those to a terminal
+        status so the chip stops spinning. Scans this turn's records when
+        ``msg_map`` is given, else every message in the session (error path)."""
+        Msg = env["aidoo.message"]
+        if msg_map is not None:
+            recs = Msg.browse([r for r in msg_map.values()])
+        else:
+            recs = session.message_ids
+        for rec in recs:
+            # Rebuild with fresh dicts; mutating the cached list in place looks
+            # unchanged to Odoo and the write would be skipped.
+            calls = [dict(c) for c in (rec.tool_calls or [])]
+            changed = False
+            for call in calls:
+                if call.get("status") not in ("done", "error"):
+                    call["status"] = status
                     changed = True
             if changed:
                 rec.tool_calls = calls
@@ -297,3 +392,23 @@ class AiAssistantRunner(models.AbstractModel):
 
     def _emit_message(self, session, rec):
         self._emit(session, {"kind": "message", "message": rec._to_frontend()[0]})
+
+    def _emit_notice(self, ctx, text):
+        """Emit a transient ``notice`` bus event on its OWN committed cursor.
+
+        A notice (e.g. "rate-limited, retrying in Ns…") must reach the client
+        while the run worker is blocked in a backoff ``time.sleep`` — there is no
+        commit on the worker's cursor during that wait, so we emit + commit on a
+        separate short cursor (same pattern as the audit log). Best-effort: a
+        failure here never disturbs the run. The notice is transient and not
+        persisted as a message."""
+        try:
+            with Registry(ctx["dbname"]).cursor() as cr:
+                env = api.Environment(cr, ctx["uid"], {})
+                session = env["aidoo.session"].browse(ctx["session_id"])
+                session.user_id.partner_id._bus_send(
+                    "aidoo", {"kind": "notice", "text": text,
+                              "session_id": session.id})
+                cr.commit()
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: notice emit failed")

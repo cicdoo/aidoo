@@ -2,117 +2,140 @@
 # Copyright 2026 CICDoo (https://cicdoo.com)
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-"""Gemini (Google Gemini CLI) provider adapter.
+"""Gemini provider — NATIVE (in-process) Code Assist adapter.
 
-Drives the headless ``gemini`` CLI with stream-json output and a stdio MCP
-bridge. Unlike Claude, Gemini has no --mcp-config / --settings / system-prompt
-flags: the Odoo MCP server and the built-in tool surface come from a per-session
-``<scratch>/.gemini/settings.json`` (loaded from the cwd workspace), the prompt
-(SYSTEM + IDENTITY + history + user turn) is fed via STDIN, and the built-in
-surface is narrowed with a ``tools.exclude`` list (an allowlist would also hide
-the MCP tools under gemini-cli 0.46+). Per-user auth is either imported OAuth
-``oauth_creds.json`` (Google login) or a Gemini API key.
+Unlike the other providers, Gemini does **not** drive a CLI subprocess. The Node
+``gemini`` CLI cannot complete HTTPS to Google in some egress environments (the
+response is reset mid-body — ``ERR_STREAM_PREMATURE_CLOSE``), even though Python's
+HTTP stack works fine there. So this adapter talks to the same backend the CLI
+uses for Google-login ("subscription") auth — the Code Assist API at
+``cloudcode-pa.googleapis.com`` — directly from Python (see ``codeassist.py``),
+and runs the agent tool-calling loop in-process.
+
+It is marked ``_is_native = True``; the runner drives ``_run_stream`` (a generator
+of the same ops the CLI parsers emit) instead of spawning a process. Tools are
+executed in-process through ``aidoo.tool.exec`` — the same enforcement + audit
+path the loopback MCP bridge uses — so su=False and the audit log are preserved.
+
+Auth UX is unchanged: the user imports their ``oauth_creds.json`` (Google login).
+The legacy CLI adapter is preserved, unregistered, in ``gemini_cli.py``.
 """
 import json
 import os
+import uuid
 
 from odoo import _
 from odoo.exceptions import UserError
 
 from .base import AidooProvider, SYSTEM_PROMPT
-from ..aidoo_session import WEB_TOOLS
+from .codeassist import CodeAssistClient, CodeAssistError, DEFAULT_METADATA
 
-# Built-in Gemini CLI tools the model is allowed to keep. We restrict the
-# built-in surface to file READS (so it can open user attachments in the
-# workspace) — everything else is withheld, leaving the gated Odoo MCP tools as
-# the only way to touch the database. Web tools are added only when granted.
-CORE_TOOLS_BASE = ["read_file", "read_many_files"]
-# Gemini's built-in web tool names, mapped from our per-user web grants.
-WEB_TOOL_BUILTINS = {"web_fetch": "web_fetch", "web_search": "google_web_search"}
-# Every Gemini CLI built-in tool name. We restrict the built-in surface with an
-# EXCLUDE list (the built-ins NOT in CORE_TOOLS_BASE / not granted) rather than a
-# `tools.core` ALLOWLIST: in gemini-cli 0.46+ a core allowlist also hides every
-# MCP tool, which makes the gated Odoo MCP tools invisible to the model. Keep
-# this list current with the CLI's built-in tool set.
-ALL_BUILTIN_TOOLS = [
-    "run_shell_command", "write_file", "replace", "save_memory",
-    "list_directory", "read_file", "read_many_files",
-    "search_file_content", "glob", "web_fetch", "google_web_search",
-    # gemini-cli 0.46 internal planning tool — withheld so its verbose
-    # "topic/strategic_intent" calls don't clutter the chat transcript.
-    "update_topic",
-]
+# The Odoo tool input schemas live in the (standalone, credential-free) MCP
+# bridge script. Lazy-load them once and reuse so the function declarations
+# advertised to Gemini stay single-sourced with what the CLI bridge exposes.
+_BRIDGE_TOOLS = None
+
+
+def _bridge_tool_schemas():
+    global _BRIDGE_TOOLS
+    if _BRIDGE_TOOLS is None:
+        import importlib.util
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "bridge", "mcp_server.py")
+        spec = importlib.util.spec_from_file_location("aidoo_bridge_mcp", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BRIDGE_TOOLS = list(getattr(mod, "TOOLS", []))
+    return _BRIDGE_TOOLS
+
+
+def _sanitize_schema(schema):
+    """Convert an MCP JSON-Schema into the OpenAPI subset Gemini accepts.
+
+    Keeps type/description/enum/format/properties/required/items; drops keys
+    Gemini rejects (notably ``default``); collapses union ``type`` lists to a
+    single type. Recurses into nested properties and array items."""
+    if not isinstance(schema, dict):
+        return {"type": "string"}
+    out = {}
+    for k in ("description", "enum", "format"):
+        if k in schema:
+            out[k] = schema[k]
+    t = schema.get("type")
+    if isinstance(t, list):
+        t = next((x for x in t if x != "null"), "string")
+    if t:
+        out["type"] = t
+    if isinstance(schema.get("properties"), dict):
+        out["type"] = "object"
+        out["properties"] = {
+            k: _sanitize_schema(v) for k, v in schema["properties"].items()}
+        if schema.get("required"):
+            out["required"] = list(schema["required"])
+    if "items" in schema:
+        out["type"] = "array"
+        out["items"] = _sanitize_schema(schema["items"]) or {"type": "string"}
+    # Gemini (notably gemini-2.5-flash) rejects an array property with no `items`
+    # (Code Assist 400). Odoo's bare arrays — `domain`, `*args`, sql `params` —
+    # hold heterogeneous/nested values the OpenAPI subset can't type, so expose
+    # them as a JSON string the model fills; aidoo.tool.exec parses it back.
+    if out.get("type") == "array" and "items" not in out:
+        desc = (out.get("description") or "").strip()
+        hint = ('Pass as a JSON array string, e.g. '
+                '[["field", "operator", value]].')
+        return {"type": "string", "description": (desc + " " + hint).strip()}
+    out.setdefault("type", "object" if "properties" in out else "string")
+    return out
 
 
 class AidooProviderGemini(AidooProvider):
     _name = "aidoo.provider.gemini"
     _inherit = "aidoo.provider"
-    _description = "Aidoo Provider — Gemini"
+    _description = "Aidoo Provider — Gemini (native Code Assist)"
 
     _provider_code = "gemini"
     _provider_label = "Gemini"
     _accent_color = "#714b67"
     _config_dir_name = ".gemini"
-    _default_cli_glob = "/usr/local/bin/gemini"
-    _default_model = ""
+    # Default to flash: on Code Assist the pro model has a much lower per-model
+    # rate limit, so it 429s on almost every turn; flash has the headroom for a
+    # smooth chat. Admins who want pro can set aidoo.gemini.model = gemini-2.5-pro
+    # (and keep aidoo.gemini.fallback_model = gemini-2.5-flash for graceful 429s).
+    _default_model = "gemini-2.5-flash"
     _auth_ui_mode = "import_or_key"
     _uses_system_prompt_flag = False
+    _is_native = True
 
     # ------------------------------------------------------------------
-    # Runtime env: HOME + GEMINI_CLI_HOME (per user) + auth + workspace trust
-    # ------------------------------------------------------------------
-    def _oauth_env(self, user):
-        """Point the CLI at THIS user's private home (where its .gemini config /
-        credentials live) and merge the user's chosen authentication.
-
-        Isolating HOME and GEMINI_CLI_HOME per user keeps credentials, config and
-        session state fully separate, and lets the CLI refresh that user's OAuth
-        token in place. OAuth import takes precedence: when imported creds exist
-        we do NOT set GEMINI_API_KEY, so the CLI uses the OAuth path."""
-        home = self._home_dir(user)
-        # Ensure the config dir exists so the CLI can read/refresh creds there.
-        self._config_dir(user, create=True)
-        env = {
-            "HOME": home,
-            "GEMINI_CLI_HOME": home,  # -> <home>/.gemini
-            # Trust the scratch workspace so the project .gemini/settings.json
-            # loads without an interactive folder-trust prompt.
-            "GEMINI_CLI_TRUST_WORKSPACE": "true",
-        }
-        if not self._has_oauth(user):
-            key = self._api_key(user)
-            if key:
-                env["GEMINI_API_KEY"] = key
-        project = (user.aidoo_cloud_project or "").strip() or (
-            self._pconfig("cloud_project", "") or "")
-        if project:
-            env["GOOGLE_CLOUD_PROJECT"] = project
-        return env
-
-    # ------------------------------------------------------------------
-    # Per-user credential files (under the .gemini config dir)
+    # Per-user credential / cache files (under the .gemini config dir)
     # ------------------------------------------------------------------
     def _oauth_creds_path(self, user):
         return os.path.join(self._config_dir(user), "oauth_creds.json")
 
     def _api_key_path(self, user):
-        """Per-user Gemini API key file (on disk, mode 0600, never the DB)."""
         return os.path.join(self._config_dir(user), "api_key")
 
-    def _has_oauth(self, user):
-        """True if a usable imported OAuth credential file is present."""
+    def _project_path(self, user):
+        """Cached Code Assist project id (so we skip onboarding each turn)."""
+        return os.path.join(self._config_dir(user), "code_assist_project")
+
+    def _load_oauth(self, user):
+        """Return the imported OAuth creds dict, or None if absent/unusable."""
         try:
             with open(self._oauth_creds_path(user), "r") as f:
                 data = json.load(f)
         except (OSError, ValueError):
-            return False
-        if not isinstance(data, dict):
-            return False
-        return bool(data.get("refresh_token") or data.get("access_token"))
+            return None
+        if isinstance(data, dict) and (
+                data.get("refresh_token") or data.get("access_token")):
+            return data
+        return None
+
+    def _has_oauth(self, user):
+        return bool(self._load_oauth(user))
 
     def _api_key(self, user):
-        """The effective Gemini API key for this user: the per-user key if set,
-        else the shared `aidoo.gemini.api_key` system parameter (may be empty)."""
         try:
             with open(self._api_key_path(user), "r") as f:
                 key = f.read().strip()
@@ -123,237 +146,218 @@ class AidooProviderGemini(AidooProvider):
         return self._pconfig("api_key", "") or ""
 
     def _is_authenticated(self, user):
-        """True if this user can run the CLI: imported OAuth creds or an API key."""
+        """True if the user can run: imported OAuth creds or an API key."""
         return bool(self._has_oauth(user) or self._api_key(user))
 
+    @staticmethod
+    def _read_text(path):
+        try:
+            with open(path, "r") as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
     # ------------------------------------------------------------------
-    # Prompt assembly (no system-prompt flag — fold everything into stdin)
+    # Prompt: native assembles structured `contents` in _run_stream; here we
+    # only need the composed current-turn user text (+ attachment manifest).
     # ------------------------------------------------------------------
     def _build_prompt(self, session, body, paths, is_first, identity):
-        """Fold the system prompt, identity block, prior history (when not the
-        first turn) and the user message into one stdin prompt.
-
-        Gemini has no system-prompt flag, so the SYSTEM prompt leads the text;
-        the identity block (which reflects the current tool grant) is included
-        every turn; prior turns are replayed from history because Gemini headless
-        does not reliably emit a resumable session id."""
-        parts = [SYSTEM_PROMPT, identity]
-        if not is_first:
-            history = session._history_for_prompt()
-            if history:
-                parts.append("--- CONVERSATION SO FAR ---\n" + history)
-        parts.append("--- USER MESSAGE ---\n" + session._compose_prompt(body, paths))
-        return "\n\n".join(parts)
+        return session._compose_prompt(body, paths)
 
     # ------------------------------------------------------------------
-    # Launch: write .gemini/settings.json, build argv/env; prompt via stdin
+    # The native turn: Code Assist streaming + in-process tool loop
     # ------------------------------------------------------------------
-    def _prepare_run(self, ctx):
-        settings_path = self._write_settings(ctx)
-        argv = self._build_argv(ctx)
-        env = self._base_run_env(ctx)
-        # Gemini reads settings.json from the cwd's .gemini dir.
-        return {
-            "argv": argv,
-            "env": env,
-            "cwd": ctx["scratch"],
-            "stdin": ctx["prompt"],
-            "cleanup": [settings_path],
-        }
+    def _run_stream(self, env, session, ctx):
+        user = session.user_id.sudo()
+        creds = self._load_oauth(user)
+        if not creds:
+            yield {"op": "error", "text": _(
+                "Connect Gemini with your Google login (import your "
+                "oauth_creds.json) to chat. API-key auth is not yet supported by "
+                "the native Gemini adapter.")}
+            return
 
-    def _build_argv(self, ctx):
-        """Build the headless `gemini` argv for this turn.
+        def _save(new_creds):
+            try:
+                self._write_user_file(
+                    user, self._oauth_creds_path(user), json.dumps(new_creds))
+            except Exception:  # noqa: BLE001 — token persistence is best-effort
+                pass
 
-        The MCP server and the built-in tool allowlist come from the per-session
-        `.gemini/settings.json` in the scratch cwd (Gemini has no
-        --mcp-config/--settings flags). The prompt is read from STDIN (no -p), so
-        the SYSTEM/IDENTITY block can never be mistaken for a CLI flag.
+        # Code Assist project resolution. A CONFIGURED project (the user's own
+        # aidoo_cloud_project, else the shared aidoo.gemini.cloud_project) is
+        # authoritative — required to use a Gemini Code Assist *Enterprise* tier,
+        # which is granted on a specific GCP project + per-account license. With
+        # no configured project we fall back to the cached/auto-onboarded one
+        # (Google's individual/standard-tier managed project).
+        configured_project = ((user.aidoo_cloud_project or "").strip()
+                              or (self._pconfig("cloud_project", "") or "").strip())
+        cached_project = self._read_text(self._project_path(user))
+        init_project = configured_project or cached_project or None
+        runner = env["aidoo.runner"]
 
-        --approval-mode yolo auto-approves tool calls (no TTY to approve them in
-        headless mode); combined with the MCP server's `trust: true` and the
-        restricted built-in surface, the only capabilities the model has are the
-        loopback-only, token-gated Odoo MCP tools plus reading the user's
-        attachments in the workspace."""
-        output_format = ctx.get("output_format") or "stream-json"
-        argv = [ctx["cli_path"], "--output-format", output_format]
-        if ctx["model"]:
-            argv += ["--model", ctx["model"]]
-        argv += ["--approval-mode", "yolo"]
-        # Confine the built-in file tools to the per-session uploads dir (in
-        # addition to the cwd workspace), so the model can open attachments.
-        argv += ["--include-directories", ctx["uploads_dir"]]
-        # Best-effort conversation continuity (Gemini headless does not always
-        # emit a session id; the prompt history is the reliable fallback).
-        if not ctx["is_first"] and ctx["cli_session_id"]:
-            argv += ["--resume", ctx["cli_session_id"]]
-        return argv
+        def _on_retry(attempt, delay, reason):
+            # Surface a live "retrying…" notice during the client's backoff wait
+            # (emitted on its own committed cursor, so it reaches the chat even
+            # while this worker is blocked in time.sleep). Stay quiet for the
+            # first quick retry that recovers on its own; only speak up for a
+            # longer wait or a later attempt, so the chat isn't noisy.
+            if attempt < 2 and delay < 8:
+                return
+            if reason == 429:
+                text = _("Gemini is rate-limited — retrying in %ss…") % int(delay)
+            else:
+                text = _("Gemini is busy — retrying in %ss…") % int(delay)
+            runner._emit_notice(ctx, text)
 
-    def _write_settings(self, ctx):
-        """Write `<scratch>/.gemini/settings.json` for this turn.
+        rpm = int(self._pconfig("rpm_limit", 120) or 0)
+        client = CodeAssistClient(
+            creds, save_creds=_save, project=init_project,
+            on_retry=_on_retry, rpm=rpm)
+        model = self._model()
+        # Lighter model to fall back to when the primary stays rate-limited (a
+        # separate quota bucket). Empty disables fallback; same-as-primary is a
+        # no-op. Mirrors the gemini CLI's onPersistent429 -> flash behaviour.
+        fallback_model = (self._pconfig("fallback_model", "gemini-2.5-flash")
+                          or "").strip()
+        fallback_used = False
 
-        Holds the Odoo MCP server definition and the built-in tool exclude list.
-        Built-ins to withhold: everything the CLI ships except the file reads in
-        CORE_TOOLS_BASE and any granted web tools. Expressed as an exclude list
-        (not a `tools.core` allowlist) so the Odoo MCP tools stay visible under
-        gemini-cli 0.46+."""
-        web_builtins = [WEB_TOOL_BUILTINS[t]
-                        for t in ctx["allowed_tools"] if t in WEB_TOOLS]
-        allowed = set(CORE_TOOLS_BASE) | set(web_builtins)
-        exclude = sorted(t for t in ALL_BUILTIN_TOOLS if t not in allowed)
-        cfg = {
-            "mcpServers": {
-                "odoo": {
-                    "command": ctx["python_bin"],
-                    "args": [ctx["bridge_script"]],
-                    "env": self._bridge_env(ctx),
-                    "trust": True,
-                },
-            },
-            # Nested form (current schema). Restrict the built-in surface to the
-            # file-read tools (+ granted web tools); everything else is withheld.
-            "tools": {"exclude": exclude},
-            # Avoid an interactive folder-trust prompt for the scratch workspace.
-            "security": {"folderTrust": {"enabled": False}},
-        }
-        gdir = os.path.join(ctx["scratch"], ".gemini")
-        os.makedirs(gdir, mode=0o700, exist_ok=True)
-        path = os.path.join(gdir, "settings.json")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(cfg, f)
-        return path
+        try:
+            project = client.ensure_project(DEFAULT_METADATA)
+        except CodeAssistError as e:
+            yield {"op": "error", "text": _("Gemini authentication failed: %s") % e}
+            return
+        # Cache only an AUTO-resolved project; a configured one is authoritative
+        # and must not be overwritten by/stored as a stale cache.
+        if (not configured_project and project and project != cached_project):
+            self._write_user_file(user, self._project_path(user), project)
 
-    def _post_run(self, ctx, rc, stderr):
-        """The streamed parser handles assistant text (including the trailing
-        `result`/final-json `response`), so there is no on-disk fallback file to
-        read here."""
-        return None
+        system_instruction = "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or "")
+        tools = self._function_declarations(ctx.get("allowed_tools") or [])
+        contents = self._build_contents(session, ctx)
+        max_rounds = max(1, int(ctx.get("max_turns") or 30))
+
+        for rnd in range(max_rounds):
+            msg_id = "g%s-%s" % (session.turn_count, rnd)
+            # Stream one model round, with a one-shot fallback to the lighter
+            # model if the primary is still rate-limited after the client's
+            # own backoff. Re-running a round is only safe before any text has
+            # streamed for it (so we never duplicate output).
+            while True:
+                upid = uuid.uuid4().hex
+                model_parts = []
+                func_calls = []
+                produced = False
+                try:
+                    for resp in client.stream_generate(
+                            model, contents,
+                            system_instruction=system_instruction,
+                            tools=tools, user_prompt_id=upid):
+                        for part in CodeAssistClient.iter_parts(resp):
+                            if part.get("functionCall"):
+                                model_parts.append(part)
+                                func_calls.append(part["functionCall"])
+                            elif part.get("text") and not part.get("thought"):
+                                model_parts.append(part)
+                                produced = True
+                                yield {"op": "text", "msg_id": msg_id,
+                                       "text": part["text"]}
+                    break  # round streamed successfully
+                except CodeAssistError as e:
+                    # Fall back to the lighter model when the primary is either
+                    # rate-limited (429) or unavailable on this tier (404). Only
+                    # safe before any text streamed this round (no duplication).
+                    if ((e.is_rate_limit or e.is_not_found) and fallback_model
+                            and fallback_model != model
+                            and not fallback_used and not produced):
+                        fallback_used = True
+                        if e.is_not_found:
+                            note = _("Model %(bad)s is unavailable — using "
+                                     "%(fb)s instead…") % {
+                                "bad": model, "fb": fallback_model}
+                        else:
+                            note = _("Gemini rate-limited — switching to %s for "
+                                     "this reply…") % fallback_model
+                        model = fallback_model
+                        runner._emit_notice(ctx, note)
+                        continue  # retry this round on the fallback model
+                    yield {"op": "error",
+                           "text": _("Gemini request failed: %s") % e}
+                    return
+
+            if not func_calls:
+                return  # turn complete; the runner finalizes the 'done' state
+
+            # Record the model's turn (text + functionCalls) for continuity.
+            contents.append({"role": "model", "parts": model_parts})
+
+            # Execute each requested tool in-process and feed results back.
+            resp_parts = []
+            for idx, fc in enumerate(func_calls):
+                name = fc.get("name") or ""
+                args = fc.get("args") if isinstance(fc.get("args"), dict) else {}
+                tid = "%s-%s" % (msg_id, idx)
+                yield {"op": "tool_use", "msg_id": msg_id, "id": tid,
+                       "name": name, "input": args}
+                result = env["aidoo.tool.exec"]._dispatch(session, name, args)
+                is_error = isinstance(result, dict) and set(result) == {"error"}
+                yield {"op": "tool_result", "id": tid,
+                       "text": json.dumps(result, default=str, ensure_ascii=False),
+                       "is_error": bool(is_error)}
+                resp_parts.append({"functionResponse": {
+                    "name": name,
+                    "response": result if isinstance(result, dict)
+                    else {"result": result}}})
+            contents.append({"role": "user", "parts": resp_parts})
+
+        yield {"op": "text", "msg_id": "g%s-cap" % session.turn_count,
+               "text": _("\n\n_(stopped after %s tool rounds)_") % max_rounds}
 
     # ------------------------------------------------------------------
-    # Stream parsing: Gemini stream-json (JSONL) -> common ops.
-    # Defensive: gemini-cli has churned field names across versions, so each
-    # extraction tries several aliases.
+    # Contents / tool-schema assembly
     # ------------------------------------------------------------------
-    def _normalize_event(self, evt, state):
-        etype = evt.get("type") or ""
-        ops = []
+    def _build_contents(self, session, ctx):
+        """Replay prior user/assistant text as structured Vertex contents, then
+        append this turn's user message. Code Assist does not expose a resumable
+        server session for headless turns, so context is replayed each turn."""
+        contents = []
+        msgs = session.message_ids.filtered(
+            lambda m: m.role in ("user", "assistant")).sorted("id")
+        # The current turn's user message was just persisted (it is the last
+        # one); replay only PRIOR turns here and add this turn from ctx['prompt'].
+        prior = msgs[:-1] if msgs else msgs
+        for m in prior[-20:]:
+            body = m.body or ""
+            if not body:
+                continue
+            role = "user" if m.role == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": body}]})
+        contents.append({
+            "role": "user", "parts": [{"text": ctx.get("prompt") or ""}]})
+        return contents
 
-        # init carries the Gemini session id used to resume later turns.
-        if etype in ("init", "session", "system"):
-            sid = (evt.get("session_id") or evt.get("sessionId")
-                   or (evt.get("session") or {}).get("id")
-                   or (evt.get("data") or {}).get("session_id"))
-            if sid:
-                ops.append({"op": "session_id", "id": sid})
-            return ops
+    def _function_declarations(self, allowed_tools):
+        """Gemini functionDeclarations for the user's granted Odoo tools.
 
-        if etype == "message":
-            role = evt.get("role") or (evt.get("message") or {}).get("role")
-            if role and role != "assistant":
-                return ops
-            text = self._event_text(evt)
-            if not text:
-                return ops
-            is_delta = bool(evt.get("delta") or evt.get("subtype") == "delta")
-            mid = (evt.get("id") or evt.get("message_id")
-                   or (evt.get("message") or {}).get("id"))
-            op = {"op": "text", "msg_id": mid, "text": text}
-            # Gemini streams DELTAS; append them. A full (non-delta) message
-            # replaces the accumulated text.
-            if not is_delta:
-                op["replace"] = True
-            ops.append(op)
-            return ops
-
-        if etype in ("tool_use", "tool_call"):
-            tid = (evt.get("id") or evt.get("tool_use_id")
-                   or evt.get("call_id") or evt.get("callId")
-                   or evt.get("tool_id"))  # gemini-cli 0.46 uses tool_id
-            name = (evt.get("name") or evt.get("tool")
-                    or evt.get("tool_name") or "tool")
-            tool_input = (evt.get("input") or evt.get("args")
-                          or evt.get("arguments") or evt.get("parameters") or {})
-            ops.append({
-                "op": "tool_use",
-                "msg_id": (evt.get("message_id") or evt.get("msg_id")),
-                "id": tid,
-                "name": self._strip_tool_prefix(name),
-                "input": tool_input if isinstance(tool_input, dict) else {},
+        Web/file built-ins are CLI-only and not offered here; the Odoo tools come
+        from the shared bridge schema and are filtered to what the user is granted
+        (the executor re-checks the grant authoritatively at call time)."""
+        try:
+            schemas = _bridge_tool_schemas()
+        except Exception:  # noqa: BLE001 — never let schema loading break a run
+            schemas = []
+        allowed = set(allowed_tools)
+        decls = []
+        for t in schemas:
+            if t.get("name") not in allowed:
+                continue
+            decls.append({
+                "name": t["name"],
+                "description": t.get("description") or "",
+                "parameters": _sanitize_schema(
+                    t.get("inputSchema") or {"type": "object"}),
             })
-            return ops
-
-        if etype == "tool_result":
-            tid = (evt.get("tool_use_id") or evt.get("id")
-                   or evt.get("call_id") or evt.get("callId")
-                   or evt.get("tool_id"))  # gemini-cli 0.46 uses tool_id
-            result = (evt.get("result") if evt.get("result") is not None
-                      else evt.get("output"))
-            if isinstance(result, (dict, list)):
-                result = json.dumps(result, default=str)
-            is_error = bool(evt.get("is_error") or evt.get("isError")
-                            or evt.get("error") or evt.get("status") == "error")
-            ops.append({
-                "op": "tool_result", "id": tid,
-                "text": str(result) if result is not None else "",
-                "is_error": is_error,
-            })
-            return ops
-
-        if etype == "result":
-            if evt.get("error"):
-                ops.append({"op": "error",
-                            "text": self._error_text(evt.get("error"))})
-                return ops
-            text = evt.get("response") or self._event_text(evt)
-            ops.append({"op": "done", "text": text or None})
-            return ops
-
-        if etype == "error":
-            ops.append({"op": "error",
-                        "text": self._error_text(evt.get("error") or evt)})
-            return ops
-
-        # Unknown event — never raise.
-        return ops
-
-    # ------------------------------------------------------------------
-    # Defensive text/error extraction helpers (ported from geminoo).
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _event_text(evt):
-        """Pull assistant text out of a Gemini event under any known key."""
-        for key in ("delta", "text", "content", "response"):
-            val = evt.get(key)
-            if isinstance(val, str) and val:
-                return val
-        msg = evt.get("message")
-        if isinstance(msg, dict):
-            return AidooProviderGemini._content_text(msg.get("content"))
-        if isinstance(msg, str):
-            return msg
-        return AidooProviderGemini._content_text(evt.get("content"))
-
-    @staticmethod
-    def _content_text(content):
-        """Flatten a list-of-blocks content payload into plain text."""
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            out = []
-            for b in content:
-                if isinstance(b, dict):
-                    out.append(b.get("text") or b.get("content") or "")
-                elif isinstance(b, str):
-                    out.append(b)
-            return "".join(out)
-        return ""
-
-    @staticmethod
-    def _error_text(err):
-        if isinstance(err, dict):
-            return (err.get("message") or err.get("error")
-                    or json.dumps(err, default=str))
-        return err if isinstance(err, str) else "Gemini run failed."
+        return [{"functionDeclarations": decls}] if decls else None
 
     # ------------------------------------------------------------------
     # Authentication — import OAuth creds blob OR set a Gemini API key
@@ -362,9 +366,8 @@ class AidooProviderGemini(AidooProvider):
         """Validate and store an imported Gemini OAuth credentials blob.
 
         ``blob`` is the JSON content of a ``~/.gemini/oauth_creds.json`` produced
-        by `gemini` Google login on a machine with a browser. We persist it for
-        this user; the CLI auto-refreshes the access token via the refresh_token.
-        """
+        by ``gemini`` Google login on a machine with a browser. The access token
+        is auto-refreshed via the refresh_token on each turn."""
         blob = (blob or "").strip()
         if not blob:
             raise UserError(_("Paste your Gemini oauth_creds.json content."))
@@ -381,6 +384,11 @@ class AidooProviderGemini(AidooProvider):
                 "machine with a browser, then paste ~/.gemini/oauth_creds.json."))
         self._write_user_file(
             user, self._oauth_creds_path(user), json.dumps(data))
+        # Drop any stale cached project so the next turn re-resolves it.
+        try:
+            os.remove(self._project_path(user))
+        except OSError:
+            pass
         return {"authenticated": True}
 
     def _auth_set_key(self, user, key):
@@ -398,7 +406,8 @@ class AidooProviderGemini(AidooProvider):
 
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-connection)."""
-        for path in (self._oauth_creds_path(user), self._api_key_path(user)):
+        for path in (self._oauth_creds_path(user), self._api_key_path(user),
+                     self._project_path(user)):
             try:
                 os.remove(path)
             except OSError:

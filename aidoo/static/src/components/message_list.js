@@ -20,6 +20,27 @@ export class AiMessageList extends Component {
         onPatched(() => this._scrollToBottom());
     }
 
+    // A single turn often arrives as several assistant messages (Claude tags
+    // each with its own id), many of which carry only tool calls and no text.
+    // Merge consecutive assistant messages into one bubble so their tool calls
+    // share a single collapsible fold instead of stacking up separately.
+    get displayMessages() {
+        const out = [];
+        for (const msg of this.props.messages) {
+            const last = out[out.length - 1];
+            if (msg.role === "assistant" && last && last.role === "assistant") {
+                const bodies = [last.body, msg.body].filter((b) => b && b.trim());
+                last.body = bodies.join("\n\n");
+                last.tool_calls = [...(last.tool_calls || []), ...(msg.tool_calls || [])];
+                last.attachments = [...(last.attachments || []), ...(msg.attachments || [])];
+            } else {
+                // Shallow clone so merging never mutates the upstream state.
+                out.push({ ...msg });
+            }
+        }
+        return out;
+    }
+
     _scrollToBottom() {
         const el = this.scrollRef.el;
         if (el) {

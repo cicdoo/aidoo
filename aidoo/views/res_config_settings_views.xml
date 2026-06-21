@@ -66,6 +66,12 @@
                         <setting string="Model">
                             <field name="aidoo_gemini_model"/>
                         </setting>
+                        <setting string="Fallback Model" help="Lighter model used when the primary is rate-limited (429); separate quota bucket. Empty disables.">
+                            <field name="aidoo_gemini_fallback_model" placeholder="gemini-2.5-flash"/>
+                        </setting>
+                        <setting string="Requests/min Cap" help="Proactive cap on Code Assist requests per minute (per project, per worker). 0 disables. Limits are also per-model.">
+                            <field name="aidoo_gemini_rpm_limit"/>
+                        </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_gemini_auth_mode"/>
                         </setting>
@@ -95,6 +101,19 @@
                         </setting>
                         <setting string="Output Format">
                             <field name="aidoo_grok_output_format"/>
+                        </setting>
+                    </block>
+
+                    <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
+                        <setting string="Enable Antigravity"
+                                 help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">
+                            <field name="aidoo_antigravity_enabled"/>
+                        </setting>
+                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
+                            <field name="aidoo_antigravity_cli_path" placeholder="auto-detect"/>
+                        </setting>
+                        <setting string="Model">
+                            <field name="aidoo_antigravity_model"/>
                         </setting>
                     </block>
 

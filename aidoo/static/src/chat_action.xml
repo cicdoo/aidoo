@@ -18,15 +18,29 @@
                     <button class="btn btn-primary w-100" t-on-click="_newSession">
                         <i class="fa fa-plus me-1"/> New chat
                     </button>
+                    <div class="o_ai_search input-group input-group-sm mt-2">
+                        <span class="input-group-text"><i class="fa fa-search"/></span>
+                        <input type="text" class="form-control"
+                               placeholder="Search conversations"
+                               t-model="state.searchQuery"/>
+                        <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ state.favoritesOnly ? 'active' : '' }}"
+                                title="Show favorites only"
+                                t-on-click="() => state.favoritesOnly = !state.favoritesOnly">
+                            <i t-attf-class="fa {{ state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
+                        </button>
+                    </div>
                 </div>
                 <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="state.sessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 {{ s.id === state.currentId ? 'active' : '' }}"
+                    <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
+                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
                             <i class="fa fa-comment-o me-1"/>
-                            <span t-esc="s.name"/>
+                            <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
                             <span class="badge bg-secondary ms-1 text-uppercase"
                                   style="font-size:0.6rem;" t-esc="s.provider"/>
+                            <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
+                               title="Favorite"
+                               t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
                         </div>
                     </t>
                 </div>
@@ -100,20 +114,26 @@
                         <t t-if="currentProvider.auth_mode === 'import_or_key'">
                             <div class="text-start">
                                 <label class="form-label fw-bold">Import credentials</label>
+                                <div t-if="currentProvider.auth_import_help"
+                                     class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
+                                     style="white-space: pre-line;"
+                                     t-esc="currentProvider.auth_import_help"/>
                                 <textarea class="form-control mb-1" rows="4"
-                                          placeholder="Paste the JSON contents of your credentials file"
+                                          t-att-placeholder="currentProvider.auth_import_placeholder"
                                           t-model="state.credsInput"/>
                                 <button class="btn btn-primary mb-3" t-on-click="_submitImport">
                                     Import &amp; connect
                                 </button>
-                                <label class="form-label fw-bold">…or use an API key</label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control"
-                                           placeholder="Paste API key" t-model="state.apiKeyInput"/>
-                                    <button class="btn btn-outline-primary" t-on-click="_submitKey">
-                                        Save key
-                                    </button>
-                                </div>
+                                <t t-if="currentProvider.auth_key">
+                                    <label class="form-label fw-bold">…or use an API key</label>
+                                    <div class="input-group">
+                                        <input type="password" class="form-control"
+                                               placeholder="Paste API key" t-model="state.apiKeyInput"/>
+                                        <button class="btn btn-outline-primary" t-on-click="_submitKey">
+                                            Save key
+                                        </button>
+                                    </div>
+                                </t>
                             </div>
                         </t>
 
@@ -124,9 +144,16 @@
 
                 <!-- Chat surface (current provider connected) -->
                 <t t-if="isAuthed">
+                    <div t-if="state.contextLabel"
+                         class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
+                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
+                    </div>
                     <AiMessageList messages="state.messages" running="state.running"
                                    onOpenArtifact.bind="openArtifact"/>
                     <div t-if="state.running" class="px-2 pb-1">
+                        <div t-if="state.notice" class="small text-muted fst-italic mb-1">
+                            <i class="fa fa-clock-o me-1"/><t t-esc="state.notice"/>
+                        </div>
                         <button class="btn btn-sm btn-link text-danger" t-on-click="onStop">
                             <i class="fa fa-stop me-1"/> Stop
                         </button>
