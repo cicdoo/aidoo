@@ -7,7 +7,155 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Native (in-process) Gemini provider** — Gemini now talks to the Google Code
+  Assist API directly from Python (`models/providers/codeassist.py`) and runs the
+  agent tool-calling loop in-process, instead of driving the Node `gemini` CLI,
+  which cannot complete HTTPS to Google in some egress environments (responses
+  reset mid-body). Reuses the existing `oauth_creds.json` import flow; streams
+  responses and executes Odoo tools in-process. The legacy CLI adapter is kept
+  unregistered in `models/providers/gemini_cli.py` as a fallback.
+- **Antigravity provider** — a new `aidoo.provider.antigravity` adapter drives
+  Google's Antigravity `agy` CLI for individual / Google One users who are blocked
+  from the Gemini CLI. Text-only; experimental and opt-in
+  (`aidoo.antigravity.enabled`) because its web tools cannot be sandboxed (see
+  SECURITY.md).
+- **In-process provider runner path** — `aidoo.runner` gains a native execution
+  path (`_is_native` providers drive an `_run_stream` generator) that reuses the
+  existing op/message/bus machinery without spawning a subprocess.
+- **Scheduled AI agents** — a new `aidoo.scheduled` model
+  (`models/aidoo_scheduled.py`) lets a user save a prompt + provider + schedule
+  that runs autonomously. A master cron ("Aidoo: run scheduled agents",
+  `data/aidoo_action.xml`, every 15 min) launches each due agent as a normal
+  `aidoo.session` owned by the agent's user — so it runs with that user's
+  credentials, tool grant and permissions through the existing runner — and
+  delivers the answer by **email**, to a **record's chatter**, or leaves it as a
+  **chat** conversation. Backend list/form views + menu
+  (`views/aidoo_scheduled_views.xml`) with own/manager record rules and ACLs.
+- **Aidoo in Discuss** — Aidoo now answers as a bot in the Discuss app.
+  `models/discuss_channel.py` extends `discuss.channel._message_post_after_hook`
+  (OdooBot's pattern): a human message in a channel the bot belongs to launches a
+  turn as the message author and posts the reply back into the channel. It is
+  loop-guarded against the bot's own posts, and tells unauthenticated users to
+  connect their provider in the Aidoo app. The bot partner is created at runtime
+  (see note below).
+- **Floating "Ask Aidoo" companion** — a button on form and list views
+  (`static/src/floating_button.js`/`.xml`) opens a chat panel that **floats over
+  the current view** (the record/list stays visible and usable behind it), with
+  **expand**, **minimize** and **close**. It reuses the existing message list,
+  composer and bus streaming. Seeded with the view's context — the record on a
+  form, or the **filtered record set** (the list's effective search domain) on a
+  list — captured live via a reactive service (`static/src/view_context_service.js`)
+  fed by form/list controller patches (`static/src/view_patches.js`).
+- **"Ask Aidoo" record action** — a form-view cog-menu item
+  (`static/src/cog_menu_item.js`/`.xml`) opens the full Aidoo app seeded with the
+  current record, for users in the *AI Assistant User* group.
+- **Conversation context seeding** — `aidoo.session` gains `context_model`,
+  `context_res_id` and `context_domain`. `_compose_prompt` prepends a focus note
+  on the first turn (the record, or the model + filter domain), resolved under the
+  user's own rights so an unreadable record is silently dropped. `/aidoo/new`
+  accepts and validates the context.
+- **Bookmark & search conversations** — `aidoo.session` gains an `is_favorite`
+  boolean. The full app's sidebar (`static/src/chat_action.js`/`.xml`) adds a
+  per-conversation **star** toggle (persisted via a new `/aidoo/favorite` route),
+  a **search box** that filters the list by name, and a **"favorites only"**
+  filter; starred conversations sort to the top.
+
+### Changed
+- **Gemini default model is now `gemini-2.5-flash`** (was `gemini-2.5-pro`). On
+  Code Assist the rate limit is **per-model**, and pro's is far lower than
+  flash's — so pro 429s on nearly every turn while flash has the headroom for a
+  smooth chat. Set `aidoo.gemini.model = gemini-2.5-pro` to opt back into pro
+  (keep `aidoo.gemini.fallback_model = gemini-2.5-flash` for graceful 429s). Also
+  added a proactive `aidoo.gemini.rpm_limit` (default 120) client-side cap on
+  Code Assist requests/min (per project, per worker), and quieted the rate-limit
+  notice so quick transient retries no longer flash a status.
+- **Single tool-execution path** — tool enforcement + audit moved out of the HTTP
+  controller into a shared `aidoo.tool.exec` model (`models/aidoo_tool_exec.py`).
+  The loopback MCP bridge controller (`controllers/tools.py`) is now a thin
+  delegator, and native in-process providers call the same executor directly, so
+  `su=False` and the immutable audit log apply identically on both paths.
+- **Empty conversations are pruned automatically** — a session is created eagerly
+  when a chat opens, so opening the floating bubble (or the app) and never typing
+  left an empty "New conversation" in history. The app now cleans these up:
+  `aidoo.session._prune_empty()` deletes the user's own message-less, non-running
+  sessions (excluding Discuss/scheduled-linked ones) and runs on every
+  `/aidoo/sessions` load; the floating companion discards its own empty session on
+  **close**, **new chat** and unmount via a new `/aidoo/discard` route (server-side
+  guarded to delete only when the session has no messages).
+- **Post-run delivery hook** — the runner now calls
+  `aidoo.session._deliver_result(ok)` at every terminal state
+  (`models/aidoo_runner.py`); plain chat is unaffected, while scheduled agents and
+  the Discuss bot use it to deliver their answer. Adds a `_last_assistant_text()`
+  helper on the session.
+- **New module dependency: `mail`** — required by the Discuss bot and the
+  email/chatter delivery of scheduled agents (`__manifest__.py`).
+
+### Note
+- **Discuss bot partner is created at runtime**, not via XML data or a
+  `post_init_hook` — creating a `res.partner` during module data-load races other
+  apps' required fields (e.g. `account.autopost_bills`), whose defaults the data
+  loader does not fill in. `aidoo.session._aidoo_bot_partner()` creates it lazily
+  via the ORM (defaults applied correctly) and is invoked when the Aidoo app is
+  opened (`/aidoo/providers`) and from the Discuss hook.
+
 ### Fixed
+- **Scheduled-agents search view installs on Odoo 19** — the
+  `aidoo.scheduled.search` Group By container used `<group expand="0"
+  string="Group By">`, but Odoo 19's search-view RNG no longer allows `expand`
+  or `string` on `<group>`, which raised a `ParseError` and blocked module
+  installation. Now uses a bare `<group>`, matching core views.
+- **Native Gemini honors the configured Code Assist project** — the native
+  adapter ignored `res.users.aidoo_cloud_project` / `aidoo.gemini.cloud_project`
+  and always auto-onboarded into Google's individual/standard managed project. It
+  now uses the configured project (per-user first, then shared) as the
+  authoritative `cloudaicompanionProject`, which is required to use a Gemini Code
+  Assist **Enterprise** tier (granted per GCP project + per-account license). No
+  configured project keeps the previous auto behavior.
+- **Gemini unavailable-model (404) fallback** — if the configured model is not
+  enabled on the account/tier (404 NOT_FOUND, e.g. `gemini-3.5-flash`), the
+  adapter now falls back to `aidoo.gemini.fallback_model` with a notice instead of
+  failing. Available on the tested tier: `gemini-2.5-flash` (default),
+  `gemini-2.5-pro`, `gemini-3-flash` (rate-limited).
+- **Gemini 400 on tool schemas (gemini-2.5-flash)** — flash rejects an array
+  property with no `items` (`GenerateContentRequest...parameters.properties[...]
+  .items: missing field`), which pro tolerated. Odoo's freeform arrays (`domain`,
+  `*args`, sql `params`) can't be typed in the OpenAPI subset, so they are now
+  exposed to the model as a JSON-string param (with a hint), and `aidoo.tool.exec`
+  parses the string back to a list/dict. The MCP bridge path (Claude/Codex/Grok)
+  is unaffected — it still sends real arrays, which pass through unchanged.
+- **Gemini rate-limit (429) resilience** — the native Gemini adapter now mirrors
+  the node CLI's retry instead of failing the turn: exponential backoff with
+  enough attempts, honoring the `Retry-After` header and gRPC
+  `RetryInfo`/quota-reset hints, plus a one-shot fallback to a lighter model
+  (`aidoo.gemini.fallback_model`, default `gemini-2.5-flash` — a separate quota
+  bucket) when the primary stays limited. A transient "rate-limited, retrying…"
+  notice (new `notice` bus event) shows during the wait. Replies no longer
+  hard-fail on transient `429 RESOURCE_EXHAUSTED`.
+- **Gemini session resume error** — Gemini headless cannot reliably resume a
+  server-side session, yet the adapter passed `--resume <id>` with a pre-minted
+  UUID the CLI had never stored, aborting the turn with "No previous sessions
+  found for this project." Gemini no longer passes `--resume` (history is replayed
+  into the prompt), and `cli_session_id` is only pre-minted for providers that
+  client-mint it (`_mints_session_id`, i.e. Claude); the others learn their id
+  from the CLI stream.
+- **Tool-call chip stuck spinning** — a completed tool call could keep showing the
+  running spinner after its turn finished. Two causes in `models/aidoo_runner.py`:
+  (1) `_patch_tool_result` mutated the `tool_calls` JSON list in place and
+  reassigned the same object, so Odoo saw no change and skipped the DB write —
+  the `done`/`error` status was lost on the frontend's post-turn reload. It now
+  rebuilds the list with fresh dicts so the write persists. (2) A call whose
+  result event never streamed (CLI exited mid-tool, timed out, or was stopped)
+  stayed `running` forever; a new `_finalize_pending_tools` helper settles any
+  lingering `running` calls to a terminal status on every turn-end path (clean
+  done, non-zero exit, timeout, and the worker's exception handler).
+- **Stacked tool-call folds** — a single assistant turn arrives as several
+  messages (Claude tags each with its own id), so tool-only messages each
+  rendered a separate collapsible "N tool calls" fold. `message_list.js` now
+  exposes a `displayMessages` getter that merges consecutive assistant messages
+  into one bubble — combining their bodies, tool calls and attachments — so a
+  turn shows a single fold instead of a stack. Merging works on shallow clones,
+  leaving the upstream chat state untouched.
 - **Dark mode visibility** — the chat UI (`static/src/scss/aidoo.scss`) hardcoded
   light-mode colors, so backgrounds, message bubbles, borders and text became
   unreadable when Odoo's dark mode was enabled. Colors now reference Odoo's

@@ -36,6 +36,19 @@ class ResConfigSettings(models.TransientModel):
         help="Absolute path to the gemini binary. Empty = auto-detect (PATH).")
     aidoo_gemini_model = fields.Char(
         string="Gemini Model", config_parameter="aidoo.gemini.model", default="")
+    aidoo_gemini_fallback_model = fields.Char(
+        string="Gemini Fallback Model",
+        config_parameter="aidoo.gemini.fallback_model", default="gemini-2.5-flash",
+        help="Lighter model to fall back to when the primary stays rate-limited "
+             "(429). It uses a separate quota bucket, so replies recover instead "
+             "of failing. Empty disables fallback.")
+    aidoo_gemini_rpm_limit = fields.Integer(
+        string="Gemini Requests/min Cap",
+        config_parameter="aidoo.gemini.rpm_limit", default=120,
+        help="Proactive client-side cap on Code Assist requests per minute "
+             "(per project, per Odoo worker), to stay under the tier's quota. "
+             "0 disables. Note: rate limits are also per-model — pro is far "
+             "lower than flash regardless of this cap.")
     aidoo_gemini_auth_mode = fields.Selection(
         [("oauth_import", "Import Google OAuth credentials (AI Ultra)"),
          ("api_key", "Gemini API key")],
@@ -49,7 +62,11 @@ class ResConfigSettings(models.TransientModel):
     aidoo_gemini_cloud_project = fields.Char(
         string="Shared Google Cloud Project",
         config_parameter="aidoo.gemini.cloud_project",
-        help="Fallback GOOGLE_CLOUD_PROJECT when a user sets none.")
+        help="Code Assist project (GCP project id) used when a user sets no "
+             "personal one. Required to use a Gemini Code Assist ENTERPRISE "
+             "tier — the project where Code Assist is enabled and the per-user "
+             "license assigned. Empty = Google's auto individual/standard "
+             "project. A personal Gmail only ever gets the standard tier.")
     aidoo_gemini_output_format = fields.Selection(
         [("stream-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Gemini Output Format",
@@ -71,6 +88,20 @@ class ResConfigSettings(models.TransientModel):
         [("streaming-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Grok Output Format",
         config_parameter="aidoo.grok.output_format", default="streaming-json")
+
+    aidoo_antigravity_enabled = fields.Boolean(
+        string="Enable Antigravity (experimental)",
+        config_parameter="aidoo.antigravity.enabled", default=False,
+        help="Show the experimental Antigravity (agy) provider in the picker. "
+             "Its web tools cannot be sandboxed (ungated internet access) — do "
+             "not enable for zero-trust deployments. See SECURITY.md.")
+    aidoo_antigravity_cli_path = fields.Char(
+        string="Antigravity CLI Path",
+        config_parameter="aidoo.antigravity.cli_path",
+        help="Absolute path to the agy binary. Empty = auto-detect (PATH).")
+    aidoo_antigravity_model = fields.Char(
+        string="Antigravity Model", config_parameter="aidoo.antigravity.model",
+        default="", help="Empty uses the account default model.")
 
     # --- Shared run controls ---
     aidoo_max_turns = fields.Integer(

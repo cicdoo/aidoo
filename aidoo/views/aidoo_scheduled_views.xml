@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+
+    <record id="view_aidoo_scheduled_list" model="ir.ui.view">
+        <field name="name">aidoo.scheduled.list</field>
+        <field name="model">aidoo.scheduled</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="provider"/>
+                <field name="interval_number"/>
+                <field name="interval_type"/>
+                <field name="delivery"/>
+                <field name="next_run"/>
+                <field name="last_run"/>
+                <field name="active" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_aidoo_scheduled_form" model="ir.ui.view">
+        <field name="name">aidoo.scheduled.form</field>
+        <field name="model">aidoo.scheduled</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_run_now" type="object" string="Run Now"
+                            class="btn-primary" icon="fa-play"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Daily sales summary"/></h1>
+                    </div>
+                    <group>
+                        <group string="Run">
+                            <field name="user_id"/>
+                            <field name="provider"/>
+                            <field name="active"/>
+                        </group>
+                        <group string="Schedule">
+                            <label for="interval_number" string="Every"/>
+                            <div class="o_row">
+                                <field name="interval_number" class="oe_inline"/>
+                                <field name="interval_type" class="oe_inline"/>
+                            </div>
+                            <field name="next_run"/>
+                            <field name="last_run"/>
+                        </group>
+                    </group>
+                    <group string="Prompt">
+                        <field name="prompt" nolabel="1"
+                               placeholder="What should the assistant do on each run?"/>
+                    </group>
+                    <group string="Delivery">
+                        <field name="delivery"/>
+                        <field name="email_to" invisible="delivery != 'email'"
+                               placeholder="Defaults to the run-as user's email"/>
+                        <field name="res_model" invisible="delivery != 'chatter'"
+                               required="delivery == 'chatter'"/>
+                        <field name="res_id" invisible="delivery != 'chatter'"
+                               required="delivery == 'chatter'"/>
+                    </group>
+                    <notebook>
+                        <page string="Runs">
+                            <field name="session_ids" readonly="1">
+                                <list>
+                                    <field name="create_date"/>
+                                    <field name="name"/>
+                                    <field name="state"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_aidoo_scheduled_search" model="ir.ui.view">
+        <field name="name">aidoo.scheduled.search</field>
+        <field name="model">aidoo.scheduled</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="user_id"/>
+                <filter name="archived" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_provider" string="Provider"
+                            context="{'group_by': 'provider'}"/>
+                    <filter name="group_user" string="Run As"
+                            context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_aidoo_scheduled" model="ir.actions.act_window">
+        <field name="name">Scheduled Agents</field>
+        <field name="res_model">aidoo.scheduled</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a scheduled AI agent</p>
+            <p>Save a prompt that runs on a schedule and delivers its answer by
+               email, to a record's chatter, or just as a conversation here.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_ai_scheduled" name="Scheduled Agents"
+              parent="menu_ai_root" action="action_aidoo_scheduled"
+              sequence="20" groups="group_ai_user"/>
+
+</odoo>

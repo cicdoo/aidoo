@@ -26,6 +26,12 @@
         min-width: 260px;
         background-color: $o-gray-100;
 
+        // Favorites filter toggle sits in the search input group; gold when on.
+        .o_ai_fav_filter.active {
+            color: #f5b301;
+            border-color: #f5b301;
+        }
+
         .o_ai_session_item {
             cursor: pointer;
             border-radius: 4px;
@@ -40,6 +46,29 @@
             &.active {
                 background-color: $o-gray-300;
                 font-weight: 600;
+            }
+
+            .o_ai_session_name {
+                min-width: 0;
+            }
+
+            // Per-conversation star: muted and revealed on hover, gold when set.
+            .o_ai_session_star {
+                flex: 0 0 auto;
+                padding: 0 2px;
+                color: $o-gray-500;
+                opacity: 0;
+
+                &.fa-star {
+                    color: #f5b301;
+                    opacity: 1;
+                }
+                &:hover {
+                    color: #f5b301;
+                }
+            }
+            &:hover .o_ai_session_star {
+                opacity: 1;
             }
         }
     }
@@ -240,4 +269,53 @@
             min-height: 160px;
         }
     }
+}
+
+// --- Floating "Ask Aidoo" companion (form / list views) ------------------
+.o_aidoo_fab_wrap {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1040;
+
+    .o_aidoo_fab_btn {
+        width: 52px;
+        height: 52px;
+        padding: 0;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+// The chat panel floats over the view (which stays visible/usable behind it).
+.o_aidoo_panel {
+    position: fixed;
+    right: 24px;
+    bottom: 88px;                       // sits just above the FAB
+    z-index: 1041;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    height: 560px;
+    max-height: calc(100vh - 112px);
+    background-color: $o-view-background-color;
+    border: 1px solid $o-gray-300;
+    border-radius: 8px;
+    overflow: hidden;
+
+    &.o_aidoo_panel--expanded {
+        width: 880px;
+        max-width: calc(100vw - 48px);
+        height: calc(100vh - 112px);
+    }
+
+    .o_aidoo_panel_header {
+        background-color: $o-brand-primary;
+        color: #fff;
+        flex: 0 0 auto;
+    }
+
+    // Reuse the chat sub-components inside the compact panel.
+    .o_ai_message_list { min-height: 0; flex: 1 1 auto; }
 }

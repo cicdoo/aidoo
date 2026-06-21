@@ -24,10 +24,13 @@ export class AiChatAction extends Component {
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
             sessions: [],
+            searchQuery: "",       // sidebar: filter conversations by name
+            favoritesOnly: false,  // sidebar: show only starred conversations
             currentId: null,
             currentProvider: "claude",
             messages: [],
             running: false,
+            notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
             // Auth gate (scoped to the current conversation's provider)
             authError: "",
@@ -41,7 +44,15 @@ export class AiChatAction extends Component {
             // Artifact panel (right side): rendered chart/report HTML.
             artifact: null,
             artifactOpen: false,
+            // Focus record when opened from a form via "Ask Aidoo".
+            contextLabel: "",
         });
+
+        // When opened from "Ask Aidoo" on a record, params carry the focus record.
+        const params = this.props.action?.params || this.props.params || {};
+        this._initContext = params.context_model
+            ? { context_model: params.context_model, context_res_id: params.context_res_id }
+            : null;
 
         onWillStart(async () => {
             const info = await rpc("/aidoo/providers");
@@ -225,7 +236,10 @@ export class AiChatAction extends Component {
     // ------------------------------------------------------------------
     async _initChat() {
         await this._loadSessions();
-        if (!this.state.sessions.length) {
+        if (this._initContext) {
+            await this._newSession(this._initContext);
+            this._initContext = null;  // only seed the very first conversation
+        } else if (!this.state.sessions.length) {
             await this._newSession();
         } else {
             await this._openSession(this.state.sessions[0].id);
@@ -236,8 +250,38 @@ export class AiChatAction extends Component {
         this.state.sessions = await rpc("/aidoo/sessions");
     }
 
-    async _newSession() {
-        const s = await rpc("/aidoo/new", { provider: this.state.selectedProvider });
+    // Sidebar list after applying the search box / favorites filter, with
+    // starred conversations sorted to the top (recency order is otherwise
+    // preserved from the server).
+    get filteredSessions() {
+        const q = this.state.searchQuery.trim().toLowerCase();
+        let list = this.state.sessions;
+        if (q) {
+            list = list.filter((s) => (s.name || "").toLowerCase().includes(q));
+        }
+        if (this.state.favoritesOnly) {
+            list = list.filter((s) => s.is_favorite);
+        }
+        return [...list].sort(
+            (a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
+    }
+
+    async _toggleFavorite(session) {
+        session.is_favorite = !session.is_favorite;
+        await rpc("/aidoo/favorite", {
+            session_id: session.id,
+            is_favorite: session.is_favorite,
+        });
+    }
+
+    async _newSession(context = null) {
+        // Also used as a click handler (receives the event) — only a real
+        // context object carries context_model.
+        const ctx = context && context.context_model ? context : null;
+        const s = await rpc("/aidoo/new", {
+            provider: this.state.selectedProvider,
+            ...(ctx || {}),
+        });
         this.state.sessions.unshift(s);
         await this._openSession(s.id);
     }
@@ -251,6 +295,7 @@ export class AiChatAction extends Component {
         this.aiBus.register(id, (p) => this._onBusEvent(p));
         const data = await rpc("/aidoo/messages", { session_id: id });
         this.state.currentProvider = data.provider;
+        this.state.contextLabel = data.context_label || "";
         this.state.messages = data.messages;
         this.state.running = data.state === "running";
         this.state.artifact = null;
@@ -324,17 +369,26 @@ export class AiChatAction extends Component {
         switch (p.kind) {
             case "started":
                 this.state.running = true;
+                this.state.notice = "";
+                break;
+            case "notice":
+                // Transient status during a run (e.g. rate-limit backoff); not
+                // persisted as a message. Cleared by the next message/done/error.
+                this.state.notice = p.text || "";
                 break;
             case "message":
+                this.state.notice = "";
                 this._upsertMessage(p.message);
                 this._maybeCaptureArtifact(p.message);
                 break;
             case "done":
                 this.state.running = false;
+                this.state.notice = "";
                 this._reload();
                 break;
             case "error":
                 this.state.running = false;
+                this.state.notice = "";
                 this.state.messages.push({
                     id: `err-${Date.now()}`,
                     role: "error",

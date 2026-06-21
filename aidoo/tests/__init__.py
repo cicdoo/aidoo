@@ -10,3 +10,4 @@ from . import test_tool_log
 from . import test_ir_http_auth
 from . import test_providers
 from . import test_runner_stream
+from . import test_features

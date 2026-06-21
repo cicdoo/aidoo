@@ -44,4 +44,15 @@
         <field name="active">True</field>
     </record>
 
+    <!-- Cron: run due scheduled AI agents -->
+    <record id="cron_ai_scheduled" model="ir.cron">
+        <field name="name">Aidoo: run scheduled agents</field>
+        <field name="model_id" ref="model_aidoo_scheduled"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_run_due()</field>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
 </odoo>

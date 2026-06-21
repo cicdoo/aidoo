@@ -58,6 +58,9 @@ class AidooProviderClaude(AidooProvider):
     _default_model = "claude-sonnet-4-5"
     _auth_ui_mode = "oauth_code"
     _uses_system_prompt_flag = True
+    # Claude is the only provider whose conversation id we mint client-side and
+    # pass as --session-id on the first turn (then --resume on later turns).
+    _mints_session_id = True
 
     # ------------------------------------------------------------------
     # CLI resolution (version-sorted: newest claude-code-X.Y.Z wins)
