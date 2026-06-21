@@ -5,9 +5,9 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.ReportFrame">
-        <iframe t-ref="frame" class="o_ai_report_frame"
+        <iframe class="o_ai_report_frame"
                 sandbox="allow-same-origin"
-                t-att-srcdoc="props.html" t-on-load="onLoad"/>
+                t-att-srcdoc="widget.html"/>
     </t>
 
 </templates>

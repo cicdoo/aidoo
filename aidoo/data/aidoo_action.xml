@@ -41,6 +41,7 @@
         <field name="code">model._cron_reap_stale()</field>
         <field name="interval_number">30</field>
         <field name="interval_type">minutes</field>
+        <field name="numbercall">-1</field>
         <field name="active">True</field>
     </record>
 
@@ -52,6 +53,7 @@
         <field name="code">model._cron_run_due()</field>
         <field name="interval_number">15</field>
         <field name="interval_type">minutes</field>
+        <field name="numbercall">-1</field>
         <field name="active">True</field>
     </record>
 

@@ -40,7 +40,9 @@ class IrHttp(models.AbstractModel):
             raise AccessDenied()
 
         uid = session.user_id.id
-        # Rebind the request env to the target user (su=False → ACLs enforced).
-        request.update_env(user=uid)
+        # Rebind the request to the target user (su=False → ACLs enforced).
+        # Odoo 13 has no request.update_env; setting request.uid rebuilds
+        # request.env on the target user on next access.
+        request.uid = uid
         # Make the validated session available to the tool handlers.
         request.ai_session = session.with_user(uid)

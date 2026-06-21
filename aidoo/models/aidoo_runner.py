@@ -96,14 +96,18 @@ class AiAssistantRunner(models.AbstractModel):
         thread = threading.Thread(
             target=self._run_worker, args=(ctx,), daemon=True,
             name="aidoo_run_%s" % session.id)
-        self.env.cr.postcommit.add(thread.start)
+        # Odoo 13 has no ``cr.postcommit`` registry; use the post-commit callback
+        # hook so the worker only starts once the request transaction is durable.
+        self.env.cr.after('commit', thread.start)
 
     # ------------------------------------------------------------------
     # Background worker (own cursor)
     # ------------------------------------------------------------------
     def _run_worker(self, ctx):
         registry = Registry(ctx["dbname"])
-        with registry.cursor() as cr:
+        # Odoo 13 needs a per-thread environments container before building an
+        # Environment in a fresh thread (v18 dropped Environment.manage()).
+        with api.Environment.manage(), registry.cursor() as cr:
             env = api.Environment(cr, ctx["uid"], {})
             session = env["aidoo.session"].browse(ctx["session_id"])
             runner = env["aidoo.runner"]
@@ -387,8 +391,13 @@ class AiAssistantRunner(models.AbstractModel):
     # Bus
     # ------------------------------------------------------------------
     def _emit(self, session, payload):
-        payload = dict(payload, session_id=session.id)
-        session.user_id.partner_id._bus_send("aidoo", payload)
+        # Odoo 13 has no partner._bus_send; send on the user's partner channel
+        # (cr.dbname, 'res.partner', partner_id), which the web client already
+        # polls. Tag the payload so the frontend can pick our notifications out.
+        payload = dict(payload, session_id=session.id, _aidoo=True)
+        partner = session.user_id.partner_id
+        channel = (self.env.cr.dbname, "res.partner", partner.id)
+        self.env["bus.bus"].sendone(channel, payload)
 
     def _emit_message(self, session, rec):
         self._emit(session, {"kind": "message", "message": rec._to_frontend()[0]})

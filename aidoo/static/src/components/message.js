@@ -1,96 +1,88 @@
-/** @odoo-module **/
+odoo.define('aidoo.message', function (require) {
+"use strict";
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState } from "@odoo/owl";
-import { renderMarkdown } from "../markdown";
-import { splitSegments } from "../artifacts";
 
-export class AiMessage extends Component {
-    static template = "aidoo.Message";
-    static props = {
-        message: Object,
-        // Called with an HTML string to display it in the artifact panel.
-        onOpenArtifact: { type: Function, optional: true },
-    };
+// Per-message rendering helpers, shared by the message list (chat action and the
+// floating panel). In Odoo 13's static QWeb these are mixed onto the rendering
+// widget so the ``aidoo.Message`` template can call e.g. widget.roleLabel(msg).
+// Tool-fold open/closed state lives on the host widget (this._toolsOpen, a Set of
+// message ids) since there is no per-component reactive state.
+var markdown = require('aidoo.markdown');
+var artifacts = require('aidoo.artifacts');
 
-    setup() {
-        // Tool calls are collapsed by default; this toggles the per-message view.
-        this.ui = useState({ toolsOpen: false });
-    }
+var MessageMixin = {
+    roleLabel: function (msg) {
+        return { user: "You", assistant: "Assistant", report: "Report", error: "Error" }[msg.role]
+            || msg.role;
+    },
 
-    get roleLabel() {
-        return { user: "You", assistant: "Assistant", report: "Report", error: "Error" }[
-            this.props.message.role
-        ] || this.props.message.role;
-    }
+    isReport: function (msg) {
+        return msg.role === "report";
+    },
 
-    get isReport() {
-        return this.props.message.role === "report";
-    }
-
-    // Ordered render segments for non-user messages: markdown chunks (rendered
-    // to safe HTML) interleaved with embedded HTML chunks shown as a card that
-    // opens the artifact panel. A report-role message is a single HTML segment.
-    // User messages stay plain text and don't use this.
-    get segments() {
-        const body = this.props.message.body || "";
-        if (this.isReport) {
+    // Ordered render segments for non-user messages: markdown chunks (rendered to
+    // safe HTML) interleaved with embedded HTML chunks shown as a card that opens
+    // the artifact panel. A report-role message is a single HTML segment.
+    segments: function (msg) {
+        var body = msg.body || "";
+        if (this.isReport(msg)) {
             return [{ type: "html", html: body }];
         }
-        const out = [];
-        for (const seg of splitSegments(body)) {
+        var out = [];
+        artifacts.splitSegments(body).forEach(function (seg) {
             if (!seg.text.trim()) {
-                continue;
+                return;
             }
             out.push(seg.type === "html"
                 ? { type: "html", html: seg.text }
-                : { type: "md", html: renderMarkdown(seg.text) });
-        }
+                : { type: "md", html: markdown.renderMarkdown(seg.text) });
+        });
         return out;
-    }
+    },
 
-    openArtifact(html) {
-        this.props.onOpenArtifact?.(html);
-    }
-
-    get toolCalls() {
-        return this.props.message.tool_calls || [];
-    }
-
-    toggleTools() {
-        this.ui.toolsOpen = !this.ui.toolsOpen;
-    }
+    toolCalls: function (msg) {
+        return msg.tool_calls || [];
+    },
 
     // True while at least one tool call is still running.
-    get toolsBusy() {
-        return this.toolCalls.some(
-            (c) => c.status !== "done" && c.status !== "error");
-    }
+    toolsBusy: function (msg) {
+        return this.toolCalls(msg).some(function (c) {
+            return c.status !== "done" && c.status !== "error";
+        });
+    },
 
-    get attachments() {
-        return this.props.message.attachments || [];
-    }
+    isToolsOpen: function (msg) {
+        return this._toolsOpen && this._toolsOpen.has(msg.id);
+    },
 
-    attachmentIcon(att) {
-        const mt = att.mimetype || "";
-        if (mt.startsWith("image/")) return "fa-file-image-o";
+    attachments: function (msg) {
+        return msg.attachments || [];
+    },
+
+    attachmentIcon: function (att) {
+        var mt = att.mimetype || "";
+        if (mt.indexOf("image/") === 0) return "fa-file-image-o";
         if (mt === "application/pdf") return "fa-file-pdf-o";
         return "fa-file-text-o";
-    }
+    },
 
-    statusIcon(call) {
+    statusIcon: function (call) {
         if (call.status === "done") return "fa-check text-success";
         if (call.status === "error") return "fa-times text-danger";
         return "fa-spinner fa-spin text-muted";
-    }
+    },
 
-    summarizeInput(call) {
+    summarizeInput: function (call) {
         try {
-            const s = JSON.stringify(call.input || {});
+            var s = JSON.stringify(call.input || {});
             return s.length > 140 ? s.slice(0, 140) + "…" : s;
-        } catch {
+        } catch (e) {
             return "";
         }
-    }
-}
+    },
+};
+
+return MessageMixin;
+});

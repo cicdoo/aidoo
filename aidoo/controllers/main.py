@@ -120,7 +120,8 @@ class AiAssistantChat(http.Controller):
         if context_model and context_model in request.env:
             try:
                 Model = request.env[context_model]
-                Model.check_access("read")
+                # Odoo 13 has no unified check_access; ACL check raises AccessError.
+                Model.check_access_rights("read")
             except AccessError:
                 Model = None
             if Model is not None:
@@ -128,7 +129,9 @@ class AiAssistantChat(http.Controller):
                 if context_res_id:
                     try:
                         rec = Model.browse(int(context_res_id))
-                        rec.check_access("read")
+                        # Odoo 13: ACL + record-rule checks (both raise AccessError).
+                        rec.check_access_rights("read")
+                        rec.check_access_rule("read")
                         if rec.exists():
                             vals["context_res_id"] = rec.id
                     except (AccessError, ValueError):

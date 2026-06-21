@@ -32,6 +32,20 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
+
+def _check_access(records, operation):
+    """Odoo 13 has no unified ``check_access`` (added in v18); emulate the same
+    semantics with ACL + record-rule checks. Both raise AccessError on denial;
+    on an empty recordset the rule check is a no-op (matches v18)."""
+    records.check_access_rights(operation)
+    records.check_access_rule(operation)
+
+
+def _has_access(records, operation):
+    """Odoo 13 has no ``has_access``; return whether the ACL allows the op."""
+    return records.check_access_rights(operation, raise_exception=False)
+
+
 # Hard caps on rows returned to the model (oversized results bloat the model's
 # context and were a primary driver of out-of-memory crashes for CLI providers).
 MAX_LIMIT = 50
@@ -40,8 +54,9 @@ SQL_MAX_ROWS = 1000
 # Read-only model methods callable via orm_call.
 SAFE_METHODS = {
     "name_search", "search_count", "read_group", "fields_get",
-    "default_get", "search_read", "read", "get_views",
-    "web_search_read", "web_read_group",
+    "default_get", "search_read", "read",
+    # Odoo 13 view introspection (v18's get_views/web_* don't exist here).
+    "fields_view_get", "load_views",
 }
 
 # --- SQL read-only validation -------------------------------------------------
@@ -245,11 +260,11 @@ class AidooToolExec(models.AbstractModel):
         self._check_tool(session, "model_introspect")
         self._check_model(model)
         Model = self.env[model]
-        Model.check_access("read")
+        _check_access(Model, "read")
         fg = Model.fields_get(attributes=[
             "string", "type", "required", "relation", "readonly",
             "selection", "help"])
-        access = {op: Model.has_access(op)
+        access = {op: _has_access(Model, op)
                   for op in ("read", "write", "create", "unlink")}
         eff = session._effective_tools()
         tool_for = {"read": "orm_read", "write": "orm_write",
@@ -269,7 +284,7 @@ class AidooToolExec(models.AbstractModel):
             raise ValidationError("domain must be a list.")
         lim = min(int(limit or 80), MAX_LIMIT)
         Model = self.env[model]
-        Model.check_access("read")
+        _check_access(Model, "read")
         records = Model.search(dom, offset=int(offset or 0), limit=lim,
                                order=order or None)
         data = records.read(fields or [])
@@ -280,7 +295,7 @@ class AidooToolExec(models.AbstractModel):
         self._check_tool(session, "orm_read")
         self._check_model(model)
         recs = self.env[model].browse(ids or [])
-        recs.check_access("read")
+        _check_access(recs, "read")
         return {"records": recs.read(fields or [])}
 
     def _t_orm_call(self, session, model=None, method=None, args=None,
@@ -293,7 +308,7 @@ class AidooToolExec(models.AbstractModel):
         if method.startswith("_"):
             raise ValidationError("Private methods are not callable.")
         Model = self.env[model]
-        Model.check_access("read")
+        _check_access(Model, "read")
         result = getattr(Model, method)(*(args or []), **(kwargs or {}))
         if hasattr(result, "_name") and hasattr(result, "ids"):
             return {"ids": result.ids}
@@ -332,7 +347,7 @@ class AidooToolExec(models.AbstractModel):
         if not isinstance(values, dict):
             raise ValidationError("values must be an object.")
         Model = self.env[model]
-        Model.check_access("create")
+        _check_access(Model, "create")
         rec = Model.create(values)
         return {"ids": rec.ids}
 
@@ -342,7 +357,7 @@ class AidooToolExec(models.AbstractModel):
         if not isinstance(values, dict):
             raise ValidationError("values must be an object.")
         recs = self.env[model].browse(ids or [])
-        recs.check_access("write")
+        _check_access(recs, "write")
         recs.write(values)
         return {"written": len(recs), "ids": recs.ids}
 
@@ -350,7 +365,7 @@ class AidooToolExec(models.AbstractModel):
         self._check_tool(session, "orm_unlink")
         self._check_model(model)
         recs = self.env[model].browse(ids or [])
-        recs.check_access("unlink")
+        _check_access(recs, "unlink")
         count = len(recs)
         recs.unlink()
         return {"unlinked": count}
@@ -369,7 +384,7 @@ class AidooToolExec(models.AbstractModel):
             raise ValidationError("kwargs must be an object.")
         Model = self.env[model]
         target = Model.browse(ids) if ids else Model
-        target.check_access("write")
+        _check_access(target, "write")
         result = getattr(target, method)(*(args or []), **(kwargs or {}))
         return self._serialize_result(result)
 
@@ -388,7 +403,7 @@ class AidooToolExec(models.AbstractModel):
         if not Model._transient:
             raise ValidationError(
                 "run_wizard only operates on transient (wizard) models.")
-        Model.check_access("create")
+        _check_access(Model, "create")
         wizard = Model.create(values or {})
         result = getattr(wizard, method)(*(args or []), **(kwargs or {}))
         return self._serialize_result(result)
@@ -404,7 +419,7 @@ class AidooToolExec(models.AbstractModel):
         self._check_model(target_model)
         Model = self.env[target_model]
         recs = Model.browse(ids or [])
-        (recs if ids else Model).check_access("write")
+        _check_access(recs if ids else Model, "write")
         ctx = dict(self.env.context, active_model=target_model,
                    active_ids=recs.ids, active_id=recs.ids[0] if recs.ids else False)
         result = sa.with_context(**ctx).run()

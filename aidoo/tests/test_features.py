@@ -148,14 +148,17 @@ class TestAidooFeatures(TransactionCase):
     # ------------------------------------------------------------------
     def _channel_with_bot(self):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
-        return self.env["discuss.channel"].with_user(self.user).channel_get(
+        # Odoo 13 mail.channel.channel_get returns the channel_info dict, not a
+        # recordset — browse the record from its id.
+        info = self.env["mail.channel"].with_user(self.user).channel_get(
             [bot.id, self.user.partner_id.id])
+        return self.env["mail.channel"].browse(info["id"])
 
     def test_user_message_spawns_session(self):
         channel = self._channel_with_bot()
         channel.with_user(self.user).message_post(
             body="list my leads", message_type="comment",
-            author_id=self.user.partner_id.id, subtype_xmlid="mail.mt_comment")
+            author_id=self.user.partner_id.id, subtype="mail.mt_comment")
         session = self.env["aidoo.session"].search([
             ("discuss_channel_id", "=", channel.id),
             ("user_id", "=", self.user.id)])
@@ -167,7 +170,7 @@ class TestAidooFeatures(TransactionCase):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
         channel.sudo().message_post(
             body="hello from me", message_type="comment",
-            author_id=bot.id, subtype_xmlid="mail.mt_comment")
+            author_id=bot.id, subtype="mail.mt_comment")
         self.assertFalse(self.env["aidoo.session"].search([
             ("discuss_channel_id", "=", channel.id)]))
 

@@ -9,133 +9,255 @@
         <field name="model">res.config.settings</field>
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//form" position="inside">
-                <app data-string="Aidoo AI Assistant" string="Aidoo AI Assistant"
-                     name="aidoo" logo="/aidoo/static/description/icon.png">
+            <!-- Odoo 13 settings: app blocks are appended to the settings
+                 container; the <app>/<block>/<setting> tags are v17+. -->
+            <xpath expr="//div[hasclass('settings')]" position="inside">
+                <div class="app_settings_block" data-string="Aidoo AI Assistant"
+                     string="Aidoo AI Assistant" data-key="aidoo"
+                     groups="aidoo.group_ai_manager">
 
-                    <block title="General" name="aidoo_general">
-                        <setting string="Default AI Provider"
-                                 help="Preselected when a user starts a new conversation.">
-                            <field name="aidoo_default_provider"/>
-                        </setting>
-                        <setting string="Max Turns">
-                            <field name="aidoo_max_turns"/>
-                        </setting>
-                        <setting string="Run Timeout (s)">
-                            <field name="aidoo_timeout_s"/>
-                        </setting>
-                        <setting string="Max Concurrent Runs"
-                                 help="Cap on AI runs executing at once across all users. 0 = unlimited.">
-                            <field name="aidoo_max_concurrent_runs"/>
-                        </setting>
-                        <setting string="Max Upload Size (MB)">
-                            <field name="aidoo_max_upload_mb"/>
-                        </setting>
-                        <setting string="Odoo Host URL"
-                                 help="Host URL the MCP bridge connects back to (loopback by default).">
-                            <field name="aidoo_base_url"/>
-                        </setting>
-                        <setting string="Odoo Database"
-                                 help="Database the assistant connects to. Empty = current database.">
-                            <field name="aidoo_db_name" placeholder="current database"/>
-                        </setting>
-                    </block>
+                    <h2>General</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Default AI Provider</span>
+                                <div class="text-muted">Preselected when a user starts a new conversation.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <field name="aidoo_default_provider"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Run Limits</span>
+                                <div class="text-muted">Per-turn limits and concurrency.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_max_turns" string="Max Turns" class="col-lg-6 o_light_label"/>
+                                        <field name="aidoo_max_turns"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_timeout_s" string="Run Timeout (s)" class="col-lg-6 o_light_label"/>
+                                        <field name="aidoo_timeout_s"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_max_concurrent_runs" string="Max Concurrent Runs" class="col-lg-6 o_light_label"/>
+                                        <field name="aidoo_max_concurrent_runs"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_max_upload_mb" string="Max Upload Size (MB)" class="col-lg-6 o_light_label"/>
+                                        <field name="aidoo_max_upload_mb"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Connectivity</span>
+                                <div class="text-muted">Host URL the MCP bridge connects back to (loopback by default).</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_base_url" string="Odoo Host URL" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_base_url"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_db_name" string="Odoo Database" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_db_name" placeholder="current database"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Claude" name="aidoo_claude">
-                        <setting string="CLI Path" help="Empty = auto-detect.">
-                            <field name="aidoo_claude_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model">
-                            <field name="aidoo_claude_model"/>
-                        </setting>
-                    </block>
+                    <h2>Claude</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Claude</span>
+                                <div class="text-muted">Anthropic Claude Code CLI.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_claude_cli_path" string="CLI Path" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_claude_cli_path" placeholder="auto-detect"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_claude_model" string="Model" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_claude_model"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Codex (OpenAI)" name="aidoo_codex">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_codex_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model" help="Empty uses the ChatGPT account default.">
-                            <field name="aidoo_codex_model"/>
-                        </setting>
-                    </block>
+                    <h2>Codex (OpenAI)</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Codex</span>
+                                <div class="text-muted">OpenAI Codex CLI.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_codex_cli_path" string="CLI Path" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_codex_cli_path" placeholder="auto-detect"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_codex_model" string="Model" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_codex_model" placeholder="ChatGPT account default"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Gemini (Google)" name="aidoo_gemini">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_gemini_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model">
-                            <field name="aidoo_gemini_model"/>
-                        </setting>
-                        <setting string="Authentication Mode">
-                            <field name="aidoo_gemini_auth_mode"/>
-                        </setting>
-                        <setting string="Shared Gemini API Key">
-                            <field name="aidoo_gemini_api_key" password="True"/>
-                        </setting>
-                        <setting string="Shared Google Cloud Project">
-                            <field name="aidoo_gemini_cloud_project"/>
-                        </setting>
-                        <setting string="Output Format">
-                            <field name="aidoo_gemini_output_format"/>
-                        </setting>
-                    </block>
+                    <h2>Gemini (Google)</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Gemini</span>
+                                <div class="text-muted">Google Gemini CLI.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_gemini_cli_path" string="CLI Path" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_cli_path" placeholder="auto-detect"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_gemini_model" string="Model" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_model"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_gemini_auth_mode" string="Authentication Mode" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_auth_mode"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_gemini_api_key" string="Shared Gemini API Key" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_api_key" password="True"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_gemini_cloud_project" string="Shared Google Cloud Project" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_cloud_project"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_gemini_output_format" string="Output Format" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_gemini_output_format"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Grok (xAI)" name="aidoo_grok">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_grok_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model">
-                            <field name="aidoo_grok_model"/>
-                        </setting>
-                        <setting string="Authentication Mode">
-                            <field name="aidoo_grok_auth_mode"/>
-                        </setting>
-                        <setting string="Shared xAI API Key">
-                            <field name="aidoo_grok_api_key" password="True"/>
-                        </setting>
-                        <setting string="Output Format">
-                            <field name="aidoo_grok_output_format"/>
-                        </setting>
-                    </block>
+                    <h2>Grok (xAI)</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Grok</span>
+                                <div class="text-muted">xAI Grok CLI.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <label for="aidoo_grok_cli_path" string="CLI Path" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_grok_cli_path" placeholder="auto-detect"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_grok_model" string="Model" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_grok_model"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_grok_auth_mode" string="Authentication Mode" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_grok_auth_mode"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_grok_api_key" string="Shared xAI API Key" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_grok_api_key" password="True"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_grok_output_format" string="Output Format" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_grok_output_format"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
-                        <setting string="Enable Antigravity"
-                                 help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">
-                            <field name="aidoo_antigravity_enabled"/>
-                        </setting>
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_antigravity_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model">
-                            <field name="aidoo_antigravity_model"/>
-                        </setting>
-                    </block>
+                    <h2>Antigravity (Google) — experimental</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="aidoo_antigravity_enabled"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="aidoo_antigravity_enabled" string="Enable Antigravity"/>
+                                <div class="text-muted">Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.</div>
+                                <div class="content-group" attrs="{'invisible': [('aidoo_antigravity_enabled', '=', False)]}">
+                                    <div class="row mt16">
+                                        <label for="aidoo_antigravity_cli_path" string="CLI Path" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_antigravity_cli_path" placeholder="auto-detect"/>
+                                    </div>
+                                    <div class="row">
+                                        <label for="aidoo_antigravity_model" string="Model" class="col-lg-4 o_light_label"/>
+                                        <field name="aidoo_antigravity_model"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                    <block title="Tools &amp; Security" name="aidoo_security">
-                        <setting string="Enable SQL Reporting Tool"
-                                 help="Read-only SQL for the AI SQL Analyst group.">
-                            <field name="aidoo_sql_enabled"/>
-                        </setting>
-                        <setting string="Zero-Trust by Default (read-only)"
-                                 help="When on, users left on 'Inherit' may only use read-only tools. A per-user override can still allow writes.">
-                            <field name="aidoo_zero_trust_default"/>
-                        </setting>
-                        <setting string="Models Hidden from AI"
-                                 help="The assistant refuses to introspect, read, or write these models for every user.">
-                            <field name="aidoo_excluded_model_ids" widget="many2many_tags"
-                                   placeholder="e.g. res.users, account.move"/>
-                        </setting>
-                        <setting string="AI Action Method Patterns"
-                                 help="fnmatch patterns for methods orm_action/run_wizard may call. Private/dunder methods are always blocked.">
-                            <field name="aidoo_action_method_patterns"
-                                   placeholder="action_*,button_*"/>
-                        </setting>
-                        <setting string="AI-Runnable Server Actions"
-                                 help="Only these server actions may be run via run_server_action. Empty = none. Code actions run arbitrary Python; allowlist only what you trust.">
-                            <field name="aidoo_allowed_server_action_ids" widget="many2many_tags"/>
-                        </setting>
-                    </block>
-                </app>
+                    <h2>Tools &amp; Security</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="aidoo_sql_enabled"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="aidoo_sql_enabled" string="Enable SQL Reporting Tool"/>
+                                <div class="text-muted">Read-only SQL for the AI SQL Analyst group.</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="aidoo_zero_trust_default"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="aidoo_zero_trust_default" string="Zero-Trust by Default (read-only)"/>
+                                <div class="text-muted">When on, users left on 'Inherit' may only use read-only tools. A per-user override can still allow writes.</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">Models Hidden from AI</span>
+                                <div class="text-muted">The assistant refuses to introspect, read, or write these models for every user.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <field name="aidoo_excluded_model_ids" widget="many2many_tags"
+                                               placeholder="e.g. res.users, account.move"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">AI Action Method Patterns</span>
+                                <div class="text-muted">fnmatch patterns for methods orm_action/run_wizard may call. Private/dunder methods are always blocked.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <field name="aidoo_action_method_patterns" placeholder="action_*,button_*"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <span class="o_form_label">AI-Runnable Server Actions</span>
+                                <div class="text-muted">Only these server actions may be run via run_server_action. Empty = none. Code actions run arbitrary Python; allowlist only what you trust.</div>
+                                <div class="content-group">
+                                    <div class="row mt16">
+                                        <field name="aidoo_allowed_server_action_ids" widget="many2many_tags"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </xpath>
         </field>
     </record>

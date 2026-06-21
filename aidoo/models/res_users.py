@@ -137,9 +137,11 @@ class ResUsers(models.Model):
             priv = "Portal/public user (limited access)"
         lines.append("Privilege level: %s" % priv)
 
+        # Odoo 13 restricts ir.module.category reads to admins; sudo the user's
+        # own groups just to read their category labels for the prompt.
         roles = sorted(
             "%s / %s" % (g.category_id.name, g.name)
-            for g in self.groups_id if g.category_id
+            for g in self.groups_id.sudo() if g.category_id
         )
         if roles:
             lines.append("Roles:")

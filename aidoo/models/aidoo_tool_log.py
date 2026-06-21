@@ -8,6 +8,8 @@ import logging
 from odoo import api, fields, models, SUPERUSER_ID
 from odoo.modules.registry import Registry
 
+from .fields_json import Json
+
 _logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class AiAssistantToolLog(models.Model):
     model_name = fields.Char()
     method = fields.Char()
     record_ids = fields.Char()
-    arguments = fields.Json()
+    arguments = Json()
     sql_text = fields.Text()
     result_count = fields.Integer()
     outcome = fields.Selection([

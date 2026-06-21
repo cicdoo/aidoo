@@ -1,4 +1,5 @@
-/** @odoo-module **/
+odoo.define('aidoo.artifacts', function (require) {
+"use strict";
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
@@ -10,7 +11,7 @@
 // python, …) is left inside the surrounding markdown run so normal replies
 // aren't fragmented. An unclosed fence (mid-stream) stays markdown until its
 // closing ``` arrives.
-export function splitSegments(text) {
+function splitSegments(text) {
     const re = /```([^\n`]*)\n([\s\S]*?)```/g;
     const segs = [];
     let last = 0;
@@ -35,8 +36,11 @@ export function splitSegments(text) {
 }
 
 // Just the embedded HTML block strings, in order.
-export function extractHtmlBlocks(text) {
+function extractHtmlBlocks(text) {
     return splitSegments(text)
         .filter((s) => s.type === "html")
         .map((s) => s.text);
 }
+
+return { splitSegments, extractHtmlBlocks };
+});

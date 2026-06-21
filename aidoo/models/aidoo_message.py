@@ -4,6 +4,8 @@
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 from odoo import fields, models
 
+from .fields_json import Json
+
 
 class AiAssistantMessage(models.Model):
     _name = "aidoo.message"
@@ -20,9 +22,9 @@ class AiAssistantMessage(models.Model):
     # The CLI's message id used to upsert streamed assistant text (provider-specific).
     cli_msg_id = fields.Char(index=True, copy=False)
     # List of {id, name, input, result, status} dicts for tool_use chips.
-    tool_calls = fields.Json()
+    tool_calls = Json()
     # List of {id, name, mimetype} dicts for files the user attached to the turn.
-    attachments = fields.Json()
+    attachments = Json()
 
     def _to_frontend(self):
         """Serialize for the OWL chat (matches the bus payload shape)."""

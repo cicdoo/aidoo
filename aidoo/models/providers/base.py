@@ -26,15 +26,17 @@ identity appended to the prompt) so each adapter overrides as little as possible
 import logging
 import os
 
-from odoo import models, _
+from odoo import models, release, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
 # Provider-neutral system prompt. Claude passes it via --append-system-prompt;
 # the other CLIs fold it into the prompt text (see each adapter's _build_prompt).
+# The Odoo version is injected from odoo.release so the assistant states the real
+# series (e.g. 13.0) instead of a hardcoded one.
 SYSTEM_PROMPT = (
-    "You are an AI assistant embedded inside an Odoo 18 ERP system. "
+    "You are an AI assistant embedded inside an Odoo {odoo_version} ERP system. "
     "You help the current Odoo user query data and build reports. "
     "You act through the provided `mcp__odoo__*` tools — you have no shell access. "
     "Web access (WebFetch/WebSearch / web search) is available only when the tool "
@@ -73,7 +75,7 @@ SYSTEM_PROMPT = (
     "tool calls, XML/function tags, or fabricated tool results as text in your reply, and "
     "NEVER invent data. If the mcp__odoo__* tools are not visible to you, reply exactly "
     "'AI tools are not available right now, please retry.' and nothing else — do not guess."
-)
+).format(odoo_version=release.major_version)
 
 
 class AidooProvider(models.AbstractModel):

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+    <!-- Odoo 13: assets are declared by inheriting the web.assets_backend
+         bundle and injecting <link>/<script> tags. Load order matters:
+         utilities -> services -> components -> actions/widgets. -->
+    <template id="assets_backend" name="aidoo assets" inherit_id="web.assets_backend">
+        <xpath expr="." position="inside">
+            <link rel="stylesheet" type="text/scss"
+                  href="/aidoo/static/src/scss/aidoo.scss"/>
+
+            <!-- utilities (no Odoo deps) -->
+            <script type="text/javascript" src="/aidoo/static/src/markdown.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/artifacts.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/json_field.js"></script>
+
+            <!-- services -->
+            <script type="text/javascript" src="/aidoo/static/src/aidoo_service.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/view_context_service.js"></script>
+
+            <!-- components (legacy web.Widget subclasses) -->
+            <script type="text/javascript" src="/aidoo/static/src/components/report_frame.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/components/message.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/components/message_list.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/components/composer.js"></script>
+
+            <!-- actions / widgets -->
+            <script type="text/javascript" src="/aidoo/static/src/chat_action.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/cog_menu_item.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/view_patches.js"></script>
+            <script type="text/javascript" src="/aidoo/static/src/floating_button.js"></script>
+        </xpath>
+    </template>
+</odoo>

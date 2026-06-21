@@ -1,53 +1,55 @@
-/** @odoo-module **/
+odoo.define('aidoo.cog_menu_item', function (require) {
+"use strict";
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component } from "@odoo/owl";
-import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
-import { user } from "@web/core/user";
-import { DropdownItem } from "@web/core/dropdown/dropdown_item";
-import { STATIC_ACTIONS_GROUP_NUMBER } from "@web/search/action_menus/action_menus";
-import { _t } from "@web/core/l10n/translation";
 
-const cogMenuRegistry = registry.category("cogMenu");
+// "Ask Aidoo" entry in the form-view Action (cog) menu — the Odoo 13 Sidebar.
+// Opens the Aidoo chat seeded with the record the user is currently viewing.
+// v18's cogMenu registry does not exist here, so we inject a Sidebar item.
+var FormController = require('web.FormController');
+var session = require('web.session');
+var core = require('web.core');
+var _t = core._t;
 
-// "Ask Aidoo" entry in the form-view Actions (cog) menu. Opens the Aidoo chat
-// seeded with the record the user is currently looking at.
-export class AskAidooMenu extends Component {
-    static template = "aidoo.AskAidooMenu";
-    static components = { DropdownItem };
-    static props = {};
+// Resolved once; the item is only added for users who may use the assistant.
+var _allowed = false;
+session.user_has_group('aidoo.group_ai_user').then(function (r) {
+    _allowed = r;
+});
 
-    setup() {
-        this.action = useService("action");
-    }
+FormController.include({
+    renderSidebar: function () {
+        var self = this;
+        return Promise.resolve(this._super.apply(this, arguments)).then(function (res) {
+            if (_allowed && self.sidebar) {
+                self.sidebar._addItems('other', [{
+                    label: _t("Ask Aidoo"),
+                    callback: self._aidooAsk.bind(self),
+                }]);
+                self.sidebar._redraw();
+            }
+            return res;
+        });
+    },
 
-    askAidoo() {
-        const controller = this.action.currentController;
-        const params = {};
-        // Seed the focus record when we're on a saved record; otherwise just
-        // open a plain chat.
-        if (controller?.props?.resModel && controller?.props?.resId) {
-            params.context_model = controller.props.resModel;
-            params.context_res_id = controller.props.resId;
+    _aidooAsk: function () {
+        var params = {};
+        try {
+            var st = this.model.get(this.handle, { raw: true });
+            if (st && st.model && st.res_id) {
+                params.context_model = st.model;
+                params.context_res_id = st.res_id;
+            }
+        } catch (e) {
+            // open a plain chat if the record context can't be read
         }
-        this.action.doAction({
+        this.do_action({
             type: "ir.actions.client",
             tag: "aidoo.chat",
             name: _t("Aidoo"),
-            params,
+            params: params,
         });
-    }
-}
-
-export const askAidooMenuItem = {
-    Component: AskAidooMenu,
-    groupNumber: STATIC_ACTIONS_GROUP_NUMBER,
-    // On form views, for users who may use the assistant.
-    isDisplayed: async (env) =>
-        env.config.viewType === "form" &&
-        (await user.hasGroup("aidoo.group_ai_user")),
-};
-
-cogMenuRegistry.add("aidoo-ask", askAidooMenuItem, { sequence: 15 });
+    },
+});
+});

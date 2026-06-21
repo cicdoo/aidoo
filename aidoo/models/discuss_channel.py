@@ -17,7 +17,8 @@ _logger = logging.getLogger(__name__)
 
 
 class DiscussChannel(models.Model):
-    _inherit = "discuss.channel"
+    # Odoo 13 has no ``discuss.channel`` model; the equivalent is ``mail.channel``.
+    _inherit = "mail.channel"
 
     def _message_post_after_hook(self, message, msg_values):
         res = super()._message_post_after_hook(message, msg_values)

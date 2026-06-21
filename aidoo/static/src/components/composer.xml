@@ -7,40 +7,31 @@
     <t t-name="aidoo.Composer">
         <div class="o_ai_composer border-top p-2">
             <!-- Attachment chips for files queued on the next message -->
-            <div t-if="state.files.length" class="o_ai_attachments d-flex flex-wrap gap-1 mb-2">
-                <div t-foreach="state.files" t-as="f" t-key="f.id"
-                     class="o_ai_attachment_chip d-flex align-items-center small">
-                    <i class="fa fa-paperclip me-1"/>
-                    <span class="text-truncate" t-esc="f.name"/>
-                    <button class="btn btn-sm o_ai_attachment_remove ms-1 p-0"
-                            title="Remove" t-on-click="() => this.removeFile(f.id)">
-                        <i class="fa fa-times"/>
-                    </button>
-                </div>
+            <div t-if="widget.state.files.length" class="o_ai_attachments d-flex flex-wrap mb-2">
+                <t t-foreach="widget.state.files" t-as="f">
+                    <div class="o_ai_attachment_chip d-flex align-items-center small mr-1">
+                        <i class="fa fa-paperclip mr-1"/>
+                        <span class="text-truncate" t-esc="f.name"/>
+                        <button class="btn btn-sm o_ai_attachment_remove ml-1 p-0"
+                                title="Remove" t-att-data-id="f.id">
+                            <i class="fa fa-times"/>
+                        </button>
+                    </div>
+                </t>
             </div>
 
-            <div t-if="state.error" class="text-danger small mb-1" t-esc="state.error"/>
+            <div t-if="widget.state.error" class="text-danger small mb-1" t-esc="widget.state.error"/>
 
-            <div class="d-flex align-items-end gap-2">
-                <input type="file" class="d-none" t-ref="file" multiple="multiple"
-                       accept=".txt,.csv,.tsv,.json,.xml,.md,.markdown,.rst,.log,.yaml,.yml,.ini,.conf,.cfg,.toml,.env,.py,.js,.ts,.jsx,.tsx,.html,.htm,.css,.scss,.sql,.sh,.c,.h,.cpp,.hpp,.java,.go,.rb,.php,.pdf,.png,.jpg,.jpeg,.gif,.webp,image/*"
-                       t-on-change="onFilesChosen"/>
-                <button class="btn btn-light o_ai_attach"
-                        title="Attach files (text, CSV, code, PDF, images)"
-                        t-att-disabled="props.disabled || state.uploading"
-                        t-on-click="pickFiles">
-                    <i t-attf-class="fa {{ state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip' }}"/>
+            <div class="d-flex align-items-end">
+                <input type="file" class="d-none o_ai_file_input" multiple="multiple"
+                       accept=".txt,.csv,.tsv,.json,.xml,.md,.markdown,.rst,.log,.yaml,.yml,.ini,.conf,.cfg,.toml,.env,.py,.js,.ts,.jsx,.tsx,.html,.htm,.css,.scss,.sql,.sh,.c,.h,.cpp,.hpp,.java,.go,.rb,.php,.pdf,.png,.jpg,.jpeg,.gif,.webp,image/*"/>
+                <button class="btn btn-light o_ai_attach mr-2"
+                        title="Attach files (text, CSV, code, PDF, images)">
+                    <i t-attf-class="fa #{widget.state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip'}"/>
                 </button>
-                <textarea t-ref="input"
-                          class="form-control o_ai_composer_input"
-                          rows="1"
-                          placeholder="Ask the assistant…  (Enter to send, Shift+Enter for newline)"
-                          t-model="state.text"
-                          t-on-keydown="onKeydown"
-                          t-on-input="autoGrow"/>
-                <button class="btn btn-primary o_ai_send"
-                        t-att-disabled="!canSend"
-                        t-on-click="_send">
+                <textarea class="form-control o_ai_composer_input" rows="1"
+                          placeholder="Ask the assistant…  (Enter to send, Shift+Enter for newline)"/>
+                <button class="btn btn-primary o_ai_send ml-2">
                     <i class="fa fa-paper-plane"/>
                 </button>
             </div>

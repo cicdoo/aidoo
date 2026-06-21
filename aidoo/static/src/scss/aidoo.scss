@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 //
-// Colors reference Odoo's palette variables ($o-gray-*, $o-view-background-color,
+// Colors reference Odoo's palette variables ($gray-*, $o-view-background-color,
 // etc.) rather than hardcoded hex. This file is recompiled inside the
 // `web.assets_web_dark` bundle, where Odoo flips those variables to their dark
 // values, so the same rules adapt automatically to light and dark mode.
@@ -11,7 +11,7 @@
 
     .o_ai_auth_card {
         max-width: 460px;
-        border: 1px solid $o-gray-300;
+        border: 1px solid $gray-300;
         border-radius: 12px;
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
     }
@@ -24,7 +24,7 @@
     .o_ai_sidebar {
         width: 260px;
         min-width: 260px;
-        background-color: $o-gray-100;
+        background-color: $gray-100;
 
         // Favorites filter toggle sits in the search input group; gold when on.
         .o_ai_fav_filter.active {
@@ -41,10 +41,10 @@
             text-overflow: ellipsis;
 
             &:hover {
-                background-color: $o-gray-200;
+                background-color: $gray-200;
             }
             &.active {
-                background-color: $o-gray-300;
+                background-color: $gray-300;
                 font-weight: 600;
             }
 
@@ -56,7 +56,7 @@
             .o_ai_session_star {
                 flex: 0 0 auto;
                 padding: 0 2px;
-                color: $o-gray-500;
+                color: $gray-500;
                 opacity: 0;
 
                 &.fa-star {
@@ -111,7 +111,7 @@
             li { margin: .15rem 0; }
 
             code {
-                background-color: $o-gray-200;
+                background-color: $gray-200;
                 padding: .1em .35em;
                 border-radius: 4px;
                 font-size: .9em;
@@ -134,10 +134,10 @@
             }
 
             blockquote.o_ai_quote {
-                border-left: 3px solid $o-gray-400;
+                border-left: 3px solid $gray-400;
                 margin: 0 0 .5rem;
                 padding: .1rem 0 .1rem .75rem;
-                color: $o-gray-600;
+                color: $gray-600;
             }
 
             table.o_ai_table {
@@ -146,16 +146,16 @@
                 border-collapse: collapse;
 
                 th, td {
-                    border: 1px solid $o-gray-300;
+                    border: 1px solid $gray-300;
                     padding: .35rem .6rem;
                     text-align: left;
                     vertical-align: top;
                 }
-                th { background-color: $o-gray-200; font-weight: 600; }
+                th { background-color: $gray-200; font-weight: 600; }
             }
 
             a { text-decoration: underline; }
-            hr { margin: .6rem 0; border: 0; border-top: 1px solid $o-gray-300; }
+            hr { margin: .6rem 0; border: 0; border-top: 1px solid $gray-300; }
         }
 
         &.o_ai_msg_user {
@@ -163,7 +163,7 @@
             align-items: flex-end;
 
             .o_ai_msg_body {
-                background-color: $o-component-active-bg;
+                background-color: $gray-200;
                 color: $o-main-text-color;
                 padding: 8px 12px;
                 border-radius: 12px;
@@ -171,15 +171,15 @@
         }
 
         &.o_ai_msg_assistant .o_ai_msg_body {
-            background-color: $o-gray-200;
+            background-color: $gray-200;
             color: $o-main-text-color;
             padding: 8px 12px;
             border-radius: 12px;
         }
 
         &.o_ai_msg_error .o_ai_msg_body {
-            background-color: rgba($o-danger, .15);
-            color: $o-danger;
+            background-color: rgba($danger, .15);
+            color: $danger;
             padding: 8px 12px;
             border-radius: 12px;
         }
@@ -190,7 +190,7 @@
         width: 100%;
         max-width: 360px;
         text-align: left;
-        border: 1px solid $o-gray-300;
+        border: 1px solid $gray-300;
         border-radius: 8px;
         background-color: $o-view-background-color;
         padding: 8px 12px;
@@ -198,21 +198,21 @@
         color: $o-main-text-color;
 
         &:hover {
-            background-color: $o-gray-200;
-            border-color: $o-gray-400;
+            background-color: $gray-200;
+            border-color: $gray-400;
         }
         .fa-area-chart { color: $o-brand-primary; }
     }
 
     // Collapsed-by-default tool calls.
     .o_ai_tools_toggle {
-        color: $o-gray-600;
+        color: $gray-600;
 
         &:hover { color: $o-main-text-color; }
     }
 
     .o_ai_tool_chip {
-        background-color: $o-gray-200;
+        background-color: $gray-200;
         border-radius: 10px;
         padding: 2px 8px;
         margin-bottom: 2px;
@@ -220,8 +220,8 @@
     }
 
     .o_ai_attachment_chip {
-        background-color: $o-gray-200;
-        border: 1px solid $o-gray-300;
+        background-color: $gray-200;
+        border: 1px solid $gray-300;
         border-radius: 10px;
         padding: 2px 8px;
         max-width: 260px;
@@ -230,10 +230,10 @@
             border: 0;
             background: none;
             line-height: 1;
-            color: $o-gray-600;
+            color: $gray-600;
 
             &:hover {
-                color: $o-danger;
+                color: $danger;
             }
         }
     }
@@ -251,21 +251,30 @@
         background-color: $o-view-background-color;
 
         .o_ai_artifact_header {
-            background-color: $o-gray-100;
-            color: $o-gray-700;
+            background-color: $gray-100;
+            color: $gray-700;
 
             .btn-link {
-                color: $o-gray-600;
+                color: $gray-600;
                 text-decoration: none;
 
                 &:hover { color: $o-main-text-color; }
             }
         }
 
+        // Let the preview fill the panel height next to the chat. The body is a
+        // flex column so the iframe stretches; the auto-grow in report_frame.js
+        // expands it further (and the body scrolls) only when content is taller.
+        .o_ai_artifact_body {
+            display: flex;
+            flex-direction: column;
+        }
+
         .o_ai_report_frame {
             display: block;
             width: 100%;
             border: 0;
+            flex: 1 1 auto;
             min-height: 160px;
         }
     }
@@ -300,7 +309,7 @@
     height: 560px;
     max-height: calc(100vh - 112px);
     background-color: $o-view-background-color;
-    border: 1px solid $o-gray-300;
+    border: 1px solid $gray-300;
     border-radius: 8px;
     overflow: hidden;
 

@@ -4,181 +4,188 @@
      Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
 <templates xml:space="preserve">
 
+    <!-- Sidebar conversation list (re-rendered standalone on search/favorite). -->
+    <t t-name="aidoo.SidebarList">
+        <t t-foreach="widget.filteredSessions()" t-as="s">
+            <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center #{s.id === widget.state.currentId ? 'active' : ''}"
+                 t-att-data-id="s.id">
+                <i class="fa fa-comment-o mr-1"/>
+                <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
+                <span class="badge badge-secondary ml-1 text-uppercase"
+                      style="font-size:0.6rem;" t-esc="s.provider"/>
+                <i t-attf-class="fa o_ai_session_star ml-auto #{s.is_favorite ? 'fa-star' : 'fa-star-o'}"
+                   title="Favorite" t-att-data-id="s.id"/>
+            </div>
+        </t>
+    </t>
+
     <t t-name="aidoo.ChatAction">
-        <div t-if="state.ready" class="o_ai_chat d-flex h-100">
-            <!-- Sidebar: provider picker + conversation list -->
-            <div class="o_ai_sidebar d-flex flex-column border-end">
-                <div class="p-2 border-bottom">
-                    <select class="form-select form-select-sm mb-2"
-                            t-model="state.selectedProvider">
-                        <t t-foreach="state.providers" t-as="p" t-key="p.code">
-                            <option t-att-value="p.code" t-esc="p.label"/>
-                        </t>
-                    </select>
-                    <button class="btn btn-primary w-100" t-on-click="_newSession">
-                        <i class="fa fa-plus me-1"/> New chat
-                    </button>
-                    <div class="o_ai_search input-group input-group-sm mt-2">
-                        <span class="input-group-text"><i class="fa fa-search"/></span>
-                        <input type="text" class="form-control"
-                               placeholder="Search conversations"
-                               t-model="state.searchQuery"/>
-                        <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ state.favoritesOnly ? 'active' : '' }}"
-                                title="Show favorites only"
-                                t-on-click="() => state.favoritesOnly = !state.favoritesOnly">
-                            <i t-attf-class="fa {{ state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
+        <div class="o_ai_chat d-flex h-100">
+            <t t-if="widget.state.ready">
+                <t t-set="cp" t-value="widget.currentProvider()"/>
+
+                <!-- Sidebar: provider picker + conversation list -->
+                <div class="o_ai_sidebar d-flex flex-column border-right">
+                    <div class="p-2 border-bottom">
+                        <select class="form-control form-control-sm mb-2 o_ai_provider_select">
+                            <t t-foreach="widget.state.providers" t-as="p">
+                                <option t-att-value="p.code"
+                                        t-att-selected="p.code === widget.state.selectedProvider"
+                                        t-esc="p.label"/>
+                            </t>
+                        </select>
+                        <button class="btn btn-primary w-100 o_ai_new">
+                            <i class="fa fa-plus mr-1"/> New chat
                         </button>
+                        <div class="o_ai_search input-group input-group-sm mt-2">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text"><i class="fa fa-search"/></span>
+                            </div>
+                            <input type="text" class="form-control o_ai_search_input"
+                                   placeholder="Search conversations"
+                                   t-att-value="widget.state.searchQuery"/>
+                            <div class="input-group-append">
+                                <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter #{widget.state.favoritesOnly ? 'active' : ''}"
+                                        title="Show favorites only">
+                                    <i t-attf-class="fa #{widget.state.favoritesOnly ? 'fa-star' : 'fa-star-o'}"/>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="o_ai_sidebar_list flex-grow-1 overflow-auto">
+                        <t t-call="aidoo.SidebarList"/>
                     </div>
                 </div>
-                <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
-                             t-on-click="() => this._openSession(s.id)">
-                            <i class="fa fa-comment-o me-1"/>
-                            <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
-                            <span class="badge bg-secondary ms-1 text-uppercase"
-                                  style="font-size:0.6rem;" t-esc="s.provider"/>
-                            <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
-                               title="Favorite"
-                               t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
-                        </div>
-                    </t>
-                </div>
-            </div>
 
-            <!-- Main: auth gate (per provider) OR messages + composer -->
-            <div class="o_ai_main d-flex flex-column flex-grow-1">
+                <!-- Main: auth gate (per provider) OR messages + composer -->
+                <div class="o_ai_main d-flex flex-column flex-grow-1">
 
-                <!-- Auth gate: shown until the current conversation's provider is connected -->
-                <div t-if="!isAuthed"
-                     class="o_ai_auth d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
-                    <div class="o_ai_auth_card p-4">
-                        <i class="fa fa-robot fa-3x text-primary mb-3"/>
-                        <h3 class="mb-2">Connect <t t-esc="currentProvider.label"/></h3>
-                        <p class="text-muted mb-4">
-                            This conversation runs on <b><t t-esc="currentProvider.label"/></b>.
-                            Connect once to start chatting.
-                        </p>
+                    <!-- Auth gate: shown until the current provider is connected -->
+                    <div t-if="!widget.isAuthed()"
+                         class="o_ai_auth d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
+                        <div class="o_ai_auth_card p-4">
+                            <i class="fa fa-magic fa-3x text-primary mb-3"/>
+                            <h3 class="mb-2">Connect <t t-esc="cp.label"/></h3>
+                            <p class="text-muted mb-4">
+                                This conversation runs on <b><t t-esc="cp.label"/></b>.
+                                Connect once to start chatting.
+                            </p>
 
-                        <!-- oauth_code (Claude): open URL, paste code back -->
-                        <t t-if="currentProvider.auth_mode === 'oauth_code'">
-                            <button t-if="state.authStep === 'idle'"
-                                    class="btn btn-primary btn-lg" t-on-click="_startAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
-                            </button>
-                            <div t-if="state.authStep !== 'idle'" class="text-start">
-                                <p class="mb-2">
-                                    1. Authorize in the tab that just opened.<br/>
-                                    2. Copy the code shown and paste it below.
-                                </p>
-                                <div class="input-group mb-2">
-                                    <input type="text" class="form-control"
-                                           placeholder="Paste authorization code here"
-                                           t-model="state.authCode"
-                                           t-on-keydown="(ev) => ev.key === 'Enter' &amp;&amp; this._completeAuth()"/>
-                                    <button class="btn btn-primary"
-                                            t-att-disabled="state.authStep === 'exchanging'"
-                                            t-on-click="_completeAuth">
-                                        <t t-if="state.authStep === 'exchanging'">Connecting…</t>
-                                        <t t-else="">Connect</t>
+                            <!-- oauth_code (Claude): open URL, paste code back -->
+                            <t t-if="cp.auth_mode === 'oauth_code'">
+                                <button t-if="widget.state.authStep === 'idle'"
+                                        class="btn btn-primary btn-lg o_ai_auth_start">
+                                    <i class="fa fa-sign-in mr-2"/> Login with <t t-esc="cp.label"/>
+                                </button>
+                                <div t-if="widget.state.authStep !== 'idle'" class="text-left">
+                                    <p class="mb-2">
+                                        1. Authorize in the tab that just opened.<br/>
+                                        2. Copy the code shown and paste it below.
+                                    </p>
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control o_ai_auth_code"
+                                               placeholder="Paste authorization code here"/>
+                                        <div class="input-group-append">
+                                            <button class="btn btn-primary o_ai_auth_complete"
+                                                    t-att-disabled="widget.state.authStep === 'exchanging'">
+                                                <t t-if="widget.state.authStep === 'exchanging'">Connecting…</t>
+                                                <t t-if="widget.state.authStep !== 'exchanging'">Connect</t>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-link btn-sm p-0 o_ai_auth_start">
+                                        Re-open the login
                                     </button>
                                 </div>
-                                <button class="btn btn-link btn-sm p-0" t-on-click="_startAuth">
-                                    Re-open the login
-                                </button>
-                            </div>
-                        </t>
+                            </t>
 
-                        <!-- device_poll (Codex): show URL + code, poll until done -->
-                        <t t-if="currentProvider.auth_mode === 'device_poll'">
-                            <button t-if="!state.polling"
-                                    class="btn btn-primary btn-lg" t-on-click="_startDeviceAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
-                            </button>
-                            <div t-if="state.polling" class="text-start">
-                                <p class="mb-2">
-                                    1. A verification page was opened
-                                    <a t-if="state.deviceUrl" t-att-href="state.deviceUrl"
-                                       target="_blank" rel="noopener noreferrer">(re-open)</a>.<br/>
-                                    2. Enter this code there:
-                                </p>
-                                <div t-if="state.deviceCode" class="fs-4 fw-bold mb-2"
-                                     t-esc="state.deviceCode"/>
-                                <div class="text-muted">
-                                    <i class="fa fa-spinner fa-spin me-1"/> Waiting for you to finish…
-                                </div>
-                            </div>
-                        </t>
-
-                        <!-- import_or_key (Gemini / Grok): paste creds OR API key -->
-                        <t t-if="currentProvider.auth_mode === 'import_or_key'">
-                            <div class="text-start">
-                                <label class="form-label fw-bold">Import credentials</label>
-                                <div t-if="currentProvider.auth_import_help"
-                                     class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
-                                     style="white-space: pre-line;"
-                                     t-esc="currentProvider.auth_import_help"/>
-                                <textarea class="form-control mb-1" rows="4"
-                                          t-att-placeholder="currentProvider.auth_import_placeholder"
-                                          t-model="state.credsInput"/>
-                                <button class="btn btn-primary mb-3" t-on-click="_submitImport">
-                                    Import &amp; connect
+                            <!-- device_poll (Codex): show URL + code, poll until done -->
+                            <t t-if="cp.auth_mode === 'device_poll'">
+                                <button t-if="!widget.state.polling"
+                                        class="btn btn-primary btn-lg o_ai_device_start">
+                                    <i class="fa fa-sign-in mr-2"/> Login with <t t-esc="cp.label"/>
                                 </button>
-                                <t t-if="currentProvider.auth_key">
-                                    <label class="form-label fw-bold">…or use an API key</label>
-                                    <div class="input-group">
-                                        <input type="password" class="form-control"
-                                               placeholder="Paste API key" t-model="state.apiKeyInput"/>
-                                        <button class="btn btn-outline-primary" t-on-click="_submitKey">
-                                            Save key
-                                        </button>
+                                <div t-if="widget.state.polling" class="text-left">
+                                    <p class="mb-2">
+                                        1. A verification page was opened
+                                        <a t-if="widget.state.deviceUrl" t-att-href="widget.state.deviceUrl"
+                                           target="_blank" rel="noopener noreferrer">(re-open)</a>.<br/>
+                                        2. Enter this code there:
+                                    </p>
+                                    <div t-if="widget.state.deviceCode" class="h4 font-weight-bold mb-2"
+                                         t-esc="widget.state.deviceCode"/>
+                                    <div class="text-muted">
+                                        <i class="fa fa-spinner fa-spin mr-1"/> Waiting for you to finish…
                                     </div>
-                                </t>
-                            </div>
-                        </t>
+                                </div>
+                            </t>
 
-                        <div t-if="state.authError" class="alert alert-danger mt-3 mb-0"
-                             t-esc="state.authError"/>
+                            <!-- import_or_key (Gemini / Grok): paste creds OR API key -->
+                            <t t-if="cp.auth_mode === 'import_or_key'">
+                                <div class="text-left">
+                                    <label class="font-weight-bold">Import credentials</label>
+                                    <div t-if="cp.auth_import_help"
+                                         class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
+                                         style="white-space: pre-line;"
+                                         t-esc="cp.auth_import_help"/>
+                                    <textarea class="form-control mb-1 o_ai_import_creds" rows="4"
+                                              t-att-placeholder="cp.auth_import_placeholder"/>
+                                    <button class="btn btn-primary mb-3 o_ai_import_submit">
+                                        Import &amp; connect
+                                    </button>
+                                    <t t-if="cp.auth_key">
+                                        <label class="font-weight-bold">…or use an API key</label>
+                                        <div class="input-group">
+                                            <input type="password" class="form-control o_ai_key_input"
+                                                   placeholder="Paste API key"/>
+                                            <div class="input-group-append">
+                                                <button class="btn btn-outline-primary o_ai_key_submit">
+                                                    Save key
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+
+                            <div t-if="widget.state.authError" class="alert alert-danger mt-3 mb-0"
+                                 t-esc="widget.state.authError"/>
+                        </div>
                     </div>
+
+                    <!-- Chat surface (current provider connected) -->
+                    <t t-if="widget.isAuthed()">
+                        <div t-if="widget.state.contextLabel"
+                             class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
+                            <i class="fa fa-link mr-1"/> Discussing: <b t-esc="widget.state.contextLabel"/>
+                        </div>
+                        <div class="o_ai_msglist_mount d-flex flex-column flex-grow-1 overflow-hidden"/>
+                        <div t-if="widget.state.running" class="px-2 pb-1">
+                            <button class="btn btn-sm btn-link text-danger o_ai_stop">
+                                <i class="fa fa-stop mr-1"/> Stop
+                            </button>
+                        </div>
+                        <div class="o_ai_composer_mount"/>
+                    </t>
                 </div>
 
-                <!-- Chat surface (current provider connected) -->
-                <t t-if="isAuthed">
-                    <div t-if="state.contextLabel"
-                         class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
-                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
-                    </div>
-                    <AiMessageList messages="state.messages" running="state.running"
-                                   onOpenArtifact.bind="openArtifact"/>
-                    <div t-if="state.running" class="px-2 pb-1">
-                        <button class="btn btn-sm btn-link text-danger" t-on-click="onStop">
-                            <i class="fa fa-stop me-1"/> Stop
+                <!-- Artifact panel: rendered charts/reports, on the far right -->
+                <div t-if="widget.state.artifactOpen and widget.state.artifact"
+                     class="o_ai_artifact d-flex flex-column border-left">
+                    <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
+                        <i class="fa fa-area-chart mr-2"/>
+                        <span class="font-weight-bold">Preview</span>
+                        <button class="btn btn-sm btn-link ml-auto p-0 mr-2 o_ai_artifact_newtab"
+                                title="Open in new tab">
+                            <i class="fa fa-external-link"/>
+                        </button>
+                        <button class="btn btn-sm btn-link p-0 o_ai_artifact_close" title="Close">
+                            <i class="fa fa-times"/>
                         </button>
                     </div>
-                    <AiComposer onSend.bind="onSend" disabled="state.running"
-                                sessionId="state.currentId"/>
-                </t>
-            </div>
-
-            <!-- Artifact panel: rendered charts/reports, on the far right -->
-            <div t-if="state.artifactOpen and state.artifact"
-                 class="o_ai_artifact d-flex flex-column border-start">
-                <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
-                    <i class="fa fa-area-chart me-2"/>
-                    <span class="fw-bold">Preview</span>
-                    <button class="btn btn-sm btn-link ms-auto p-0 me-2"
-                            title="Open in new tab" t-on-click="openArtifactNewTab">
-                        <i class="fa fa-external-link"/>
-                    </button>
-                    <button class="btn btn-sm btn-link p-0" title="Close"
-                            t-on-click="closeArtifact">
-                        <i class="fa fa-times"/>
-                    </button>
+                    <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3"/>
                 </div>
-                <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3">
-                    <ReportFrame html="state.artifact"/>
-                </div>
-            </div>
+            </t>
         </div>
     </t>
 

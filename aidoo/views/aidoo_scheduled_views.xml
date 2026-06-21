@@ -8,7 +8,7 @@
         <field name="name">aidoo.scheduled.list</field>
         <field name="model">aidoo.scheduled</field>
         <field name="arch" type="xml">
-            <list>
+            <tree>
                 <field name="name"/>
                 <field name="user_id"/>
                 <field name="provider"/>
@@ -17,8 +17,8 @@
                 <field name="delivery"/>
                 <field name="next_run"/>
                 <field name="last_run"/>
-                <field name="active" column_invisible="1"/>
-            </list>
+                <field name="active" invisible="1"/>
+            </tree>
         </field>
     </record>
 
@@ -32,8 +32,8 @@
                             class="btn-primary" icon="fa-play"/>
                 </header>
                 <sheet>
-                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
-                            invisible="active"/>
+                    <widget name="web_ribbon" title="Archived" bg_color="bg-danger"
+                            attrs="{'invisible': [('active', '=', True)]}"/>
                     <div class="oe_title">
                         <label for="name"/>
                         <h1><field name="name" placeholder="e.g. Daily sales summary"/></h1>
@@ -60,21 +60,24 @@
                     </group>
                     <group string="Delivery">
                         <field name="delivery"/>
-                        <field name="email_to" invisible="delivery != 'email'"
+                        <field name="email_to"
+                               attrs="{'invisible': [('delivery', '!=', 'email')]}"
                                placeholder="Defaults to the run-as user's email"/>
-                        <field name="res_model" invisible="delivery != 'chatter'"
-                               required="delivery == 'chatter'"/>
-                        <field name="res_id" invisible="delivery != 'chatter'"
-                               required="delivery == 'chatter'"/>
+                        <field name="res_model"
+                               attrs="{'invisible': [('delivery', '!=', 'chatter')],
+                                       'required': [('delivery', '=', 'chatter')]}"/>
+                        <field name="res_id"
+                               attrs="{'invisible': [('delivery', '!=', 'chatter')],
+                                       'required': [('delivery', '=', 'chatter')]}"/>
                     </group>
                     <notebook>
                         <page string="Runs">
                             <field name="session_ids" readonly="1">
-                                <list>
+                                <tree>
                                     <field name="create_date"/>
                                     <field name="name"/>
                                     <field name="state"/>
-                                </list>
+                                </tree>
                             </field>
                         </page>
                     </notebook>
@@ -104,7 +107,7 @@
     <record id="action_aidoo_scheduled" model="ir.actions.act_window">
         <field name="name">Scheduled Agents</field>
         <field name="res_model">aidoo.scheduled</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">tree,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a scheduled AI agent</p>
             <p>Save a prompt that runs on a schedule and delivers its answer by

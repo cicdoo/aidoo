@@ -156,7 +156,7 @@ class AiAssistantSession(models.Model):
     # Set for conversations driven from the Discuss bot — the reply is posted
     # back into this channel when the turn finishes.
     discuss_channel_id = fields.Many2one(
-        "discuss.channel", string="Discuss Channel", ondelete="cascade",
+        "mail.channel", string="Discuss Channel", ondelete="cascade",
         copy=False, index=True)
 
     message_ids = fields.One2many(
@@ -646,12 +646,13 @@ class AiAssistantSession(models.Model):
         bot = self._aidoo_bot_partner()
         if not bot or not self.discuss_channel_id:
             return
+        # Odoo 13 message_post: ``subtype`` takes the xmlid (v15+ renamed it to
+        # ``subtype_xmlid``); there is no ``silent`` kwarg.
         self.discuss_channel_id.sudo().message_post(
             author_id=bot.id,
             body=plaintext2html(body or ""),
             message_type="comment",
-            subtype_xmlid="mail.mt_comment",
-            silent=True,
+            subtype="mail.mt_comment",
         )
 
     def _deliver_discuss(self, ok):
