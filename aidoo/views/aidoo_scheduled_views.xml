@@ -91,7 +91,7 @@
                 <field name="name"/>
                 <field name="user_id"/>
                 <filter name="archived" string="Archived" domain="[('active', '=', False)]"/>
-                <group expand="0" string="Group By">
+                <group>
                     <filter name="group_provider" string="Provider"
                             context="{'group_by': 'provider'}"/>
                     <filter name="group_user" string="Run As"

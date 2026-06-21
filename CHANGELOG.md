@@ -100,6 +100,11 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Scheduled-agents search view installs on Odoo 19** — the
+  `aidoo.scheduled.search` Group By container used `<group expand="0"
+  string="Group By">`, but Odoo 19's search-view RNG no longer allows `expand`
+  or `string` on `<group>`, which raised a `ParseError` and blocked module
+  installation. Now uses a bare `<group>`, matching core views.
 - **Native Gemini honors the configured Code Assist project** — the native
   adapter ignored `res.users.aidoo_cloud_project` / `aidoo.gemini.cloud_project`
   and always auto-onboarded into Google's individual/standard managed project. It
