@@ -47,7 +47,12 @@ are in scope for security reports include:
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
 - **Per-user credential isolation** — OAuth credentials are stored per user with
-  mode `0600` and never exposed on a record.
+  mode `0600` and never exposed on a record. The Gemini Cloud project billed for
+  a user's requests is likewise resolved per user (`aidoo_cloud_project`, then the
+  instance-wide `cloud_project` fallback) rather than from the project Code Assist
+  auto-provisions and caches on disk — so a configured, licensed project always
+  takes precedence and one user's requests are never silently attributed to an
+  auto-provisioned managed project.
 - **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
   ships built-in web tools (read_url_content / search_web / browser) that its
   permission engine **cannot deny** — so it has ungated internet access, a

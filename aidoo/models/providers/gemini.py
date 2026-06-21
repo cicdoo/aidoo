@@ -171,9 +171,17 @@ class AidooProviderGemini(AidooProvider):
             except Exception:  # noqa: BLE001 — token persistence is best-effort
                 pass
 
+        # A configured (Standard/Enterprise-licensed) project must win over any
+        # project auto-provisioned by Code Assist and cached on disk — otherwise
+        # the request is billed to a free-tier managed project and rate-limited
+        # (HTTP 429). Mirror the legacy CLI adapter: per-user override first,
+        # then the instance-wide fallback (GOOGLE_CLOUD_PROJECT equivalent).
+        configured_project = (user.aidoo_cloud_project or "").strip() or (
+            self._pconfig("cloud_project", "") or "").strip()
         cached_project = self._read_text(self._project_path(user))
         client = CodeAssistClient(
-            creds, save_creds=_save, project=cached_project or None)
+            creds, save_creds=_save,
+            project=configured_project or cached_project or None)
         model = self._model()
 
         try:

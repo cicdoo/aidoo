@@ -116,6 +116,14 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   into one bubble — combining their bodies, tool calls and attachments — so a
   turn shows a single fold instead of a stack. Merging works on shallow clones,
   leaving the upstream chat state untouched.
+- **Gemini billed wrong Cloud project (HTTP 429)** — the native Gemini provider
+  (`models/providers/gemini.py`) always used the project Code Assist
+  auto-provisions and caches on disk, so requests were billed to a free-tier
+  managed project and rate-limited (HTTP 429) even when a Standard/Enterprise-
+  licensed project was configured. A configured project now wins: per-user
+  `aidoo_cloud_project` first, then the instance-wide `cloud_project` fallback
+  (mirroring `GOOGLE_CLOUD_PROJECT`), falling back to the cached project only
+  when neither is set — matching the legacy CLI adapter.
 - **Dark mode visibility** — the chat UI (`static/src/scss/aidoo.scss`) hardcoded
   light-mode colors, so backgrounds, message bubbles, borders and text became
   unreadable when Odoo's dark mode was enabled. Colors now reference Odoo's
