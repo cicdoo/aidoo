@@ -16,7 +16,7 @@ welcome — bug reports, documentation, tests, and code.
 
 ## Development guidelines
 
-- **Target Odoo 18.0.** Match the surrounding code style (PEP 8, 4-space indent,
+- **Target Odoo 13.0.** Match the surrounding code style (PEP 8, 4-space indent,
   `# -*- coding: utf-8 -*-` headers).
 - **Security first.** Aidoo's whole value is its safety model. Any change that
   touches the tool endpoints, the SQL guard, the bridge token, or a provider's
@@ -126,7 +126,7 @@ git commit -s -m "your message"
 This appends a `Signed-off-by: Your Name <you@example.com>` trailer. Signing off
 certifies the DCO **and**, for this project, that any AI-assisted code in the commit
 is yours to license under the terms below. CI rejects unsigned commits; fix them with
-`git commit -s --amend` (one commit) or `git rebase --signoff origin/18.0` (several).
+`git commit -s --amend` (one commit) or `git rebase --signoff origin/13.0` (several).
 
 ### Licensing of contributions (important)
 

@@ -2,7 +2,7 @@
 
 All notable changes to **Aidoo** are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
+Odoo-style versioning (`13.0.MAJOR.MINOR.PATCH`). Add new entries under
 `## [Unreleased]`; a maintainer assigns the version at release time.
 
 ## [Unreleased]
@@ -302,6 +302,7 @@ First release of **Aidoo**, the unified successor to the per-provider modules
   Each provider's CLI (`claude` / `codex` / `gemini` / `grok`) must be installed
   on the server for that provider to be usable.
 
-[Unreleased]: https://github.com/cicdoo/aidoo/compare/18.0.1.0.0...HEAD
+[Unreleased]: https://github.com/cicdoo/aidoo/compare/13.0.1.0.0...HEAD
+[13.0.1.0.0]: https://github.com/cicdoo/aidoo/compare/18.0.1.0.0...13.0.1.0.0
 [18.0.1.0.0]: https://github.com/cicdoo/aidoo/compare/19.0.1.0.0...18.0.1.0.0
 [19.0.1.0.0]: https://github.com/cicdoo/aidoo/releases/tag/19.0.1.0.0
