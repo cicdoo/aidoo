@@ -42,6 +42,12 @@ are in scope for security reports include:
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
   `SET TRANSACTION READ ONLY` with a statement timeout.
+- **Bounded tool transactions** — every tool call sets `lock_timeout` and
+  `statement_timeout` (`SET LOCAL`) on its cursor in `aidoo.tool.exec._dispatch`,
+  so a write that blocks on a lock self-aborts and the request rolls back instead
+  of pinning a worker and holding locks until the bridge's call timeout — i.e. the
+  model cannot wedge the database with a stuck/contended write. Tunable via the
+  `aidoo.tool_lock_timeout_ms` / `aidoo.tool_statement_timeout_ms` parameters.
 - **Capability tokens** — the MCP bridge holds only a short-lived, session-scoped
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only

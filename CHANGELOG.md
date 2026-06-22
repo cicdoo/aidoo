@@ -195,6 +195,15 @@ and passes the `aidoo` test suite (60 tests) on Odoo 13.0 CE.
 - **Report preview** — the artifact iframe now fills the panel height next to the
   chat instead of collapsing to content height
   (`static/src/components/report_frame.js`, `static/src/scss/aidoo.scss`).
+- **Bridge transaction guard** — each tool call now bounds its request cursor with
+  `lock_timeout` (15s) and `statement_timeout` (55s, under the bridge's 60s call
+  timeout) via `SET LOCAL` in `aidoo.tool.exec._dispatch`. A write that blocks on a
+  lock held elsewhere now self-aborts and the request rolls back (releasing the
+  lock) instead of hanging the worker and leaving a zombie transaction holding
+  locks after the bridge already gave up — which on Odoo 13 could block unrelated
+  operations (e.g. a module install canceling with "lock timeout"). Tunable via the
+  `aidoo.tool_lock_timeout_ms` / `aidoo.tool_statement_timeout_ms` system
+  parameters (0 disables). `sql_select` keeps its own read-only cursor + timeout.
 
 ### Removed
 - `cog_menu_item.xml` — the OWL `DropdownItem` template is unused on 13; the menu

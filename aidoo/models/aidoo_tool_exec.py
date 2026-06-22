@@ -116,6 +116,7 @@ class AidooToolExec(models.AbstractModel):
         Returns a JSON-safe result dict (the tool's payload, or ``{"error": ...}``
         for any denial/validation/error — never raises)."""
         self._guard()
+        self._apply_stmt_guards()
         handler = getattr(self, "_t_%s" % tool, None)
         base_vals = dict(self._base_vals(tool, arguments), )
         if handler is None:
@@ -137,6 +138,40 @@ class AidooToolExec(models.AbstractModel):
         """Hard invariant: tool execution must NEVER run as superuser."""
         if self.env.su:
             raise AccessError("Tool execution running as superuser — aborting.")
+
+    def _apply_stmt_guards(self):
+        """Bound how long a tool's SQL may wait for a row lock (``lock_timeout``)
+        and run overall (``statement_timeout``) on the request cursor.
+
+        Without this, a tool write that blocks on a lock held elsewhere would hang
+        the worker for the whole loopback call; the bridge then abandons the call
+        after its own 60s timeout (bridge/mcp_server.py) but the server-side
+        statement keeps waiting, leaving a zombie transaction that holds locks and
+        blocks everyone else (e.g. a module install canceling with "lock timeout").
+
+        With a bounded ``lock_timeout``, a blocked write self-aborts well before
+        that; ``_run`` then audits the error and returns, so the request ends and
+        the (now-aborted) transaction is rolled back — releasing the locks. The
+        statement timeout is kept under the bridge's call timeout so a runaway
+        statement also dies before the bridge gives up. Both use ``SET LOCAL``, so
+        they reset automatically at transaction end and never leak to other
+        requests. ``sql_select`` runs on its own read-only cursor with its own
+        timeout and is unaffected.
+        """
+        icp = self.env["ir.config_parameter"].sudo()
+
+        def _ms(param, default):
+            try:
+                return int(icp.get_param(param, default))
+            except (TypeError, ValueError):
+                return default
+
+        lock_ms = _ms("aidoo.tool_lock_timeout_ms", 15000)   # 15s
+        stmt_ms = _ms("aidoo.tool_statement_timeout_ms", 55000)  # < 60s bridge
+        if lock_ms > 0:
+            self.env.cr.execute("SET LOCAL lock_timeout = %s", (lock_ms,))
+        if stmt_ms > 0:
+            self.env.cr.execute("SET LOCAL statement_timeout = %s", (stmt_ms,))
 
     def _check_tool(self, session, tool):
         if tool not in session._effective_tools():
