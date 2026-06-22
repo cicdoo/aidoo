@@ -8,6 +8,7 @@ security seriously and welcome responsible disclosure.
 | Version  | Supported |
 |----------|-----------|
 | 18.0.x   | ✅        |
+| 13.0.x   | ✅        |
 
 ## Reporting a vulnerability
 
@@ -89,6 +90,14 @@ are in scope for security reports include:
   scripts never execute and its styles are isolated from the Odoo UI; the parent
   only reads the frame to size it. `allow-scripts` is deliberately never combined
   with `allow-same-origin` (that pairing lets a frame drop its own sandbox).
+- **The 13.0 backport preserves enforcement** — the same threat model and defenses
+  apply on Odoo 13.0. The framework substitutions are security-neutral: the
+  `ai_bridge` auth method rebinds the request with `request.uid = uid` (still
+  `su=False`, ACLs/record rules enforced) in place of `request.update_env`, and the
+  18-only `Model.check_access(op)` is emulated with `check_access_rights` **plus**
+  `check_access_rule`, so both ACL and record-rule checks still run. Bus
+  notifications stay scoped to the user's own partner channel (server-side polled by
+  the mail module), so one user never receives another's stream.
 
 If you find a way to (a) escalate beyond the acting user's ACLs, (b) mutate data
 through `sql_select`, (c) forge or replay a bridge token, (d) make the model

@@ -138,6 +138,68 @@ When adding or changing a provider, say which adapter
 (`models/providers/<code>.py`) and whether the provider/CLI contract changed.
 -->
 
+## [13.0.1.0.0] — Odoo 13.0 backport
+
+Backport of the 18.0 line to **Odoo 13.0** with full feature parity. The frontend
+predates OWL, so the whole UI was rewritten on the legacy framework; the backend
+changes are the framework APIs that differ between 13.0 and 18.0. Installs cleanly
+and passes the `aidoo` test suite (60 tests) on Odoo 13.0 CE.
+
+### Changed (ported to Odoo 13.0)
+- **Discuss model** — `discuss.channel` → `mail.channel`
+  (`models/discuss_channel.py`, `models/aidoo_session.py`).
+- **Bus** — `partner._bus_send(...)` (18-only) → `env['bus.bus'].sendone((db,
+  'res.partner', partner_id), payload)` on the user's partner channel
+  (`models/aidoo_runner.py`); the OWL bus subscribe is replaced by listening on
+  the mail-polled partner channel client-side (the v13 `/longpolling/poll`
+  rejects non-string channels), filtered by an `_aidoo` payload marker.
+- **Request user rebind** — `request.update_env(user=uid)` → `request.uid = uid`
+  in the `ai_bridge` auth method (`models/ir_http.py`); still `su=False`.
+- **Access checks** — `Model.check_access(op)` / `has_access(op)` (18-only) →
+  `check_access_rights` + `check_access_rule` shims, preserving ACL **and** record
+  rule enforcement (`models/aidoo_tool_exec.py`, `controllers/main.py`).
+- **JSON storage** — `fields.Json` (14+) is reimplemented as a small custom field
+  (`models/fields_json.py`) backing `tool_calls`/`attachments`/`arguments`, plus a
+  read-only `json` field widget (`static/src/json_field.js`).
+- **Background runner** — the worker thread wraps its env in
+  `api.Environment.manage()` (required in 13 to build an Environment off the
+  request thread) and uses `cr.after('commit', …)` instead of `cr.postcommit`.
+- **System prompt** — states the real Odoo series via `odoo.release`
+  (`models/providers/base.py`) instead of a hardcoded version.
+- **Identity prompt** — sudo's `ir.module.category` to read group category labels
+  (13 restricts that read to admins) (`models/res_users.py`).
+- **message_post** — `subtype_xmlid`/`silent` → `subtype` (`models/aidoo_session.py`).
+- **Assets** — manifest `assets` key (15+) → the legacy `qweb` key plus a
+  `views/assets.xml` bundle that injects JS/SCSS into `web.assets_backend`;
+  `version` → `13.0.1.0.0`.
+- **Settings view** — `<app>`/`<block>`/`<setting>` (17+) rewritten to the 13
+  `o_setting_box` div layout (`views/res_config_settings_views.xml`).
+- **Other views** — `<list>` → `<tree>`; v17 python `invisible`/`required`
+  expressions → `attrs`; row `decoration-*` moved onto `<tree>`; `ir.cron` gains
+  `numbercall=-1` (`views/aidoo_log_views.xml`, `views/aidoo_scheduled_views.xml`,
+  `data/aidoo_action.xml`).
+- **Frontend rewrite** — every OWL component/service is reimplemented on the
+  legacy stack (`web.AbstractAction`/`web.Widget` + jQuery + legacy QWeb): the
+  chat action, composer/message/message-list/report-frame, the bus service, the
+  view-context service, the form/list controller patches, the "Ask Aidoo" Action
+  (cog) menu item (now a `Sidebar` item), and the floating companion (mounted via
+  `WebClient.show_application`, no `main_components` registry in 13).
+- **SAFE_METHODS** — `get_views`/`web_search_read`/`web_read_group` (17/18-only)
+  → `fields_view_get`/`load_views` (`models/aidoo_tool_exec.py`).
+
+### Fixed
+- **Markdown renderer** — inline code was stashed behind a `" N "` placeholder and
+  restored with `/ (\d+) /g`, which also matched literal numbers in prose (e.g.
+  "Odoo 18"), rendering them as `undefined`. Now uses a private-use sentinel
+  (`static/src/markdown.js`). (Pre-existing upstream bug, surfaced during the port.)
+- **Report preview** — the artifact iframe now fills the panel height next to the
+  chat instead of collapsing to content height
+  (`static/src/components/report_frame.js`, `static/src/scss/aidoo.scss`).
+
+### Removed
+- `cog_menu_item.xml` — the OWL `DropdownItem` template is unused on 13; the menu
+  entry is built directly on the legacy `Sidebar`.
+
 ## [18.0.1.0.0] — Odoo 18.0 backport
 
 Backport of the 19.0 release to **Odoo 18.0**. No functional change — only the
