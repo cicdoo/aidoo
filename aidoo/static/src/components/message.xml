@@ -5,7 +5,14 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.Message">
-        <div t-attf-class="o_ai_msg o_ai_msg_{{props.message.role}} d-flex flex-column mb-3">
+        <!-- Run boundary between scheduled-agent runs: a labelled horizontal rule. -->
+        <div t-if="isDivider"
+             class="o_ai_msg_divider d-flex align-items-center my-3 text-muted small">
+            <span class="flex-grow-1 border-top"/>
+            <span class="px-2 text-uppercase" t-esc="props.message.body"/>
+            <span class="flex-grow-1 border-top"/>
+        </div>
+        <div t-else="" t-attf-class="o_ai_msg o_ai_msg_{{props.message.role}} d-flex flex-column mb-3">
             <div class="o_ai_msg_role small text-muted mb-1">
                 <t t-esc="roleLabel"/>
             </div>

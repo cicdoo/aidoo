@@ -60,8 +60,23 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   per-conversation **star** toggle (persisted via a new `/aidoo/favorite` route),
   a **search box** that filters the list by name, and a **"favorites only"**
   filter; starred conversations sort to the top.
+- **Minute-level agent schedules** — `aidoo.scheduled` gains `Minutes` as an
+  interval unit (`models/aidoo_scheduled.py`), and the master dispatcher cron's
+  tick is now configurable from **Settings → Aidoo AI Assistant** via a new
+  `Scheduler Check Interval (minutes)` setting (`aidoo.dispatch_interval_minutes`,
+  default 15) that writes through to the `cron_ai_scheduled` record — so an admin
+  can let agents run more frequently than the previous hard-coded 15-minute floor.
 
 ### Changed
+- **Scheduled agents reuse one conversation, isolated per run** — instead of
+  spawning a new `aidoo.session` every run (flooding the chat list with identical
+  agent chats), `aidoo.scheduled._run_once()` now reuses the agent's single
+  conversation. Each run is still isolated: it mints a fresh `cli_session_id` and
+  resets `turn_count` (so the turn is treated as the first — no resumed transcript
+  and no replayed history for any provider), and inserts a new `divider`-role
+  message (`models/aidoo_message.py`, rendered in `static/src/components/message.*`)
+  as a visible run boundary. A run is skipped while the previous one is still
+  running rather than stacking onto it.
 - **Gemini default model is now `gemini-2.5-flash`** (was `gemini-2.5-pro`). On
   Code Assist the rate limit is **per-model**, and pro's is far lower than
   flash's — so pro 429s on nearly every turn while flash has the headroom for a

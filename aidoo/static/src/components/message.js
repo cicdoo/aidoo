@@ -29,6 +29,12 @@ export class AiMessage extends Component {
         return this.props.message.role === "report";
     }
 
+    // A run boundary inserted between scheduled-agent runs: rendered as a
+    // labelled horizontal rule rather than a message bubble.
+    get isDivider() {
+        return this.props.message.role === "divider";
+    }
+
     // Ordered render segments for non-user messages: markdown chunks (rendered
     // to safe HTML) interleaved with embedded HTML chunks shown as a card that
     // opens the artifact panel. A report-role message is a single HTML segment.

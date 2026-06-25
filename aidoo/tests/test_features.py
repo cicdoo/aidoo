@@ -122,6 +122,35 @@ class TestAidooFeatures(TransactionCase):
         self.env["aidoo.scheduled"]._cron_run_due()
         self.assertFalse(agent.session_ids)
 
+    def test_runs_reuse_one_session_isolated(self):
+        """Every run lands in the same conversation, but each is isolated: a
+        fresh CLI id, a reset turn counter, and a divider between runs."""
+        agent = self._agent()
+        first = agent._run_once()
+        first_cli = first.cli_session_id
+        # Simulate the first turn finishing so the next run isn't deferred.
+        first.state = "done"
+        second = agent._run_once()
+        self.assertEqual(second, first)                      # reused, not new
+        self.assertEqual(len(agent.session_ids), 1)
+        self.assertNotEqual(second.cli_session_id, first_cli)  # fresh CLI run
+        self.assertEqual(second.turn_count, 0)               # treated as first
+        self.assertEqual(
+            second.message_ids.filtered(lambda m: m.role == "divider").mapped(
+                "role"), ["divider"])
+
+    def test_run_defers_while_previous_still_running(self):
+        """A new tick must not stack onto a session that is still running."""
+        agent = self._agent()
+        session = agent._run_once()       # leaves the session 'running'
+        self.assertEqual(session.state, "running")
+        again = agent._run_once()
+        self.assertEqual(again, session)
+        self.assertEqual(len(agent.session_ids), 1)
+        # No run boundary and no second user turn were added while deferred.
+        self.assertFalse(session.message_ids.filtered(
+            lambda m: m.role == "divider"))
+
     def test_email_delivery_creates_mail(self):
         agent = self._agent(delivery="email")
         session = agent._run_once()
