@@ -14,7 +14,8 @@ class AiAssistantMessage(models.Model):
         "aidoo.session", required=True, ondelete="cascade", index=True)
     role = fields.Selection(
         [("user", "User"), ("assistant", "Assistant"),
-         ("tool", "Tool"), ("report", "Report"), ("error", "Error")],
+         ("tool", "Tool"), ("report", "Report"), ("error", "Error"),
+         ("divider", "Divider")],
         required=True, default="assistant")
     body = fields.Text()
     # The CLI's message id used to upsert streamed assistant text (provider-specific).

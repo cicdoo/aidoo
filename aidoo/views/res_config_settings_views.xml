@@ -28,6 +28,10 @@
                                  help="Cap on AI runs executing at once across all users. 0 = unlimited.">
                             <field name="aidoo_max_concurrent_runs"/>
                         </setting>
+                        <setting string="Scheduler Check Interval (minutes)"
+                                 help="How often Aidoo checks for and launches due scheduled agents. Smallest effective period for a scheduled agent.">
+                            <field name="aidoo_dispatch_interval_minutes"/>
+                        </setting>
                         <setting string="Max Upload Size (MB)">
                             <field name="aidoo_max_upload_mb"/>
                         </setting>
