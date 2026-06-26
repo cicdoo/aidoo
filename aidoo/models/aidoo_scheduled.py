@@ -140,8 +140,11 @@ class AidooScheduled(models.Model):
         body = "\n\n".join(
             "%s: %s" % ("User" if m.role == "user" else "Assistant", m.body or "")
             for m in msgs)
-        return ("--- CONTEXT FROM PREVIOUS SCHEDULED RUNS ---\n%s\n"
-                "--- END CONTEXT (the task below is the current run) ---" % body)
+        # NB: must NOT start with a dash — the Claude provider passes the prompt
+        # as an argv element, and a leading "--"/"---" is parsed as a CLI option
+        # ("unknown option"). "===" is safe; mid-string dashes are harmless.
+        return ("=== CONTEXT FROM PREVIOUS SCHEDULED RUNS "
+                "(the task below is the current run) ===\n\n%s" % body)
 
     def _run_once(self):
         """Run one scheduled turn in the agent's single reused conversation.
