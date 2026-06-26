@@ -89,6 +89,19 @@ class ResConfigSettings(models.TransientModel):
         string="Grok Output Format",
         config_parameter="aidoo.grok.output_format", default="streaming-json")
 
+    aidoo_zai_model = fields.Char(
+        string="Z.AI Model", config_parameter="aidoo.zai.model",
+        default="glm-4.6",
+        help="GLM model id used for the coding plan (e.g. glm-4.6, glm-5.2).")
+    aidoo_zai_base_url = fields.Char(
+        string="Z.AI Base URL", config_parameter="aidoo.zai.base_url",
+        default="https://api.z.ai/api/coding/paas/v4",
+        help="GLM Coding Plan endpoint (OpenAI-compatible). Use the China "
+             "platform variant if your subscription is on open.bigmodel.cn.")
+    aidoo_zai_api_key = fields.Char(
+        string="Shared Z.AI API Key", config_parameter="aidoo.zai.api_key",
+        help="Optional fallback key used when a user has no personal key.")
+
     aidoo_antigravity_enabled = fields.Boolean(
         string="Enable Antigravity (experimental)",
         config_parameter="aidoo.antigravity.enabled", default=False,

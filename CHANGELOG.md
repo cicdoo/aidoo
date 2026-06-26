@@ -8,6 +8,16 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Native (in-process) Z.AI (GLM) provider** — a new `aidoo.provider.zai`
+  adapter (`models/providers/zai.py`) talks to z.ai's **GLM Coding Plan**
+  endpoint — the OpenAI-compatible chat API at
+  `https://api.z.ai/api/coding/paas/v4` — directly from Python
+  (`models/providers/zai_client.py`, stdlib only) and runs the agent
+  tool-calling loop in-process (`_is_native`), like the native Gemini adapter.
+  Per-user auth is a z.ai API key (stored mode 0600 under `.zai`, never the DB)
+  with an optional shared fallback (`aidoo.zai.api_key`); model and base URL are
+  configurable (`aidoo.zai.model`, `aidoo.zai.base_url`). Tools execute through
+  `aidoo.tool.exec`, preserving su=False enforcement and the audit log.
 - **Native (in-process) Gemini provider** — Gemini now talks to the Google Code
   Assist API directly from Python (`models/providers/codeassist.py`) and runs the
   agent tool-calling loop in-process, instead of driving the Node `gemini` CLI,

@@ -108,6 +108,18 @@
                         </setting>
                     </block>
 
+                    <block title="Z.AI (GLM Coding Plan)" name="aidoo_zai">
+                        <setting string="Model">
+                            <field name="aidoo_zai_model"/>
+                        </setting>
+                        <setting string="Base URL" help="GLM Coding Plan endpoint (OpenAI-compatible).">
+                            <field name="aidoo_zai_base_url"/>
+                        </setting>
+                        <setting string="Shared Z.AI API Key">
+                            <field name="aidoo_zai_api_key" password="True"/>
+                        </setting>
+                    </block>
+
                     <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
                         <setting string="Enable Antigravity"
                                  help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">

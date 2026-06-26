@@ -26,6 +26,7 @@ PROVIDERS = [
     ("codex", "Codex"),
     ("gemini", "Gemini"),
     ("grok", "Grok"),
+    ("zai", "Z.AI (GLM)"),
     ("antigravity", "Antigravity"),
 ]
 
