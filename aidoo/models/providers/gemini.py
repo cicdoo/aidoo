@@ -300,19 +300,25 @@ class AidooProviderGemini(AidooProvider):
     def _build_contents(self, session, ctx):
         """Replay prior user/assistant text as structured Vertex contents, then
         append this turn's user message. Code Assist does not expose a resumable
-        server session for headless turns, so context is replayed each turn."""
+        server session for headless turns, so context is replayed each turn.
+
+        On a first turn (``ctx['is_first']``) we skip the replay: there is no
+        prior context in interactive chat, and scheduled runs force a first turn
+        so the agent-configured context prefix (in ``ctx['prompt']``) is the sole,
+        non-duplicated source of prior context."""
         contents = []
-        msgs = session.message_ids.filtered(
-            lambda m: m.role in ("user", "assistant")).sorted("id")
-        # The current turn's user message was just persisted (it is the last
-        # one); replay only PRIOR turns here and add this turn from ctx['prompt'].
-        prior = msgs[:-1] if msgs else msgs
-        for m in prior[-20:]:
-            body = m.body or ""
-            if not body:
-                continue
-            role = "user" if m.role == "user" else "model"
-            contents.append({"role": role, "parts": [{"text": body}]})
+        if not ctx.get("is_first"):
+            msgs = session.message_ids.filtered(
+                lambda m: m.role in ("user", "assistant")).sorted("id")
+            # The current turn's user message was just persisted (it is the last
+            # one); replay only PRIOR turns and add this turn from ctx['prompt'].
+            prior = msgs[:-1] if msgs else msgs
+            for m in prior[-20:]:
+                body = m.body or ""
+                if not body:
+                    continue
+                role = "user" if m.role == "user" else "model"
+                contents.append({"role": role, "parts": [{"text": body}]})
         contents.append({
             "role": "user", "parts": [{"text": ctx.get("prompt") or ""}]})
         return contents

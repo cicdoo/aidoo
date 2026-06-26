@@ -544,8 +544,13 @@ class AiAssistantSession(models.Model):
     # ------------------------------------------------------------------
     # Public entry point (called from the controller)
     # ------------------------------------------------------------------
-    def send_message(self, body, attachment_ids=None):
-        """Persist the user message and launch a CLI turn in the background."""
+    def send_message(self, body, attachment_ids=None, context_prefix=None):
+        """Persist the user message and launch a CLI turn in the background.
+
+        ``context_prefix`` (optional) is prepended to the prompt handed to the
+        model but is NOT stored in the user message — used by scheduled agents to
+        carry a bounded slice of prior-run context without polluting the chat
+        transcript or compounding into the next run's context."""
         self.ensure_one()
         body = (body or "").strip()
         if self.state == "running":
@@ -581,6 +586,9 @@ class AiAssistantSession(models.Model):
         is_first = self.turn_count == 0
         identity = self.user_id._ai_identity_prompt(set(self._effective_tools()))
         prompt = adapter._build_prompt(self, body, paths, is_first, identity)
+        if context_prefix:
+            # Prepended to the model prompt only (never the stored message body).
+            prompt = context_prefix + "\n\n" + prompt
         self.write({"state": "running"})
         token = self._mint_bridge_token()
         self.env["aidoo.runner"]._launch(self, prompt, is_first, token)

@@ -182,22 +182,28 @@ class AidooProviderZai(AidooProvider):
         replayed prior user/assistant text, then this turn's user message.
 
         z.ai's coding endpoint is stateless for headless turns, so we replay
-        recent context each turn (same windowing as the native Gemini adapter)."""
+        recent context each turn (same windowing as the native Gemini adapter).
+
+        On a first turn (``ctx['is_first']``) we skip the replay: there is no
+        prior context in interactive chat, and scheduled runs force a first turn
+        so the agent-configured context prefix (in ``ctx['prompt']``) is the sole,
+        non-duplicated source of prior context."""
         messages = [{
             "role": "system",
             "content": "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or ""),
         }]
-        msgs = session.message_ids.filtered(
-            lambda m: m.role in ("user", "assistant")).sorted("id")
-        # The current turn's user message was just persisted (it is the last
-        # one); replay only PRIOR turns here and add this turn from ctx['prompt'].
-        prior = msgs[:-1] if msgs else msgs
-        for m in prior[-20:]:
-            body = m.body or ""
-            if not body:
-                continue
-            role = "user" if m.role == "user" else "assistant"
-            messages.append({"role": role, "content": body})
+        if not ctx.get("is_first"):
+            msgs = session.message_ids.filtered(
+                lambda m: m.role in ("user", "assistant")).sorted("id")
+            # The current turn's user message was just persisted (it is the last
+            # one); replay only PRIOR turns and add this turn from ctx['prompt'].
+            prior = msgs[:-1] if msgs else msgs
+            for m in prior[-20:]:
+                body = m.body or ""
+                if not body:
+                    continue
+                role = "user" if m.role == "user" else "assistant"
+                messages.append({"role": role, "content": body})
         messages.append({"role": "user", "content": ctx.get("prompt") or ""})
         return messages
 
