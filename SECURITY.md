@@ -34,11 +34,14 @@ are in scope for security reports include:
   through it: the loopback MCP bridge controller (CLI providers) and the native
   in-process providers — so the per-user grant, model denylist and immutable
   audit log apply identically regardless of how a tool is reached.
-- **Native (in-process) providers** — some providers (Gemini) run the agent loop
-  inside Odoo and execute tools by calling `aidoo.tool.exec` directly (no CLI
-  subprocess, no loopback HTTP, no MCP bridge token). They still run as the acting
-  user (`su=False`) with the same gating + audit; the model's built-in surface is
-  limited to the declared Odoo tools (no shell/file/web).
+- **Native (in-process) providers** — some providers (Gemini, Z.AI/GLM) run the
+  agent loop inside Odoo and execute tools by calling `aidoo.tool.exec` directly
+  (no CLI subprocess, no loopback HTTP, no MCP bridge token). They still run as the
+  acting user (`su=False`) with the same gating + audit; the model's built-in
+  surface is limited to the declared Odoo tools (no shell/file/web). The Z.AI
+  provider only advertises the user's granted Odoo tools as OpenAI function specs;
+  the executor re-checks the grant authoritatively at call time, so a model that
+  fabricates a tool name or arguments still cannot exceed the user's permissions.
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
   `SET TRANSACTION READ ONLY` with a statement timeout.
@@ -46,8 +49,12 @@ are in scope for security reports include:
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
-- **Per-user credential isolation** — OAuth credentials are stored per user with
-  mode `0600` and never exposed on a record.
+- **Per-user credential isolation** — OAuth credentials and per-user API keys
+  (e.g. a user's Z.AI key under `.zai/api_key`) are stored per user with mode
+  `0600` and never exposed on a record. The optional *shared* fallback keys
+  (`aidoo.<provider>.api_key`, including `aidoo.zai.api_key`) live in
+  `ir.config_parameter` and are readable by system-settings administrators —
+  prefer per-user keys, and treat a shared key as an instance-wide secret.
 - **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
   ships built-in web tools (read_url_content / search_web / browser) that its
   permission engine **cannot deny** — so it has ungated internet access, a
