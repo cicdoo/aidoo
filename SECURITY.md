@@ -68,7 +68,12 @@ are in scope for security reports include:
   user respectively (never superuser). Tool gating, per-user credentials, record
   rules and the audit log all apply unchanged. The Discuss bot only answers
   internal users in the *AI Assistant User* group and is loop-guarded against its
-  own messages.
+  own messages. A scheduled agent may optionally carry a bounded, admin-configured
+  slice of its **own** prior-run conversation into the next run (`context_mode` /
+  `context_amount`); this is the agent's existing session content fed back as a
+  non-persisted prompt prefix (never stored, so it cannot compound), stays within
+  the same session and run-as user, and crosses no tenant, user or session
+  boundary — it is the same data the run-as user could already see in that chat.
 - **View context is access-checked** — the "Ask Aidoo" actions and the floating
   companion seed a conversation with the record or list the user is viewing.
   `/aidoo/new` validates the user's read access to that model/record before
