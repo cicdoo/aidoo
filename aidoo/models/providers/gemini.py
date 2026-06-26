@@ -27,27 +27,8 @@ import uuid
 from odoo import _
 from odoo.exceptions import UserError
 
-from .base import AidooProvider, SYSTEM_PROMPT
+from .base import AidooProvider, SYSTEM_PROMPT, _bridge_tool_schemas
 from .codeassist import CodeAssistClient, CodeAssistError, DEFAULT_METADATA
-
-# The Odoo tool input schemas live in the (standalone, credential-free) MCP
-# bridge script. Lazy-load them once and reuse so the function declarations
-# advertised to Gemini stay single-sourced with what the CLI bridge exposes.
-_BRIDGE_TOOLS = None
-
-
-def _bridge_tool_schemas():
-    global _BRIDGE_TOOLS
-    if _BRIDGE_TOOLS is None:
-        import importlib.util
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "bridge", "mcp_server.py")
-        spec = importlib.util.spec_from_file_location("aidoo_bridge_mcp", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _BRIDGE_TOOLS = list(getattr(mod, "TOOLS", []))
-    return _BRIDGE_TOOLS
 
 
 def _sanitize_schema(schema):

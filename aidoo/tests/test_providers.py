@@ -12,10 +12,10 @@ import tempfile
 
 from odoo.tests.common import TransactionCase, tagged
 
-PROVIDER_CODES = ["claude", "codex", "gemini", "grok"]
+PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai"]
 # Providers that drive a CLI subprocess (implement _prepare_run/_normalize_event).
-# Gemini is now NATIVE (in-process Code Assist) and implements _run_stream
-# instead, so the CLI-shaped contract tests don't apply to it.
+# Gemini and z.ai are NATIVE (in-process) and implement _run_stream instead, so
+# the CLI-shaped contract tests don't apply to them.
 CLI_PROVIDER_CODES = ["claude", "codex", "grok"]
 
 
@@ -164,6 +164,53 @@ class TestProviders(TransactionCase):
             self.assertEqual(d["parameters"]["type"], "object")
         # No grants -> no tool block.
         self.assertIsNone(adapter._function_declarations([]))
+
+    # ------------------------------------------------------------------
+    # Native z.ai (in-process GLM Coding Plan) adapter
+    # ------------------------------------------------------------------
+    def test_zai_is_native(self):
+        """z.ai is native: it drives _run_stream, not a CLI subprocess."""
+        adapter = self._adapter("zai")
+        self.assertTrue(adapter._is_native)
+        with self.assertRaises(NotImplementedError):
+            adapter._prepare_run(self._ctx("zai"))
+
+    def test_zai_tool_specs_openai_shape(self):
+        """Granted tools are advertised in OpenAI function form; ungranted
+        ones are withheld; no grants -> no tool block."""
+        adapter = self._adapter("zai")
+        specs = adapter._tool_specs(["orm_read", "orm_search_read"])
+        self.assertTrue(specs)
+        names = {s["function"]["name"] for s in specs}
+        self.assertEqual(names, {"orm_read", "orm_search_read"})
+        for s in specs:
+            self.assertEqual(s["type"], "function")
+            self.assertIn("parameters", s["function"])
+        self.assertIsNone(adapter._tool_specs([]))
+
+    def test_zai_build_prompt_is_plain(self):
+        """Native z.ai sends system+identity via the system message, so the
+        per-turn prompt is just the user's message (no folded system text)."""
+        session = self.env["aidoo.session"].create(
+            {"user_id": self.env.user.id, "provider": "zai"})
+        prompt = self._adapter("zai")._build_prompt(
+            session, "What is 2+2?", [], True, "ODOO USER CONTEXT BLOCK")
+        self.assertIn("What is 2+2?", prompt)
+        self.assertNotIn("ODOO USER CONTEXT BLOCK", prompt)
+
+    def test_zai_accumulate_tool_calls(self):
+        """Streamed tool_call fragments (keyed by index) concatenate arguments
+        and keep the first id/name seen."""
+        from odoo.addons.aidoo.models.providers.zai_client import ZaiClient
+        acc = {}
+        ZaiClient.accumulate_tool_calls(acc, [
+            {"index": 0, "id": "call_1",
+             "function": {"name": "orm_read", "arguments": '{"mod'}}])
+        ZaiClient.accumulate_tool_calls(acc, [
+            {"index": 0, "function": {"arguments": 'el": "res.partner"}'}}])
+        self.assertEqual(acc[0]["id"], "call_1")
+        self.assertEqual(acc[0]["name"], "orm_read")
+        self.assertEqual(acc[0]["arguments"], '{"model": "res.partner"}')
 
     # ------------------------------------------------------------------
     # Code Assist 429 / rate-limit handling
