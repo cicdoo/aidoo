@@ -290,3 +290,64 @@ class TestAidooFeatures(TransactionCase):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
         self.assertEqual(len(channel.message_ids), before + 1)
         self.assertEqual(channel.message_ids[0].author_id, bot)
+
+    def _sessions_in(self, channel):
+        return self.env["aidoo.session"].search(
+            [("discuss_channel_id", "=", channel.id)])
+
+    def test_non_comment_message_is_ignored(self):
+        """Notifications/logs (non-comment) must not spawn a turn."""
+        channel = self._channel_with_bot()
+        channel.with_user(self.user).message_post(
+            body="just a note", message_type="notification",
+            author_id=self.user.partner_id.id)
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_empty_body_is_ignored(self):
+        channel = self._channel_with_bot()
+        channel.with_user(self.user).message_post(
+            body="   ", message_type="comment",
+            author_id=self.user.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_non_ai_user_is_ignored(self):
+        """A human without the AI Assistant group gets no turn."""
+        outsider = self.env["res.users"].create({
+            "name": "No AI Grant", "login": "aidoo_no_grant",
+            "group_ids": [(4, self.env.ref("base.group_user").id)],
+        })
+        bot = self.env["aidoo.session"]._aidoo_bot_partner()
+        channel = self.env["discuss.channel"].with_user(
+            outsider)._get_or_create_chat([bot.id, outsider.partner_id.id])
+        channel.with_user(outsider).message_post(
+            body="help me", message_type="comment",
+            author_id=outsider.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_bot_absent_from_channel_is_ignored(self):
+        """A channel the bot doesn't belong to is never handled."""
+        channel = self.env["discuss.channel"].with_user(self.user).create({
+            "name": "No Bot Here", "channel_type": "channel"})
+        channel.with_user(self.user).message_post(
+            body="anyone there?", message_type="comment",
+            author_id=self.user.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_unauthenticated_provider_prompts_to_connect(self):
+        """When the author's provider isn't connected, the bot replies asking
+        them to connect and does not start a run."""
+        channel = self._channel_with_bot()
+        before = len(channel.message_ids)
+        with patch("odoo.addons.aidoo.models.providers.claude."
+                   "AidooProviderClaude._is_authenticated", return_value=False):
+            channel.with_user(self.user).message_post(
+                body="hello", message_type="comment",
+                author_id=self.user.partner_id.id,
+                subtype_xmlid="mail.mt_comment")
+        bot = self.env["aidoo.session"]._aidoo_bot_partner()
+        new_msgs = channel.message_ids[:len(channel.message_ids) - before]
+        self.assertTrue(any(m.author_id == bot and "connect" in
+                            (m.body or "").lower() for m in new_msgs))
+        # A session row may be created, but the run is never launched.
+        self.assertFalse(self._sessions_in(channel).filtered(
+            lambda s: s.state == "running"))

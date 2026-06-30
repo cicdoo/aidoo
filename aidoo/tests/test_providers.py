@@ -221,6 +221,28 @@ class TestProviders(TransactionCase):
         self.assertEqual(acc[0]["arguments"], '{"model": "res.partner"}')
 
     # ------------------------------------------------------------------
+    # Antigravity (experimental, opt-in, text-only CLI provider)
+    # ------------------------------------------------------------------
+    def test_antigravity_descriptor_and_flags(self):
+        adapter = self.env["aidoo.provider.antigravity"]
+        d = adapter._descriptor()
+        self.assertEqual(d["code"], "antigravity")
+        self.assertTrue(d["label"])
+        self.assertIn(d["auth_mode"],
+                      ("oauth_code", "device_poll", "import_or_key"))
+        # It drives a CLI (not the native in-process path) and is gated as
+        # experimental/opt-in so it never shows up by default.
+        self.assertFalse(adapter._is_native)
+        self.assertTrue(adapter._experimental)
+
+    def test_antigravity_normalize_event_is_text_only(self):
+        # agy emits no structured stream; _normalize_event must stay a no-op and
+        # never raise, whatever junk it is handed.
+        adapter = self.env["aidoo.provider.antigravity"]
+        for junk in ({}, {"type": "x"}, {"foo": "bar"}):
+            self.assertEqual(adapter._normalize_event(junk, {}), [])
+
+    # ------------------------------------------------------------------
     # Code Assist 429 / rate-limit handling
     # ------------------------------------------------------------------
     def test_codeassist_error_rate_limit_flag(self):
