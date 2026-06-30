@@ -36,6 +36,19 @@ class ResConfigSettings(models.TransientModel):
         help="Absolute path to the gemini binary. Empty = auto-detect (PATH).")
     aidoo_gemini_model = fields.Char(
         string="Gemini Model", config_parameter="aidoo.gemini.model", default="")
+    aidoo_gemini_fallback_model = fields.Char(
+        string="Gemini Fallback Model",
+        config_parameter="aidoo.gemini.fallback_model", default="gemini-2.5-flash",
+        help="Lighter model to fall back to when the primary stays rate-limited "
+             "(429). It uses a separate quota bucket, so replies recover instead "
+             "of failing. Empty disables fallback.")
+    aidoo_gemini_rpm_limit = fields.Integer(
+        string="Gemini Requests/min Cap",
+        config_parameter="aidoo.gemini.rpm_limit", default=120,
+        help="Proactive client-side cap on Code Assist requests per minute "
+             "(per project, per Odoo worker), to stay under the tier's quota. "
+             "0 disables. Note: rate limits are also per-model — pro is far "
+             "lower than flash regardless of this cap.")
     aidoo_gemini_auth_mode = fields.Selection(
         [("oauth_import", "Import Google OAuth credentials (AI Ultra)"),
          ("api_key", "Gemini API key")],
@@ -49,7 +62,11 @@ class ResConfigSettings(models.TransientModel):
     aidoo_gemini_cloud_project = fields.Char(
         string="Shared Google Cloud Project",
         config_parameter="aidoo.gemini.cloud_project",
-        help="Fallback GOOGLE_CLOUD_PROJECT when a user sets none.")
+        help="Code Assist project (GCP project id) used when a user sets no "
+             "personal one. Required to use a Gemini Code Assist ENTERPRISE "
+             "tier — the project where Code Assist is enabled and the per-user "
+             "license assigned. Empty = Google's auto individual/standard "
+             "project. A personal Gmail only ever gets the standard tier.")
     aidoo_gemini_output_format = fields.Selection(
         [("stream-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Gemini Output Format",
@@ -71,6 +88,19 @@ class ResConfigSettings(models.TransientModel):
         [("streaming-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Grok Output Format",
         config_parameter="aidoo.grok.output_format", default="streaming-json")
+
+    aidoo_zai_model = fields.Char(
+        string="Z.AI Model", config_parameter="aidoo.zai.model",
+        default="glm-4.6",
+        help="GLM model id used for the coding plan (e.g. glm-4.6, glm-5.2).")
+    aidoo_zai_base_url = fields.Char(
+        string="Z.AI Base URL", config_parameter="aidoo.zai.base_url",
+        default="https://api.z.ai/api/coding/paas/v4",
+        help="GLM Coding Plan endpoint (OpenAI-compatible). Use the China "
+             "platform variant if your subscription is on open.bigmodel.cn.")
+    aidoo_zai_api_key = fields.Char(
+        string="Shared Z.AI API Key", config_parameter="aidoo.zai.api_key",
+        help="Optional fallback key used when a user has no personal key.")
 
     aidoo_antigravity_enabled = fields.Boolean(
         string="Enable Antigravity (experimental)",
@@ -96,6 +126,13 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="aidoo.max_concurrent_runs", default=0,
         help="Maximum AI runs allowed at the same time across all users "
              "(each is a separate CLI subprocess). 0 = unlimited.")
+    aidoo_dispatch_interval_minutes = fields.Integer(
+        string="Scheduler Check Interval (minutes)",
+        config_parameter="aidoo.dispatch_interval_minutes", default=15,
+        help="How often Aidoo checks for and launches due scheduled agents. "
+             "This is the smallest effective period for a scheduled agent — an "
+             "agent set to run more frequently than this still only fires this "
+             "often.")
     aidoo_max_upload_mb = fields.Integer(
         string="Max Upload Size (MB)", config_parameter="aidoo.max_upload_mb",
         default=15)
@@ -139,6 +176,9 @@ class ResConfigSettings(models.TransientModel):
         res["aidoo_excluded_model_ids"] = [(6, 0, models.ids)]
         sa_ids = self.env["aidoo.session"]._ai_allowed_server_action_ids()
         res["aidoo_allowed_server_action_ids"] = [(6, 0, list(sa_ids))]
+        cron = self.env.ref("aidoo.cron_ai_scheduled", raise_if_not_found=False)
+        if cron and cron.interval_type == "minutes":
+            res["aidoo_dispatch_interval_minutes"] = cron.interval_number
         return res
 
     def set_values(self):
@@ -148,3 +188,9 @@ class ResConfigSettings(models.TransientModel):
         ICP.set_param("aidoo.excluded_models", names)
         ICP.set_param("aidoo.server_action_ids",
                       ",".join(map(str, sorted(self.aidoo_allowed_server_action_ids.ids))))
+        # Push the dispatcher interval onto the real cron so it takes effect.
+        minutes = max(int(self.aidoo_dispatch_interval_minutes or 15), 1)
+        cron = self.env.ref("aidoo.cron_ai_scheduled", raise_if_not_found=False)
+        if cron:
+            cron.sudo().write({
+                "interval_number": minutes, "interval_type": "minutes"})

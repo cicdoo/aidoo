@@ -151,6 +151,9 @@
                     <AiMessageList messages="state.messages" running="state.running"
                                    onOpenArtifact.bind="openArtifact"/>
                     <div t-if="state.running" class="px-2 pb-1">
+                        <div t-if="state.notice" class="small text-muted fst-italic mb-1">
+                            <i class="fa fa-clock-o me-1"/><t t-esc="state.notice"/>
+                        </div>
                         <button class="btn btn-sm btn-link text-danger" t-on-click="onStop">
                             <i class="fa fa-stop me-1"/> Stop
                         </button>

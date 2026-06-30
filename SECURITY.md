@@ -34,11 +34,18 @@ are in scope for security reports include:
   through it: the loopback MCP bridge controller (CLI providers) and the native
   in-process providers — so the per-user grant, model denylist and immutable
   audit log apply identically regardless of how a tool is reached.
-- **Native (in-process) providers** — some providers (Gemini) run the agent loop
-  inside Odoo and execute tools by calling `aidoo.tool.exec` directly (no CLI
-  subprocess, no loopback HTTP, no MCP bridge token). They still run as the acting
-  user (`su=False`) with the same gating + audit; the model's built-in surface is
-  limited to the declared Odoo tools (no shell/file/web).
+- **Native (in-process) providers** — some providers (Gemini, Z.AI/GLM) run the
+  agent loop inside Odoo and execute tools by calling `aidoo.tool.exec` directly
+  (no CLI subprocess, no loopback HTTP, no MCP bridge token). They still run as the
+  acting user (`su=False`) with the same gating + audit; the model's built-in
+  surface is limited to the declared Odoo tools (no shell/file/web).
+- **Tool arguments are decoded before the guards** — models that cannot type a
+  freeform array/object (e.g. Gemini flash) send `domain` / `*args` / sql `params`
+  as a JSON string; `aidoo.tool.exec._coerce_json_args` parses these back into
+  structures **before** `_guard()` and the per-tool handler run, so the SQL
+  validator, ORM access checks and record rules all apply to the decoded values
+  exactly as they do to native array arguments — string-encoding an argument does
+  not bypass any gate.
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
   `SET TRANSACTION READ ONLY` with a statement timeout.
@@ -46,8 +53,11 @@ are in scope for security reports include:
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
-- **Per-user credential isolation** — OAuth credentials are stored per user with
-  mode `0600` and never exposed on a record. The Gemini Cloud project billed for
+- **Per-user credential isolation** — OAuth credentials (and a provider API key,
+  e.g. the Z.AI/GLM key under `.zai`) are stored per user with mode `0600` and
+  never exposed on a record; an optional shared fallback key
+  (`aidoo.zai.api_key`) is read only when a user has set none. The Gemini Cloud
+  project billed for
   a user's requests is likewise resolved per user (`aidoo_cloud_project`, then the
   instance-wide `cloud_project` fallback) rather than from the project Code Assist
   auto-provisions and caches on disk — so a configured, licensed project always

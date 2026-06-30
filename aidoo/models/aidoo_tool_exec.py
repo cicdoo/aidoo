@@ -101,6 +101,7 @@ class AidooToolExec(models.AbstractModel):
         Returns a JSON-safe result dict (the tool's payload, or ``{"error": ...}``
         for any denial/validation/error — never raises)."""
         self._guard()
+        arguments = self._coerce_json_args(arguments)
         handler = getattr(self, "_t_%s" % tool, None)
         base_vals = dict(self._base_vals(tool, arguments), )
         if handler is None:
@@ -114,6 +115,26 @@ class AidooToolExec(models.AbstractModel):
     @staticmethod
     def _unknown(tool):
         raise ValidationError("Unknown tool: %s" % tool)
+
+    # Freeform array/object params that some models (Gemini flash) must send as
+    # a JSON string (see gemini.py _sanitize_schema). Parse them back when a
+    # string is received; real list/dict args (the MCP bridge path) pass through.
+    _JSON_ARG_KEYS = ("domain", "args", "params", "values", "kwargs",
+                      "ids", "fields")
+
+    @classmethod
+    def _coerce_json_args(cls, arguments):
+        if not isinstance(arguments, dict):
+            return arguments
+        out = dict(arguments)
+        for k in cls._JSON_ARG_KEYS:
+            v = out.get(k)
+            if isinstance(v, str) and v[:1] in "[{":
+                try:
+                    out[k] = json.loads(v)
+                except ValueError:
+                    pass
+        return out
 
     # ------------------------------------------------------------------
     # Guards / checks (operate on self.env + the passed session)

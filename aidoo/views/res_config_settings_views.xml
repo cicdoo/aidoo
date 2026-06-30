@@ -28,6 +28,10 @@
                                  help="Cap on AI runs executing at once across all users. 0 = unlimited.">
                             <field name="aidoo_max_concurrent_runs"/>
                         </setting>
+                        <setting string="Scheduler Check Interval (minutes)"
+                                 help="How often Aidoo checks for and launches due scheduled agents. Smallest effective period for a scheduled agent.">
+                            <field name="aidoo_dispatch_interval_minutes"/>
+                        </setting>
                         <setting string="Max Upload Size (MB)">
                             <field name="aidoo_max_upload_mb"/>
                         </setting>
@@ -66,6 +70,12 @@
                         <setting string="Model">
                             <field name="aidoo_gemini_model"/>
                         </setting>
+                        <setting string="Fallback Model" help="Lighter model used when the primary is rate-limited (429); separate quota bucket. Empty disables.">
+                            <field name="aidoo_gemini_fallback_model" placeholder="gemini-2.5-flash"/>
+                        </setting>
+                        <setting string="Requests/min Cap" help="Proactive cap on Code Assist requests per minute (per project, per worker). 0 disables. Limits are also per-model.">
+                            <field name="aidoo_gemini_rpm_limit"/>
+                        </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_gemini_auth_mode"/>
                         </setting>
@@ -95,6 +105,18 @@
                         </setting>
                         <setting string="Output Format">
                             <field name="aidoo_grok_output_format"/>
+                        </setting>
+                    </block>
+
+                    <block title="Z.AI (GLM Coding Plan)" name="aidoo_zai">
+                        <setting string="Model">
+                            <field name="aidoo_zai_model"/>
+                        </setting>
+                        <setting string="Base URL" help="GLM Coding Plan endpoint (OpenAI-compatible).">
+                            <field name="aidoo_zai_base_url"/>
+                        </setting>
+                        <setting string="Shared Z.AI API Key">
+                            <field name="aidoo_zai_api_key" password="True"/>
                         </setting>
                     </block>
 

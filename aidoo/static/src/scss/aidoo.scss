@@ -77,6 +77,12 @@
         min-width: 0;
     }
 
+    // Run boundary between scheduled-agent runs (kept narrow like messages).
+    .o_ai_msg_divider {
+        max-width: 820px;
+        letter-spacing: 0.03em;
+    }
+
     .o_ai_msg {
         max-width: 820px;
 

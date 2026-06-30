@@ -30,6 +30,7 @@ export class AiChatAction extends Component {
             currentProvider: "claude",
             messages: [],
             running: false,
+            notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
             // Auth gate (scoped to the current conversation's provider)
             authError: "",
@@ -368,17 +369,26 @@ export class AiChatAction extends Component {
         switch (p.kind) {
             case "started":
                 this.state.running = true;
+                this.state.notice = "";
+                break;
+            case "notice":
+                // Transient status during a run (e.g. rate-limit backoff); not
+                // persisted as a message. Cleared by the next message/done/error.
+                this.state.notice = p.text || "";
                 break;
             case "message":
+                this.state.notice = "";
                 this._upsertMessage(p.message);
                 this._maybeCaptureArtifact(p.message);
                 break;
             case "done":
                 this.state.running = false;
+                this.state.notice = "";
                 this._reload();
                 break;
             case "error":
                 this.state.running = false;
+                this.state.notice = "";
                 this.state.messages.push({
                     id: `err-${Date.now()}`,
                     role: "error",

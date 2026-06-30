@@ -8,6 +8,22 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Native (in-process) Z.AI (GLM) provider** — a new `aidoo.provider.zai`
+  adapter (`models/providers/zai.py`) talks to z.ai's **GLM Coding Plan**
+  endpoint — the OpenAI-compatible chat API at
+  `https://api.z.ai/api/coding/paas/v4` — directly from Python
+  (`models/providers/zai_client.py`, stdlib only) and runs the agent
+  tool-calling loop in-process (`_is_native`), like the native Gemini adapter.
+  Per-user auth is a z.ai API key (stored mode 0600 under `.zai`, never the DB)
+  with an optional shared fallback (`aidoo.zai.api_key`); model and base URL are
+  configurable (`aidoo.zai.model`, `aidoo.zai.base_url`). Tools execute through
+  `aidoo.tool.exec`, preserving su=False enforcement and the audit log.
+- **Minute-level agent schedules** — `aidoo.scheduled` gains `Minutes` as an
+  interval unit (`models/aidoo_scheduled.py`), and the master dispatcher cron's
+  tick is now configurable from **Settings → Aidoo AI Assistant** via a new
+  `Scheduler Check Interval (minutes)` setting (`aidoo.dispatch_interval_minutes`,
+  default 15) that writes through to the `cron_ai_scheduled` record — so an admin
+  can let agents run more frequently than the previous hard-coded 15-minute floor.
 - **Native (in-process) Gemini provider** — Gemini now talks to the Google Code
   Assist API directly from Python (`models/providers/codeassist.py`) and runs the
   agent tool-calling loop in-process, instead of driving the Node `gemini` CLI,
@@ -62,6 +78,23 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   filter; starred conversations sort to the top.
 
 ### Changed
+- **Scheduled agents reuse one conversation, isolated per run** — instead of
+  spawning a new `aidoo.session` every run (flooding the chat list with identical
+  agent chats), `aidoo.scheduled._run_once()` now reuses the agent's single
+  conversation. Each run is still isolated: it mints a fresh `cli_session_id` and
+  resets `turn_count` (so the turn is treated as the first — no resumed transcript
+  and no replayed history for any provider), and inserts a new `divider`-role
+  message (`models/aidoo_message.py`, rendered in `static/src/components/message.*`)
+  as a visible run boundary. A run is skipped while the previous one is still
+  running rather than stacking onto it.
+- **Gemini default model is now `gemini-2.5-flash`** (was `gemini-2.5-pro`). On
+  Code Assist the rate limit is **per-model**, and pro's is far lower than
+  flash's — so pro 429s on nearly every turn while flash has the headroom for a
+  smooth chat. Set `aidoo.gemini.model = gemini-2.5-pro` to opt back into pro
+  (keep `aidoo.gemini.fallback_model = gemini-2.5-flash` for graceful 429s). Also
+  added a proactive `aidoo.gemini.rpm_limit` (default 120) client-side cap on
+  Code Assist requests/min (per project, per worker), and quieted the rate-limit
+  notice so quick transient retries no longer flash a status.
 - **Single tool-execution path** — tool enforcement + audit moved out of the HTTP
   controller into a shared `aidoo.tool.exec` model (`models/aidoo_tool_exec.py`).
   The loopback MCP bridge controller (`controllers/tools.py`) is now a thin
@@ -92,6 +125,37 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   opened (`/aidoo/providers`) and from the Discuss hook.
 
 ### Fixed
+- **Scheduled-agents search view bare Group By** — the `aidoo.scheduled.search`
+  Group By container now uses a bare `<group>` (dropping the `expand="0"`/`string`
+  attributes) to match core views (`views/aidoo_scheduled_views.xml`), keeping the
+  view definition aligned with the 19.0 source.
+- **Native Gemini honors the configured Code Assist project** — the native
+  adapter ignored `res.users.aidoo_cloud_project` / `aidoo.gemini.cloud_project`
+  and always auto-onboarded into Google's individual/standard managed project. It
+  now uses the configured project (per-user first, then shared) as the
+  authoritative `cloudaicompanionProject`, which is required to use a Gemini Code
+  Assist **Enterprise** tier (granted per GCP project + per-account license). No
+  configured project keeps the previous auto behavior.
+- **Gemini unavailable-model (404) fallback** — if the configured model is not
+  enabled on the account/tier (404 NOT_FOUND, e.g. `gemini-3.5-flash`), the
+  adapter now falls back to `aidoo.gemini.fallback_model` with a notice instead of
+  failing. Available on the tested tier: `gemini-2.5-flash` (default),
+  `gemini-2.5-pro`, `gemini-3-flash` (rate-limited).
+- **Gemini 400 on tool schemas (gemini-2.5-flash)** — flash rejects an array
+  property with no `items` (`GenerateContentRequest...parameters.properties[...]
+  .items: missing field`), which pro tolerated. Odoo's freeform arrays (`domain`,
+  `*args`, sql `params`) can't be typed in the OpenAPI subset, so they are now
+  exposed to the model as a JSON-string param (with a hint), and `aidoo.tool.exec`
+  parses the string back to a list/dict. The MCP bridge path (Claude/Codex/Grok)
+  is unaffected — it still sends real arrays, which pass through unchanged.
+- **Gemini rate-limit (429) resilience** — the native Gemini adapter now mirrors
+  the node CLI's retry instead of failing the turn: exponential backoff with
+  enough attempts, honoring the `Retry-After` header and gRPC
+  `RetryInfo`/quota-reset hints, plus a one-shot fallback to a lighter model
+  (`aidoo.gemini.fallback_model`, default `gemini-2.5-flash` — a separate quota
+  bucket) when the primary stays limited. A transient "rate-limited, retrying…"
+  notice (new `notice` bus event) shows during the wait. Replies no longer
+  hard-fail on transient `429 RESOURCE_EXHAUSTED`.
 - **Gemini session resume error** — Gemini headless cannot reliably resume a
   server-side session, yet the adapter passed `--resume <id>` with a pre-minted
   UUID the CLI had never stored, aborting the turn with "No previous sessions
@@ -116,14 +180,6 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   into one bubble — combining their bodies, tool calls and attachments — so a
   turn shows a single fold instead of a stack. Merging works on shallow clones,
   leaving the upstream chat state untouched.
-- **Gemini billed wrong Cloud project (HTTP 429)** — the native Gemini provider
-  (`models/providers/gemini.py`) always used the project Code Assist
-  auto-provisions and caches on disk, so requests were billed to a free-tier
-  managed project and rate-limited (HTTP 429) even when a Standard/Enterprise-
-  licensed project was configured. A configured project now wins: per-user
-  `aidoo_cloud_project` first, then the instance-wide `cloud_project` fallback
-  (mirroring `GOOGLE_CLOUD_PROJECT`), falling back to the cached project only
-  when neither is set — matching the legacy CLI adapter.
 - **Dark mode visibility** — the chat UI (`static/src/scss/aidoo.scss`) hardcoded
   light-mode colors, so backgrounds, message bubbles, borders and text became
   unreadable when Odoo's dark mode was enabled. Colors now reference Odoo's
