@@ -141,7 +141,9 @@ class AiAssistantRunner(models.AbstractModel):
                 proc.stdin.write(stdin_data)
                 proc.stdin.close()
             except (BrokenPipeError, OSError):
-                pass
+                _logger.debug(
+                    "AI assistant: writing stdin to %s failed (process already "
+                    "gone?)", ctx["provider"], exc_info=True)
 
         session.write({"last_run_pid": proc.pid})
         self._emit(session, {"kind": "started"})
@@ -160,10 +162,29 @@ class AiAssistantRunner(models.AbstractModel):
             finally:
                 q.put(None)
 
+        # Drain stderr concurrently into a buffer. Reading it only after the
+        # process exits can deadlock: a CLI that writes more than the pipe buffer
+        # (~64KB) to stderr blocks on that write, stops producing stdout, and the
+        # run hangs. A dedicated pump keeps the pipe empty so the CLI never blocks.
+        stderr_buf = []
+
+        def _drain_stderr(pipe, buf):
+            try:
+                for ln in pipe:
+                    buf.append(ln)
+            except (ValueError, OSError):
+                pass
+
         reader = threading.Thread(
             target=_pump, args=(proc.stdout, line_q), daemon=True,
             name="aidoo_read_%s" % ctx["session_id"])
         reader.start()
+        stderr_reader = None
+        if proc.stderr:
+            stderr_reader = threading.Thread(
+                target=_drain_stderr, args=(proc.stderr, stderr_buf), daemon=True,
+                name="aidoo_err_%s" % ctx["session_id"])
+            stderr_reader.start()
         try:
             while True:
                 remaining = deadline - time.time()
@@ -171,7 +192,7 @@ class AiAssistantRunner(models.AbstractModel):
                     proc.kill()
                     raise TimeoutError("Run exceeded timeout")
                 try:
-                    line = line_q.get(timeout=min(remaining, 5))
+                    line = line_q.get(timeout=max(0.05, min(remaining, 5)))
                 except queue.Empty:
                     if proc.poll() is not None:
                         break
@@ -184,6 +205,8 @@ class AiAssistantRunner(models.AbstractModel):
                 try:
                     evt = json.loads(line)
                 except ValueError:
+                    _logger.debug("AI assistant: dropping non-JSON line: %.200s",
+                                  line)
                     continue
                 for op in adapter._normalize_event(evt, state):
                     self._apply_op(env, session, op, msg_map, produced_text)
@@ -201,7 +224,9 @@ class AiAssistantRunner(models.AbstractModel):
                     pass
             env["aidoo.session"]._delete_routing_sid(ctx.get("routing_sid"))
 
-        stderr = proc.stderr.read() if proc.stderr else ""
+        if stderr_reader is not None:
+            stderr_reader.join(timeout=5)
+        stderr = "".join(stderr_buf)
 
         # Fallback: some CLIs don't stream a final assistant message; recover it.
         if not produced_text["any"] and session.state == "running":
@@ -248,6 +273,10 @@ class AiAssistantRunner(models.AbstractModel):
         env.cr.commit()
 
         deadline = time.time() + ctx["timeout_s"]
+        # Expose the wall-clock deadline so native adapters (and the HTTP clients
+        # they drive) can cap their own retry/backoff budget instead of blocking
+        # past the turn timeout inside a single op.
+        ctx["deadline"] = deadline
         msg_map = {}
         produced_text = {"any": False}
         try:

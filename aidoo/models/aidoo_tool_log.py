@@ -18,7 +18,8 @@ class AiAssistantToolLog(models.Model):
 
     session_id = fields.Many2one(
         "aidoo.session", ondelete="set null", index=True)
-    user_id = fields.Many2one("res.users", index=True, string="Acting User")
+    user_id = fields.Many2one(
+        "res.users", ondelete="set null", index=True, string="Acting User")
     tool = fields.Char(index=True)
     model_name = fields.Char()
     method = fields.Char()

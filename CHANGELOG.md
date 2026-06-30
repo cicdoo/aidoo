@@ -7,7 +7,25 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+<!--
+Add bullets here under ### Added / Changed / Fixed / Removed / Security.
+When adding or changing a provider, say which adapter
+(`models/providers/<code>.py`) and whether the provider/CLI contract changed.
+-->
+
+## [19.0.1.1.0] — 2026-06-30
+
 ### Added
+- **Per-run context for scheduled agents** — a scheduled agent
+  (`aidoo.scheduled`) can now carry context from its previous runs into each new
+  run, configurable per agent (`context_mode`: none / last N messages / last N
+  runs / full history, with `context_amount` = N). The prior context is read
+  fresh from the agent's own session each run and fed in as a **non-persisted**
+  prompt prefix (never stored, so it cannot compound), while each run keeps its
+  isolated CLI conversation id so resume-based providers never replay an
+  ever-growing transcript. Native adapters (Gemini, Z.AI) now gate their implicit
+  history replay on the first-turn flag so the configured prefix is the single,
+  non-duplicated source of prior context. Defaults to `none` (unchanged behavior).
 - **Native (in-process) Z.AI (GLM) provider** — a new `aidoo.provider.zai`
   adapter (`models/providers/zai.py`) talks to z.ai's **GLM Coding Plan**
   endpoint — the OpenAI-compatible chat API at
@@ -188,12 +206,29 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   `$o-component-active-bg`, `$o-danger`, `$o-brand-primary`), which the
   `web.assets_web_dark` bundle flips automatically — so the stylesheet adapts to
   both themes from a single source, with light mode unchanged.
-
-<!--
-Add bullets here under ### Added / Changed / Fixed / Removed / Security.
-When adding or changing a provider, say which adapter
-(`models/providers/<code>.py`) and whether the provider/CLI contract changed.
--->
+- **Pre-release stabilization pass** — hardened the new in-process/native paths
+  and closed Odoo 19 compatibility gaps ahead of merging to stable:
+  - the scheduled-agent form view shipped a malformed `<group>` that failed to
+    load; repaired.
+  - `aidoo.scheduled.run_count` now declares `@api.depends("session_ids")`, and
+    the `aidoo.tool_log` acting-user link uses `ondelete="set null"` so deleting
+    a user no longer blocks on audit rows.
+  - the runner drains CLI **stderr** on a dedicated thread (a >64KB stderr could
+    deadlock the run) and exposes the turn deadline to native adapters; the Z.AI
+    and Code Assist HTTP clients now cap their retry/backoff budget to that
+    deadline so retries can't overrun the run.
+  - `codeassist.ensure_project()` raises a clear error instead of returning a
+    `None` project (which surfaced later as a confusing 401/403); the native
+    Gemini round loop is bounded (no open `while True`); both native adapters
+    hard-stop at the tool-round cap.
+  - the shared bridge tool-schema cache is lock-guarded against a concurrent
+    first-load; several silently-swallowed errors now log.
+  - **Tests:** Odoo 19 renames fixed in the suite (`res.users.groups_id` →
+    `group_ids`, `discuss.channel.channel_get` → `_get_or_create_chat`); added
+    coverage for the native tool-calling loop (Z.AI + Gemini) and round cap, the
+    shared tool executor (`aidoo.tool.exec`) enforcement contract, Discuss-bot
+    error/guard paths, the `/aidoo/favorite` route, and the Antigravity
+    descriptor. (Known gap: OWL/JS components still have no automated tests.)
 
 ## [19.0.1.0.0] — First public release
 

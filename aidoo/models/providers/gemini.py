@@ -21,6 +21,7 @@ Auth UX is unchanged: the user imports their ``oauth_creds.json`` (Google login)
 The legacy CLI adapter is preserved, unregistered, in ``gemini_cli.py``.
 """
 import json
+import logging
 import os
 import uuid
 
@@ -29,6 +30,8 @@ from odoo.exceptions import UserError
 
 from .base import AidooProvider, SYSTEM_PROMPT, _bridge_tool_schemas
 from .codeassist import CodeAssistClient, CodeAssistError, DEFAULT_METADATA
+
+_logger = logging.getLogger(__name__)
 
 
 def _sanitize_schema(schema):
@@ -163,7 +166,11 @@ class AidooProviderGemini(AidooProvider):
                 self._write_user_file(
                     user, self._oauth_creds_path(user), json.dumps(new_creds))
             except Exception:  # noqa: BLE001 — token persistence is best-effort
-                pass
+                # Best-effort: the refreshed token still works for this turn, but
+                # losing it forces a re-auth next turn, so leave a trace.
+                _logger.warning(
+                    "Gemini: failed to persist refreshed OAuth creds for user %s",
+                    user.id, exc_info=True)
 
         # Code Assist project resolution. A CONFIGURED project (the user's own
         # aidoo_cloud_project, else the shared aidoo.gemini.cloud_project) is
@@ -194,7 +201,7 @@ class AidooProviderGemini(AidooProvider):
         rpm = int(self._pconfig("rpm_limit", 120) or 0)
         client = CodeAssistClient(
             creds, save_creds=_save, project=init_project,
-            on_retry=_on_retry, rpm=rpm)
+            on_retry=_on_retry, rpm=rpm, deadline=ctx.get("deadline"))
         model = self._model()
         # Lighter model to fall back to when the primary stays rate-limited (a
         # separate quota bucket). Empty disables fallback; same-as-primary is a
@@ -223,8 +230,9 @@ class AidooProviderGemini(AidooProvider):
             # Stream one model round, with a one-shot fallback to the lighter
             # model if the primary is still rate-limited after the client's
             # own backoff. Re-running a round is only safe before any text has
-            # streamed for it (so we never duplicate output).
-            while True:
+            # streamed for it (so we never duplicate output). Bounded to the
+            # primary attempt plus a single fallback retry — never an open loop.
+            for _attempt in range(2):
                 upid = uuid.uuid4().hex
                 model_parts = []
                 func_calls = []
@@ -265,6 +273,13 @@ class AidooProviderGemini(AidooProvider):
                     yield {"op": "error",
                            "text": _("Gemini request failed: %s") % e}
                     return
+            else:
+                # Both attempts were consumed by retries without a clean stream —
+                # defensive backstop so the bounded loop can never fall through
+                # silently into the tool-handling code below.
+                yield {"op": "error", "text": _(
+                    "Gemini request failed after retrying on the fallback model.")}
+                return
 
             if not func_calls:
                 return  # turn complete; the runner finalizes the 'done' state
@@ -293,6 +308,7 @@ class AidooProviderGemini(AidooProvider):
 
         yield {"op": "text", "msg_id": "g%s-cap" % session.turn_count,
                "text": _("\n\n_(stopped after %s tool rounds)_") % max_rounds}
+        return  # hard stop: never run beyond the round cap
 
     # ------------------------------------------------------------------
     # Contents / tool-schema assembly
@@ -300,19 +316,25 @@ class AidooProviderGemini(AidooProvider):
     def _build_contents(self, session, ctx):
         """Replay prior user/assistant text as structured Vertex contents, then
         append this turn's user message. Code Assist does not expose a resumable
-        server session for headless turns, so context is replayed each turn."""
+        server session for headless turns, so context is replayed each turn.
+
+        On a first turn (``ctx['is_first']``) we skip the replay: there is no
+        prior context in interactive chat, and scheduled runs force a first turn
+        so the agent-configured context prefix (in ``ctx['prompt']``) is the sole,
+        non-duplicated source of prior context."""
         contents = []
-        msgs = session.message_ids.filtered(
-            lambda m: m.role in ("user", "assistant")).sorted("id")
-        # The current turn's user message was just persisted (it is the last
-        # one); replay only PRIOR turns here and add this turn from ctx['prompt'].
-        prior = msgs[:-1] if msgs else msgs
-        for m in prior[-20:]:
-            body = m.body or ""
-            if not body:
-                continue
-            role = "user" if m.role == "user" else "model"
-            contents.append({"role": role, "parts": [{"text": body}]})
+        if not ctx.get("is_first"):
+            msgs = session.message_ids.filtered(
+                lambda m: m.role in ("user", "assistant")).sorted("id")
+            # The current turn's user message was just persisted (it is the last
+            # one); replay only PRIOR turns and add this turn from ctx['prompt'].
+            prior = msgs[:-1] if msgs else msgs
+            for m in prior[-20:]:
+                body = m.body or ""
+                if not body:
+                    continue
+                role = "user" if m.role == "user" else "model"
+                contents.append({"role": role, "parts": [{"text": body}]})
         contents.append({
             "role": "user", "parts": [{"text": ctx.get("prompt") or ""}]})
         return contents

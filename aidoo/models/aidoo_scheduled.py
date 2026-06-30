@@ -49,6 +49,20 @@ class AidooScheduled(models.Model):
         string="Next Run", default=lambda self: fields.Datetime.now(), copy=False)
     last_run = fields.Datetime(string="Last Run", readonly=True, copy=False)
 
+    context_mode = fields.Selection(
+        [("none", "No prior context (isolated)"),
+         ("messages", "Last N messages"),
+         ("runs", "Last N runs"),
+         ("full", "Full history")],
+        string="Carry Context", default="none", required=True,
+        help="How much of the previous runs' conversation to feed into each run. "
+             "'No prior context' runs each turn isolated (the default). The bounded "
+             "modes keep token cost in check; 'Full history' grows over time.")
+    context_amount = fields.Integer(
+        string="Context Size (N)", default=3,
+        help="How many messages (or runs) of prior context to include — used by "
+             "the 'Last N messages' and 'Last N runs' modes.")
+
     delivery = fields.Selection(
         [("chat", "Chat only"), ("email", "Email"), ("chatter", "Record chatter")],
         default="chat", required=True,
@@ -64,6 +78,7 @@ class AidooScheduled(models.Model):
         "aidoo.session", "scheduled_id", string="Runs", readonly=True)
     run_count = fields.Integer(compute="_compute_run_count")
 
+    @api.depends("session_ids")
     def _compute_run_count(self):
         for rec in self:
             rec.run_count = len(rec.session_ids)
@@ -96,11 +111,51 @@ class AidooScheduled(models.Model):
                 agent.write({"next_run": now + agent._interval_delta()})
         return True
 
+    def _run_context(self, session):
+        """A bounded, labeled transcript of the agent's PRIOR runs to feed into
+        this run, sized by ``context_mode`` / ``context_amount``. Returns "" when
+        there is nothing to carry (or the agent is in isolated mode).
+
+        Read fresh from ``message_ids`` every run (never from a stored prefix), so
+        carried context can never compound across runs. Call this BEFORE writing
+        the current run's divider, so it spans only previous runs."""
+        self.ensure_one()
+        if self.context_mode == "none":
+            return ""
+        msgs = session.message_ids.filtered(
+            lambda m: m.role in ("user", "assistant")).sorted("id")
+        if self.context_mode == "messages":
+            msgs = msgs[-max(1, self.context_amount):]
+        elif self.context_mode == "runs":
+            # Runs are delimited by 'divider' messages (one is written at the
+            # start of every run after the first). "Last N runs" = messages
+            # at/after the Nth-from-last divider.
+            divs = session.message_ids.filtered(
+                lambda m: m.role == "divider").sorted("id")
+            if divs:
+                boundary = divs[-min(max(1, self.context_amount), len(divs))].id
+                msgs = msgs.filtered(lambda m: m.id >= boundary)
+        # "full" -> all user/assistant messages (intentionally unbounded).
+        if not msgs:
+            return ""
+        body = "\n\n".join(
+            "%s: %s" % ("User" if m.role == "user" else "Assistant", m.body or "")
+            for m in msgs)
+        # NB: must NOT start with a dash — the Claude provider passes the prompt
+        # as an argv element, and a leading "--"/"---" is parsed as a CLI option
+        # ("unknown option"). "===" is safe; mid-string dashes are harmless.
+        return ("=== CONTEXT FROM PREVIOUS SCHEDULED RUNS "
+                "(the task below is the current run) ===\n\n%s" % body)
+
     def _run_once(self):
-        """Run one scheduled turn in the agent's single reused conversation,
-        isolated from previous runs (fresh CLI conversation, no replayed
-        history). Reusing one session keeps the chat list tidy instead of
-        spawning a new conversation per run."""
+        """Run one scheduled turn in the agent's single reused conversation.
+
+        The CLI conversation is kept isolated per run (fresh conversation id,
+        reset turn counter) so resume-based providers never replay an ever-growing
+        transcript; any prior-run context the agent is configured to carry
+        (``context_mode``) is fed in as a bounded, non-persisted prompt prefix.
+        Reusing one session keeps the chat list tidy instead of spawning a new
+        conversation per run."""
         self.ensure_one()
         now = fields.Datetime.now()
         session = self.env["aidoo.session"].sudo().search(
@@ -118,6 +173,11 @@ class AidooScheduled(models.Model):
             self.write({"next_run": now + self._interval_delta()})
             return session
         session = session.with_user(self.user_id)
+        # Build the prior-run context BEFORE writing this run's divider, so it
+        # spans only previous runs (sized by the agent's context_mode). NB: do not
+        # name this local ``context`` — Odoo's ``_()`` lang lookup introspects the
+        # frame for a ``context`` dict, and a string here would break translation.
+        run_context = self._run_context(session)
         # Visible run boundary between this run and the previous one.
         if session.message_ids:
             self.env["aidoo.message"].create({
@@ -127,9 +187,10 @@ class AidooScheduled(models.Model):
             })
         # Per-run isolation: a new CLI conversation id and a reset turn counter so
         # the turn is treated as the first one — no prior-run transcript or
-        # replayed history reaches the model.
+        # replayed history reaches the model. Any context the agent is configured
+        # to carry is fed in below as a bounded, non-persisted prompt prefix.
         session.write({"cli_session_id": str(uuid.uuid4()), "turn_count": 0})
-        session.send_message(self.prompt)
+        session.send_message(self.prompt, context_prefix=run_context)
         self.write({"last_run": now, "next_run": now + self._interval_delta()})
         return session
 

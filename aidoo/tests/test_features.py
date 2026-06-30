@@ -26,7 +26,7 @@ class TestAidooFeatures(TransactionCase):
             "name": "Aidoo Feature Tester",
             "login": "aidoo_feature_tester",
             "email": "feature.tester@example.com",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         # Pretend the (default) Claude provider is connected for this user.
@@ -139,6 +139,83 @@ class TestAidooFeatures(TransactionCase):
             second.message_ids.filtered(lambda m: m.role == "divider").mapped(
                 "role"), ["divider"])
 
+    # ------------------------------------------------------------------
+    # Feature 1b — configurable prior-run context
+    # ------------------------------------------------------------------
+    def _msg(self, session, role, body):
+        return self.env["aidoo.message"].create({
+            "session_id": session.id, "role": role, "body": body})
+
+    def _ctx_session(self, agent):
+        """A session for the agent populated across three 'runs' separated by
+        dividers (user/assistant pairs r1q/r1a … r3q/r3a)."""
+        session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude",
+            "scheduled_id": agent.id, "name": agent.name})
+        self._msg(session, "user", "r1q")
+        self._msg(session, "assistant", "r1a")
+        self._msg(session, "divider", "run 2")
+        self._msg(session, "user", "r2q")
+        self._msg(session, "assistant", "r2a")
+        self._msg(session, "divider", "run 3")
+        self._msg(session, "user", "r3q")
+        self._msg(session, "assistant", "r3a")
+        return session
+
+    def test_run_context_none_is_empty(self):
+        agent = self._agent(context_mode="none")
+        self.assertEqual(agent._run_context(self._ctx_session(agent)), "")
+
+    def test_run_context_messages_window(self):
+        agent = self._agent(context_mode="messages", context_amount=2)
+        ctx = agent._run_context(self._ctx_session(agent))
+        self.assertIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", ctx)
+        self.assertIn("r3q", ctx)
+        self.assertIn("r3a", ctx)
+        self.assertNotIn("r2a", ctx)        # only the last 2 messages
+
+    def test_run_context_runs_window(self):
+        agent = self._agent(context_mode="runs", context_amount=1)
+        ctx = agent._run_context(self._ctx_session(agent))
+        self.assertIn("r3q", ctx)
+        self.assertIn("r3a", ctx)
+        self.assertNotIn("r2q", ctx)        # last run only
+        # Two runs back includes run 2 but not run 1.
+        agent.context_amount = 2
+        ctx2 = agent._run_context(self._ctx_session(agent))
+        self.assertIn("r2q", ctx2)
+        self.assertNotIn("r1q", ctx2)
+
+    def test_run_context_full(self):
+        agent = self._agent(context_mode="full")
+        ctx = agent._run_context(self._ctx_session(agent))
+        for needle in ("r1q", "r2a", "r3q"):
+            self.assertIn(needle, ctx)
+
+    def test_context_prefix_reaches_prompt_not_stored(self):
+        """A scheduled run with carried context feeds it into the model prompt
+        but never into the stored user message body."""
+        captured = {}
+
+        def _capture(this, session, prompt, is_first, token):
+            captured["prompt"] = prompt
+            return None
+
+        agent = self._agent(context_mode="messages", context_amount=2)
+        first = agent._run_once()
+        first.state = "done"
+        with patch("odoo.addons.aidoo.models.aidoo_runner."
+                   "AiAssistantRunner._launch", _capture):
+            second = agent._run_once()
+        # The prompt handed to the runner carries the prior-run context block…
+        self.assertIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", captured["prompt"])
+        # …but the stored user messages never contain it.
+        bodies = second.message_ids.filtered(
+            lambda m: m.role == "user").mapped("body")
+        self.assertTrue(bodies)
+        for b in bodies:
+            self.assertNotIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", b or "")
+
     def test_run_defers_while_previous_still_running(self):
         """A new tick must not stack onto a session that is still running."""
         agent = self._agent()
@@ -177,7 +254,7 @@ class TestAidooFeatures(TransactionCase):
     # ------------------------------------------------------------------
     def _channel_with_bot(self):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
-        return self.env["discuss.channel"].with_user(self.user).channel_get(
+        return self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
             [bot.id, self.user.partner_id.id])
 
     def test_user_message_spawns_session(self):
@@ -213,3 +290,64 @@ class TestAidooFeatures(TransactionCase):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
         self.assertEqual(len(channel.message_ids), before + 1)
         self.assertEqual(channel.message_ids[0].author_id, bot)
+
+    def _sessions_in(self, channel):
+        return self.env["aidoo.session"].search(
+            [("discuss_channel_id", "=", channel.id)])
+
+    def test_non_comment_message_is_ignored(self):
+        """Notifications/logs (non-comment) must not spawn a turn."""
+        channel = self._channel_with_bot()
+        channel.with_user(self.user).message_post(
+            body="just a note", message_type="notification",
+            author_id=self.user.partner_id.id)
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_empty_body_is_ignored(self):
+        channel = self._channel_with_bot()
+        channel.with_user(self.user).message_post(
+            body="   ", message_type="comment",
+            author_id=self.user.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_non_ai_user_is_ignored(self):
+        """A human without the AI Assistant group gets no turn."""
+        outsider = self.env["res.users"].create({
+            "name": "No AI Grant", "login": "aidoo_no_grant",
+            "group_ids": [(4, self.env.ref("base.group_user").id)],
+        })
+        bot = self.env["aidoo.session"]._aidoo_bot_partner()
+        channel = self.env["discuss.channel"].with_user(
+            outsider)._get_or_create_chat([bot.id, outsider.partner_id.id])
+        channel.with_user(outsider).message_post(
+            body="help me", message_type="comment",
+            author_id=outsider.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_bot_absent_from_channel_is_ignored(self):
+        """A channel the bot doesn't belong to is never handled."""
+        channel = self.env["discuss.channel"].with_user(self.user).create({
+            "name": "No Bot Here", "channel_type": "channel"})
+        channel.with_user(self.user).message_post(
+            body="anyone there?", message_type="comment",
+            author_id=self.user.partner_id.id, subtype_xmlid="mail.mt_comment")
+        self.assertFalse(self._sessions_in(channel))
+
+    def test_unauthenticated_provider_prompts_to_connect(self):
+        """When the author's provider isn't connected, the bot replies asking
+        them to connect and does not start a run."""
+        channel = self._channel_with_bot()
+        before = len(channel.message_ids)
+        with patch("odoo.addons.aidoo.models.providers.claude."
+                   "AidooProviderClaude._is_authenticated", return_value=False):
+            channel.with_user(self.user).message_post(
+                body="hello", message_type="comment",
+                author_id=self.user.partner_id.id,
+                subtype_xmlid="mail.mt_comment")
+        bot = self.env["aidoo.session"]._aidoo_bot_partner()
+        new_msgs = channel.message_ids[:len(channel.message_ids) - before]
+        self.assertTrue(any(m.author_id == bot and "connect" in
+                            (m.body or "").lower() for m in new_msgs))
+        # A session row may be created, but the run is never launched.
+        self.assertFalse(self._sessions_in(channel).filtered(
+            lambda s: s.state == "running"))
