@@ -90,6 +90,18 @@ are in scope for security reports include:
   Discuss- and scheduled-agent-linked sessions; `/aidoo/discard` is additionally
   guarded server-side to delete only when the session has no messages, so a real
   conversation — or another user's — can never be removed through these endpoints.
+- **AI skills are instructions, not privileges** — a skill (`aidoo.skill`) is
+  user-authored prompt text injected into the per-turn identity block. It can shape
+  *how* the assistant answers but cannot widen *what* it may do: the tool grant,
+  model denylist, read-only SQL and `su=False` execution in `aidoo.tool.exec` are
+  unchanged and authoritative, so a skill can never grant a tool or exceed the
+  acting user's ACLs. Skills are owner-scoped — record rules let a user read their
+  own plus any `is_shared` skill but write only their own, and `is_shared`
+  (publishing to all users) is gated to *AI Assistant Managers* both by rule and by
+  a guard on `create`/`write`. The `/aidoo/new` and `/aidoo/skill` routes attach a
+  skill only after re-resolving it through the caller's own read rights (a private
+  skill of another user is simply not found), and a scheduled agent's skill is
+  applied as the agent's own run-as user.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own

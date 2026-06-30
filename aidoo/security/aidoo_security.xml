@@ -74,4 +74,36 @@
         <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
     </record>
 
+    <!-- Skills: a user can READ their own skills plus any shared skill… -->
+    <record id="rule_skill_read" model="ir.rule">
+        <field name="name">AI skills: own or shared (read)</field>
+        <field name="model_id" ref="model_aidoo_skill"/>
+        <field name="domain_force">['|', ('user_id', '=', user.id), ('is_shared', '=', True)]</field>
+        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <!-- …but only WRITE/CREATE/UNLINK their own (never another user's shared skill). -->
+    <record id="rule_skill_own_write" model="ir.rule">
+        <field name="name">AI skills: own only (write)</field>
+        <field name="model_id" ref="model_aidoo_skill"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
+        <field name="perm_read" eval="False"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+
+    <!-- Managers see and manage all skills. -->
+    <record id="rule_skill_manager" model="ir.rule">
+        <field name="name">AI skills: manager all</field>
+        <field name="model_id" ref="model_aidoo_skill"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
+    </record>
+
 </odoo>

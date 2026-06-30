@@ -7,6 +7,25 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **AI skills (reusable instruction presets)** — a new `aidoo.skill` model
+  (`models/aidoo_skill.py`) lets users save named instruction presets and attach
+  one to a chat conversation (`aidoo.session.skill_id`) or a scheduled agent
+  (`aidoo.scheduled.skill_id`). While attached, the skill's instructions are
+  injected into the model prompt **every turn for all providers** — by extending
+  the shared per-turn identity block (`res.users._ai_identity_prompt(skill=…)`),
+  which already reaches Claude (system-prompt flag), Codex/Grok (folded prompt)
+  and native Gemini/Z.AI (system instruction), so no provider adapter changes.
+  Skills are **personal by default**; an *AI Assistant Manager* can flag one
+  `is_shared` to publish it to all users (own + shared visible, own-only editable,
+  enforced by record rules + a manager-only guard on `is_shared`). A backend
+  **Skills** menu (list/form, `views/aidoo_skill_views.xml`) manages them. In the
+  chat, a skill picker in the sidebar sets the default for new conversations and a
+  per-conversation selector in the chat header changes the open chat live (new
+  `/aidoo/skill` route; `/aidoo/new` accepts `skill_id`; `/aidoo/providers` and
+  `/aidoo/messages` carry skills/the current skill). On a scheduled agent, the
+  selected skill is applied to every run.
+
 <!--
 Add bullets here under ### Added / Changed / Fixed / Removed / Security.
 When adding or changing a provider, say which adapter

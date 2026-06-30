@@ -47,8 +47,12 @@ class AiAssistantChat(http.Controller):
             desc = adapter._descriptor()
             desc["authenticated"] = user._ai_is_authenticated(code)
             out.append(desc)
+        # Skills the caller may use (own + shared) — record-rule filtered.
+        skills = request.env["aidoo.skill"].search([])
         return {"providers": out,
-                "default": request.env["aidoo.session"]._default_provider()}
+                "default": request.env["aidoo.session"]._default_provider(),
+                "skills": [{"id": s.id, "name": s.name,
+                            "description": s.description or ""} for s in skills]}
 
     # ------------------------------------------------------------------
     # Per-user, per-provider authentication
@@ -98,6 +102,23 @@ class AiAssistantChat(http.Controller):
         session.is_favorite = bool(is_favorite)
         return {"id": session.id, "is_favorite": session.is_favorite}
 
+    def _readable_skill(self, skill_id):
+        """Return the skill the caller may use, or an empty recordset. Resolved
+        through search so the record rules (own + shared) apply — a private skill
+        of another user is simply not found."""
+        if not skill_id:
+            return request.env["aidoo.skill"]
+        return request.env["aidoo.skill"].search(
+            [("id", "=", int(skill_id))], limit=1)
+
+    @http.route("/aidoo/skill", type="jsonrpc", auth="user")
+    def set_skill(self, session_id=None, skill_id=None):
+        """Attach (or clear) the instruction skill on a conversation. Takes
+        effect on the next turn."""
+        session = self._session(session_id)
+        session.skill_id = self._readable_skill(skill_id).id or False
+        return {"id": session.id, "skill_id": session.skill_id.id or False}
+
     @http.route("/aidoo/discard", type="jsonrpc", auth="user")
     def discard(self, session_id=None):
         """Delete a session only if it is empty (no messages, not running).
@@ -109,11 +130,14 @@ class AiAssistantChat(http.Controller):
         return {"deleted": False}
 
     @http.route("/aidoo/new", type="jsonrpc", auth="user")
-    def new(self, provider=None, context_model=None, context_res_id=None,
-            context_domain=None):
+    def new(self, provider=None, skill_id=None, context_model=None,
+            context_res_id=None, context_domain=None):
         vals = {"user_id": request.env.uid}
         if provider in _PROVIDER_CODES:
             vals["provider"] = provider
+        skill = self._readable_skill(skill_id)
+        if skill:
+            vals["skill_id"] = skill.id
         # Optional focus context (from "Ask Aidoo"): a record on a form, or the
         # filtered record set on a list. Only stored when the user may actually
         # read it — never seed a reference to something outside their rights.
@@ -145,6 +169,7 @@ class AiAssistantChat(http.Controller):
         return {"id": session.id, "name": session.name, "state": session.state,
                 "provider": session.provider,
                 "is_favorite": session.is_favorite,
+                "skill_id": session.skill_id.id or False,
                 "context_label": session._context_label()}
 
     @http.route("/aidoo/messages", type="jsonrpc", auth="user")
@@ -155,6 +180,7 @@ class AiAssistantChat(http.Controller):
             "name": session.name,
             "state": session.state,
             "provider": session.provider,
+            "skill_id": session.skill_id.id or False,
             "context_label": session._context_label(),
             "messages": session.message_ids._to_frontend(),
         }

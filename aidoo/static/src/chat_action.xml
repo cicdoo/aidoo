@@ -15,6 +15,15 @@
                             <option t-att-value="p.code" t-esc="p.label"/>
                         </t>
                     </select>
+                    <select t-if="state.skills.length"
+                            class="form-select form-select-sm mb-2"
+                            t-model="state.selectedSkill"
+                            title="Skill applied to the next new chat">
+                        <option value="">No skill</option>
+                        <t t-foreach="state.skills" t-as="sk" t-key="sk.id">
+                            <option t-att-value="sk.id" t-esc="sk.name"/>
+                        </t>
+                    </select>
                     <button class="btn btn-primary w-100" t-on-click="_newSession">
                         <i class="fa fa-plus me-1"/> New chat
                     </button>
@@ -147,6 +156,21 @@
                     <div t-if="state.contextLabel"
                          class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
                         <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
+                    </div>
+                    <div t-if="state.skills.length"
+                         class="o_ai_skill_bar d-flex align-items-center px-3 py-1 border-bottom small">
+                        <i class="fa fa-magic me-2 text-muted"/>
+                        <span class="text-muted me-2">Skill:</span>
+                        <select class="form-select form-select-sm w-auto o_ai_skill_select"
+                                t-on-change="onSelectSkill"
+                                title="Instruction preset followed every turn in this chat">
+                            <option value="" t-att-selected="!state.currentSkillId">None</option>
+                            <t t-foreach="state.skills" t-as="sk" t-key="sk.id">
+                                <option t-att-value="sk.id"
+                                        t-att-selected="sk.id === state.currentSkillId"
+                                        t-esc="sk.name"/>
+                            </t>
+                        </select>
                     </div>
                     <AiMessageList messages="state.messages" running="state.running"
                                    onOpenArtifact.bind="openArtifact"/>

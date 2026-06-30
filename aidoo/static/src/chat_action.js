@@ -23,6 +23,9 @@ export class AiChatAction extends Component {
         this.state = useState({
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
+            skills: [],             // [{id, name, description}] the user may use
+            selectedSkill: false,   // skill applied to the next new conversation
+            currentSkillId: false,  // skill on the open conversation
             sessions: [],
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
@@ -58,6 +61,7 @@ export class AiChatAction extends Component {
             const info = await rpc("/aidoo/providers");
             this.state.providers = info.providers;
             this.state.selectedProvider = info.default;
+            this.state.skills = info.skills || [];
             await this._initChat();
             this.state.ready = true;
         });
@@ -280,6 +284,7 @@ export class AiChatAction extends Component {
         const ctx = context && context.context_model ? context : null;
         const s = await rpc("/aidoo/new", {
             provider: this.state.selectedProvider,
+            skill_id: this.state.selectedSkill || false,
             ...(ctx || {}),
         });
         this.state.sessions.unshift(s);
@@ -296,11 +301,30 @@ export class AiChatAction extends Component {
         const data = await rpc("/aidoo/messages", { session_id: id });
         this.state.currentProvider = data.provider;
         this.state.contextLabel = data.context_label || "";
+        this.state.currentSkillId = data.skill_id || false;
         this.state.messages = data.messages;
         this.state.running = data.state === "running";
         this.state.artifact = null;
         this.state.artifactOpen = false;
         this._captureLatestArtifact();
+    }
+
+    // Change the skill on the open conversation (applies from the next turn).
+    async onSelectSkill(ev) {
+        const raw = ev.target.value;
+        const skillId = raw ? parseInt(raw, 10) : false;
+        this.state.currentSkillId = skillId;
+        if (this.state.currentId) {
+            await rpc("/aidoo/skill", {
+                session_id: this.state.currentId,
+                skill_id: skillId || false,
+            });
+        }
+    }
+
+    _skillName(id) {
+        const s = this.state.skills.find((x) => x.id === id);
+        return s ? s.name : "";
     }
 
     // ------------------------------------------------------------------
