@@ -12,10 +12,10 @@ import tempfile
 
 from odoo.tests.common import TransactionCase, tagged
 
-PROVIDER_CODES = ["claude", "codex", "gemini", "grok"]
+PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai"]
 # Providers that drive a CLI subprocess (implement _prepare_run/_normalize_event).
-# Gemini is now NATIVE (in-process Code Assist) and implements _run_stream
-# instead, so the CLI-shaped contract tests don't apply to it.
+# Gemini and z.ai are NATIVE (in-process) and implement _run_stream instead, so
+# the CLI-shaped contract tests don't apply to them.
 CLI_PROVIDER_CODES = ["claude", "codex", "grok"]
 
 
@@ -164,3 +164,108 @@ class TestProviders(TransactionCase):
             self.assertEqual(d["parameters"]["type"], "object")
         # No grants -> no tool block.
         self.assertIsNone(adapter._function_declarations([]))
+
+    # ------------------------------------------------------------------
+    # Native z.ai (in-process GLM Coding Plan) adapter
+    # ------------------------------------------------------------------
+    def test_zai_is_native(self):
+        """z.ai is native: it drives _run_stream, not a CLI subprocess."""
+        adapter = self._adapter("zai")
+        self.assertTrue(adapter._is_native)
+        with self.assertRaises(NotImplementedError):
+            adapter._prepare_run(self._ctx("zai"))
+
+    def test_zai_tool_specs_openai_shape(self):
+        """Granted tools are advertised in OpenAI function form; ungranted
+        ones are withheld; no grants -> no tool block."""
+        adapter = self._adapter("zai")
+        specs = adapter._tool_specs(["orm_read", "orm_search_read"])
+        self.assertTrue(specs)
+        names = {s["function"]["name"] for s in specs}
+        self.assertEqual(names, {"orm_read", "orm_search_read"})
+        for s in specs:
+            self.assertEqual(s["type"], "function")
+            self.assertIn("parameters", s["function"])
+        self.assertIsNone(adapter._tool_specs([]))
+
+    def test_zai_build_prompt_is_plain(self):
+        """Native z.ai sends system+identity via the system message, so the
+        per-turn prompt is just the user's message (no folded system text)."""
+        session = self.env["aidoo.session"].create(
+            {"user_id": self.env.user.id, "provider": "zai"})
+        prompt = self._adapter("zai")._build_prompt(
+            session, "What is 2+2?", [], True, "ODOO USER CONTEXT BLOCK")
+        self.assertIn("What is 2+2?", prompt)
+        self.assertNotIn("ODOO USER CONTEXT BLOCK", prompt)
+
+    def test_zai_accumulate_tool_calls(self):
+        """Streamed tool_call fragments (keyed by index) concatenate arguments
+        and keep the first id/name seen."""
+        from odoo.addons.aidoo.models.providers.zai_client import ZaiClient
+        acc = {}
+        ZaiClient.accumulate_tool_calls(acc, [
+            {"index": 0, "id": "call_1",
+             "function": {"name": "orm_read", "arguments": '{"mod'}}])
+        ZaiClient.accumulate_tool_calls(acc, [
+            {"index": 0, "function": {"arguments": 'el": "res.partner"}'}}])
+        self.assertEqual(acc[0]["id"], "call_1")
+        self.assertEqual(acc[0]["name"], "orm_read")
+        self.assertEqual(acc[0]["arguments"], '{"model": "res.partner"}')
+
+    # ------------------------------------------------------------------
+    # Code Assist 429 / rate-limit handling
+    # ------------------------------------------------------------------
+    def test_codeassist_error_rate_limit_flag(self):
+        from odoo.addons.aidoo.models.providers.codeassist import CodeAssistError
+        self.assertTrue(CodeAssistError("x", status=429).is_rate_limit)
+        self.assertFalse(CodeAssistError("x", status=500).is_rate_limit)
+        self.assertFalse(CodeAssistError("x").is_rate_limit)
+        # 404 (model unavailable) is flagged for fallback too.
+        self.assertTrue(CodeAssistError("x", status=404).is_not_found)
+        self.assertFalse(CodeAssistError("x", status=404).is_rate_limit)
+        self.assertFalse(CodeAssistError("x", status=429).is_not_found)
+
+    def test_codeassist_retry_delay_precedence(self):
+        """Retry-After header > RetryInfo.retryDelay > body "reset after Ns" >
+        exponential backoff; explicit hints capped, backoff bounded."""
+        from odoo.addons.aidoo.models.providers.codeassist import (
+            CodeAssistClient as C)
+        self.assertEqual(C._retry_delay({"Retry-After": "12"}, "", 0), 12)
+        ri = ('{"error":{"details":[{"@type":'
+              '"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"57s"}]}}')
+        self.assertEqual(C._retry_delay({}, ri, 0), 58)
+        self.assertEqual(C._retry_delay({}, "quota will reset after 30s.", 0), 31)
+        big = '{"error":{"details":[{"@type":"x.RetryInfo","retryDelay":"999s"}]}}'
+        self.assertEqual(C._retry_delay({}, big, 0), C._HINT_CAP_S)
+        # Exponential fallback (no hint) is bounded by _MAX_DELAY_S (+ jitter).
+        self.assertLessEqual(C._retry_delay({}, "no hint", 6),
+                             C._MAX_DELAY_S * 1.2 + 0.01)
+
+    def test_gemini_fallback_model_default(self):
+        """The native Gemini adapter defaults its fallback model to flash."""
+        self.assertEqual(
+            self._adapter("gemini")._pconfig("fallback_model", "gemini-2.5-flash"),
+            "gemini-2.5-flash")
+
+    def test_gemini_sanitize_bare_array_to_string(self):
+        """A bare array (no `items`) becomes a JSON-string param — Gemini flash
+        rejects array properties without `items`. Typed arrays stay arrays."""
+        from odoo.addons.aidoo.models.providers.gemini import _sanitize_schema
+        out = _sanitize_schema({"type": "object", "properties": {
+            "domain": {"type": "array", "default": []},
+            "ids": {"type": "array", "items": {"type": "integer"}}}})
+        self.assertEqual(out["properties"]["domain"]["type"], "string")
+        self.assertIn("JSON", out["properties"]["domain"]["description"])
+        self.assertEqual(out["properties"]["ids"]["type"], "array")
+        self.assertEqual(out["properties"]["ids"]["items"]["type"], "integer")
+
+    def test_tool_exec_coerces_json_string_args(self):
+        """JSON-string array/object args (from models that can't type them) are
+        parsed back to structures; real lists and plain strings pass through."""
+        ex = self.env["aidoo.tool.exec"]
+        coerced = ex._coerce_json_args({
+            "model": "res.partner", "domain": '[["customer_rank", ">", 0]]',
+            "fields": ["name"]})
+        self.assertEqual(coerced["domain"], [["customer_rank", ">", 0]])
+        self.assertEqual(coerced["fields"], ["name"])
+        self.assertEqual(coerced["model"], "res.partner")

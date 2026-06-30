@@ -27,27 +27,8 @@ import uuid
 from odoo import _
 from odoo.exceptions import UserError
 
-from .base import AidooProvider, SYSTEM_PROMPT
+from .base import AidooProvider, SYSTEM_PROMPT, _bridge_tool_schemas
 from .codeassist import CodeAssistClient, CodeAssistError, DEFAULT_METADATA
-
-# The Odoo tool input schemas live in the (standalone, credential-free) MCP
-# bridge script. Lazy-load them once and reuse so the function declarations
-# advertised to Gemini stay single-sourced with what the CLI bridge exposes.
-_BRIDGE_TOOLS = None
-
-
-def _bridge_tool_schemas():
-    global _BRIDGE_TOOLS
-    if _BRIDGE_TOOLS is None:
-        import importlib.util
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "bridge", "mcp_server.py")
-        spec = importlib.util.spec_from_file_location("aidoo_bridge_mcp", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _BRIDGE_TOOLS = list(getattr(mod, "TOOLS", []))
-    return _BRIDGE_TOOLS
 
 
 def _sanitize_schema(schema):
@@ -76,6 +57,15 @@ def _sanitize_schema(schema):
     if "items" in schema:
         out["type"] = "array"
         out["items"] = _sanitize_schema(schema["items"]) or {"type": "string"}
+    # Gemini (notably gemini-2.5-flash) rejects an array property with no `items`
+    # (Code Assist 400). Odoo's bare arrays — `domain`, `*args`, sql `params` —
+    # hold heterogeneous/nested values the OpenAPI subset can't type, so expose
+    # them as a JSON string the model fills; aidoo.tool.exec parses it back.
+    if out.get("type") == "array" and "items" not in out:
+        desc = (out.get("description") or "").strip()
+        hint = ('Pass as a JSON array string, e.g. '
+                '[["field", "operator", value]].')
+        return {"type": "string", "description": (desc + " " + hint).strip()}
     out.setdefault("type", "object" if "properties" in out else "string")
     return out
 
@@ -89,7 +79,11 @@ class AidooProviderGemini(AidooProvider):
     _provider_label = "Gemini"
     _accent_color = "#714b67"
     _config_dir_name = ".gemini"
-    _default_model = "gemini-2.5-pro"
+    # Default to flash: on Code Assist the pro model has a much lower per-model
+    # rate limit, so it 429s on almost every turn; flash has the headroom for a
+    # smooth chat. Admins who want pro can set aidoo.gemini.model = gemini-2.5-pro
+    # (and keep aidoo.gemini.fallback_model = gemini-2.5-flash for graceful 429s).
+    _default_model = "gemini-2.5-flash"
     _auth_ui_mode = "import_or_key"
     _uses_system_prompt_flag = False
     _is_native = True
@@ -171,25 +165,52 @@ class AidooProviderGemini(AidooProvider):
             except Exception:  # noqa: BLE001 — token persistence is best-effort
                 pass
 
-        # A configured (Standard/Enterprise-licensed) project must win over any
-        # project auto-provisioned by Code Assist and cached on disk — otherwise
-        # the request is billed to a free-tier managed project and rate-limited
-        # (HTTP 429). Mirror the legacy CLI adapter: per-user override first,
-        # then the instance-wide fallback (GOOGLE_CLOUD_PROJECT equivalent).
-        configured_project = (user.aidoo_cloud_project or "").strip() or (
-            self._pconfig("cloud_project", "") or "").strip()
+        # Code Assist project resolution. A CONFIGURED project (the user's own
+        # aidoo_cloud_project, else the shared aidoo.gemini.cloud_project) is
+        # authoritative — required to use a Gemini Code Assist *Enterprise* tier,
+        # which is granted on a specific GCP project + per-account license. With
+        # no configured project we fall back to the cached/auto-onboarded one
+        # (Google's individual/standard-tier managed project).
+        configured_project = ((user.aidoo_cloud_project or "").strip()
+                              or (self._pconfig("cloud_project", "") or "").strip())
         cached_project = self._read_text(self._project_path(user))
+        init_project = configured_project or cached_project or None
+        runner = env["aidoo.runner"]
+
+        def _on_retry(attempt, delay, reason):
+            # Surface a live "retrying…" notice during the client's backoff wait
+            # (emitted on its own committed cursor, so it reaches the chat even
+            # while this worker is blocked in time.sleep). Stay quiet for the
+            # first quick retry that recovers on its own; only speak up for a
+            # longer wait or a later attempt, so the chat isn't noisy.
+            if attempt < 2 and delay < 8:
+                return
+            if reason == 429:
+                text = _("Gemini is rate-limited — retrying in %ss…") % int(delay)
+            else:
+                text = _("Gemini is busy — retrying in %ss…") % int(delay)
+            runner._emit_notice(ctx, text)
+
+        rpm = int(self._pconfig("rpm_limit", 120) or 0)
         client = CodeAssistClient(
-            creds, save_creds=_save,
-            project=configured_project or cached_project or None)
+            creds, save_creds=_save, project=init_project,
+            on_retry=_on_retry, rpm=rpm)
         model = self._model()
+        # Lighter model to fall back to when the primary stays rate-limited (a
+        # separate quota bucket). Empty disables fallback; same-as-primary is a
+        # no-op. Mirrors the gemini CLI's onPersistent429 -> flash behaviour.
+        fallback_model = (self._pconfig("fallback_model", "gemini-2.5-flash")
+                          or "").strip()
+        fallback_used = False
 
         try:
             project = client.ensure_project(DEFAULT_METADATA)
         except CodeAssistError as e:
             yield {"op": "error", "text": _("Gemini authentication failed: %s") % e}
             return
-        if project and project != cached_project:
+        # Cache only an AUTO-resolved project; a configured one is authoritative
+        # and must not be overwritten by/stored as a stale cache.
+        if (not configured_project and project and project != cached_project):
             self._write_user_file(user, self._project_path(user), project)
 
         system_instruction = "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or "")
@@ -199,25 +220,51 @@ class AidooProviderGemini(AidooProvider):
 
         for rnd in range(max_rounds):
             msg_id = "g%s-%s" % (session.turn_count, rnd)
-            upid = uuid.uuid4().hex
-            model_parts = []
-            func_calls = []
-            try:
-                for resp in client.stream_generate(
-                        model, contents,
-                        system_instruction=system_instruction,
-                        tools=tools, user_prompt_id=upid):
-                    for part in CodeAssistClient.iter_parts(resp):
-                        if part.get("functionCall"):
-                            model_parts.append(part)
-                            func_calls.append(part["functionCall"])
-                        elif part.get("text") and not part.get("thought"):
-                            model_parts.append(part)
-                            yield {"op": "text", "msg_id": msg_id,
-                                   "text": part["text"]}
-            except CodeAssistError as e:
-                yield {"op": "error", "text": _("Gemini request failed: %s") % e}
-                return
+            # Stream one model round, with a one-shot fallback to the lighter
+            # model if the primary is still rate-limited after the client's
+            # own backoff. Re-running a round is only safe before any text has
+            # streamed for it (so we never duplicate output).
+            while True:
+                upid = uuid.uuid4().hex
+                model_parts = []
+                func_calls = []
+                produced = False
+                try:
+                    for resp in client.stream_generate(
+                            model, contents,
+                            system_instruction=system_instruction,
+                            tools=tools, user_prompt_id=upid):
+                        for part in CodeAssistClient.iter_parts(resp):
+                            if part.get("functionCall"):
+                                model_parts.append(part)
+                                func_calls.append(part["functionCall"])
+                            elif part.get("text") and not part.get("thought"):
+                                model_parts.append(part)
+                                produced = True
+                                yield {"op": "text", "msg_id": msg_id,
+                                       "text": part["text"]}
+                    break  # round streamed successfully
+                except CodeAssistError as e:
+                    # Fall back to the lighter model when the primary is either
+                    # rate-limited (429) or unavailable on this tier (404). Only
+                    # safe before any text streamed this round (no duplication).
+                    if ((e.is_rate_limit or e.is_not_found) and fallback_model
+                            and fallback_model != model
+                            and not fallback_used and not produced):
+                        fallback_used = True
+                        if e.is_not_found:
+                            note = _("Model %(bad)s is unavailable — using "
+                                     "%(fb)s instead…") % {
+                                "bad": model, "fb": fallback_model}
+                        else:
+                            note = _("Gemini rate-limited — switching to %s for "
+                                     "this reply…") % fallback_model
+                        model = fallback_model
+                        runner._emit_notice(ctx, note)
+                        continue  # retry this round on the fallback model
+                    yield {"op": "error",
+                           "text": _("Gemini request failed: %s") % e}
+                    return
 
             if not func_calls:
                 return  # turn complete; the runner finalizes the 'done' state

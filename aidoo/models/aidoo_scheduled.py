@@ -11,6 +11,7 @@ calls ``send_message``. When the turn finishes, the runner's terminal hook calls
 ``aidoo.session._deliver_result`` which dispatches back here to deliver the answer.
 """
 import logging
+import uuid
 
 from dateutil.relativedelta import relativedelta
 
@@ -41,7 +42,7 @@ class AidooScheduled(models.Model):
 
     interval_number = fields.Integer(default=1, required=True)
     interval_type = fields.Selection(
-        [("hours", "Hours"), ("days", "Days"),
+        [("minutes", "Minutes"), ("hours", "Hours"), ("days", "Days"),
          ("weeks", "Weeks"), ("months", "Months")],
         string="Interval Unit", default="days", required=True)
     next_run = fields.Datetime(
@@ -96,15 +97,38 @@ class AidooScheduled(models.Model):
         return True
 
     def _run_once(self):
-        """Create a session as the agent's user and fire one turn."""
+        """Run one scheduled turn in the agent's single reused conversation,
+        isolated from previous runs (fresh CLI conversation, no replayed
+        history). Reusing one session keeps the chat list tidy instead of
+        spawning a new conversation per run."""
         self.ensure_one()
         now = fields.Datetime.now()
-        session = self.env["aidoo.session"].with_user(self.user_id).create({
-            "user_id": self.user_id.id,
-            "provider": self.provider,
-            "scheduled_id": self.id,
-            "name": self.name,
-        })
+        session = self.env["aidoo.session"].sudo().search(
+            [("scheduled_id", "=", self.id)], order="id asc", limit=1)
+        if not session:
+            session = self.env["aidoo.session"].with_user(self.user_id).create({
+                "user_id": self.user_id.id,
+                "provider": self.provider,
+                "scheduled_id": self.id,
+                "name": self.name,
+            })
+        # A previous run may still be in flight (cron tick < run time): leave it
+        # alone and retry next tick rather than stacking onto a running session.
+        if session.state == "running":
+            self.write({"next_run": now + self._interval_delta()})
+            return session
+        session = session.with_user(self.user_id)
+        # Visible run boundary between this run and the previous one.
+        if session.message_ids:
+            self.env["aidoo.message"].create({
+                "session_id": session.id,
+                "role": "divider",
+                "body": _("Scheduled run — %s") % fields.Datetime.to_string(now),
+            })
+        # Per-run isolation: a new CLI conversation id and a reset turn counter so
+        # the turn is treated as the first one — no prior-run transcript or
+        # replayed history reaches the model.
+        session.write({"cli_session_id": str(uuid.uuid4()), "turn_count": 0})
         session.send_message(self.prompt)
         self.write({"last_run": now, "next_run": now + self._interval_delta()})
         return session
