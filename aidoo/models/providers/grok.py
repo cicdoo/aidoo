@@ -51,7 +51,7 @@ class AidooProviderGrok(AidooProvider):
     _provider_code = "grok"
     _provider_label = "Grok"
     _accent_color = "#714b67"
-    _provider_icon = "fa-bolt"
+    _provider_icon = "/aidoo/static/src/svg/grok.svg"
     _config_dir_name = ".grok"
     _default_cli_glob = "/usr/local/bin/grok"
     _default_model = ""

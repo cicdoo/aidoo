@@ -50,7 +50,7 @@ class AidooProviderAntigravity(AidooProvider):
     _provider_code = "antigravity"
     _provider_label = "Antigravity"
     _accent_color = "#4285F4"
-    _provider_icon = "fa-rocket"
+    _provider_icon = "/aidoo/static/src/svg/antigravity-color.svg"
     _config_dir_name = ".gemini"
     _default_cli_glob = "/usr/local/bin/agy"
     _default_model = ""

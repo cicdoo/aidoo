@@ -76,6 +76,14 @@
                 opacity: 1;
             }
 
+            // Provider logo (SVG) shown at the start of each conversation row.
+            img.o_ai_session_icon {
+                width: 18px;
+                height: 18px;
+                object-fit: contain;
+                flex: 0 0 auto;
+            }
+
             // Delete control: muted, revealed on hover, red on hover.
             .o_ai_session_del {
                 flex: 0 0 auto;

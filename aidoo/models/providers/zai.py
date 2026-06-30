@@ -38,7 +38,7 @@ class AidooProviderZai(AidooProvider):
     _provider_code = "zai"
     _provider_label = "Z.AI (GLM)"
     _accent_color = "#3859ff"
-    _provider_icon = "fa-flask"
+    _provider_icon = "/aidoo/static/src/svg/zai.svg"
     _config_dir_name = ".zai"
     _default_model = "glm-4.6"
     _auth_ui_mode = "import_or_key"

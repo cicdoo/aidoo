@@ -81,7 +81,7 @@ class AidooProviderGemini(AidooProvider):
     _provider_code = "gemini"
     _provider_label = "Gemini"
     _accent_color = "#714b67"
-    _provider_icon = "fa-google"
+    _provider_icon = "/aidoo/static/src/svg/gemini-color.svg"
     _config_dir_name = ".gemini"
     # Default to flash: on Code Assist the pro model has a much lower per-model
     # rate limit, so it 429s on almost every turn; flash has the headroom for a

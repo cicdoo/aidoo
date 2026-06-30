@@ -113,7 +113,7 @@ class AidooProvider(models.AbstractModel):
     _provider_code = ""           # e.g. "claude"
     _provider_label = ""          # e.g. "Claude"
     _accent_color = "#714b67"     # chart/report accent in the UI
-    _provider_icon = "fa-comment-o"  # Font Awesome 4.7 class shown in the chat list
+    _provider_icon = ""           # provider logo URL (under static/), shown in the chat list
     _config_dir_name = ".aidoo"   # per-user CLI config dir under HOME
     _default_cli_glob = ""        # where to find the CLI binary
     _default_model = ""           # default --model (empty = account default)

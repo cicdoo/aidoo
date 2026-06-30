@@ -75,7 +75,7 @@ class AidooProviderCodex(AidooProvider):
     _provider_code = "codex"
     _provider_label = "Codex"
     _accent_color = "#10a37f"          # codex used teal
-    _provider_icon = "fa-terminal"
+    _provider_icon = "/aidoo/static/src/svg/openai.svg"
     _config_dir_name = ".codex"        # CODEX_HOME lives at <home>/.codex
     _default_cli_glob = "/usr/local/bin/codex"
     _default_model = ""                 # empty = ChatGPT account default

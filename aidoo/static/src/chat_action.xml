@@ -47,8 +47,12 @@
                     <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
                         <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
-                            <i t-attf-class="fa {{ this._provider(s.provider).icon or 'fa-comment-o' }} me-2 o_ai_session_icon"
-                               t-attf-style="color: {{ this._provider(s.provider).accent }};"
+                            <img t-if="this._provider(s.provider).icon"
+                                 t-att-src="this._provider(s.provider).icon"
+                                 t-att-alt="this._provider(s.provider).label"
+                                 t-att-title="this._provider(s.provider).label"
+                                 class="o_ai_session_icon me-2"/>
+                            <i t-else="" class="fa fa-comment-o me-2 text-muted"
                                t-att-title="this._provider(s.provider).label"/>
                             <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
                             <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
