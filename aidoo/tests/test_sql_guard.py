@@ -129,28 +129,59 @@ class TestSqlGuard(TransactionCase):
             _sql_table_refs("WITH t AS (SELECT id FROM account_move) "
                             "SELECT * FROM t"))
 
-    # --- denylist enforcement on the SQL tool ------------------------------
-    def _exec(self):
-        return self.env["aidoo.tool.exec"]
+    # --- per-user SQL access (analyst denylist + non-analyst allowlist) -----
+    def _exec_as(self, user):
+        return self.env["aidoo.tool.exec"].with_user(user)
 
-    def test_denylist_blocks_matching_table(self):
+    def _mk_user(self, login, analyst=False, allowlist=None):
+        groups = [self.env.ref("base.group_user").id,
+                  self.env.ref("aidoo.group_ai_user").id]
+        if analyst:
+            groups.append(self.env.ref("aidoo.group_ai_sql_analyst").id)
+        u = self.env["res.users"].create({
+            "name": login, "login": login,
+            "group_ids": [(6, 0, groups)],
+        })
+        if allowlist is not None:
+            u.aidoo_sql_table_allowlist = allowlist
+        return u
+
+    def test_analyst_blocked_by_global_denylist(self):
         from odoo.exceptions import AccessError
         self.env["ir.config_parameter"].sudo().set_param(
             "aidoo.sql_table_denylist", "account_*, hr_*")
+        analyst = self._mk_user("aidoo_sql_analyst1", analyst=True)
+        ex = self._exec_as(analyst)
         with self.assertRaises(AccessError):
-            self._exec()._check_sql_denylist("SELECT id FROM account_move")
-        # A quoted name can't slip past it.
+            ex._check_sql_access("SELECT id FROM account_move")
+        with self.assertRaises(AccessError):       # quoted can't slip past
+            ex._check_sql_access('SELECT id FROM "account_move_line"')
+        # Non-denied table is fine, even with a column sharing the prefix.
+        ex._check_sql_access("SELECT account_id FROM sale_order")
+
+    def test_non_analyst_without_allowlist_is_denied(self):
+        from odoo.exceptions import AccessError
+        user = self._mk_user("aidoo_sql_none")
         with self.assertRaises(AccessError):
-            self._exec()._check_sql_denylist('SELECT id FROM "account_move_line"')
+            self._exec_as(user)._check_sql_access("SELECT id FROM sale_order")
 
-    def test_denylist_allows_other_tables(self):
-        self.env["ir.config_parameter"].sudo().set_param(
-            "aidoo.sql_table_denylist", "account_*, hr_*")
-        # No exception for a non-denied table, even if a column starts with the
-        # denied prefix.
-        self._exec()._check_sql_denylist("SELECT account_id FROM sale_order")
+    def test_non_analyst_allowlist_scopes_access(self):
+        from odoo.exceptions import AccessError
+        user = self._mk_user("aidoo_sql_acct", allowlist="account_*")
+        ex = self._exec_as(user)
+        # Allowed: a table matching the per-user allowlist.
+        ex._check_sql_access("SELECT id FROM account_move")
+        ex._check_sql_access('SELECT id FROM "account_move_line" l')
+        # Denied: a table outside the allowlist.
+        with self.assertRaises(AccessError):
+            ex._check_sql_access("SELECT id FROM sale_order")
 
-    def test_denylist_empty_is_noop(self):
-        self.env["ir.config_parameter"].sudo().set_param(
-            "aidoo.sql_table_denylist", "")
-        self._exec()._check_sql_denylist("SELECT id FROM account_move")
+    def test_sql_disabled_blocks_everyone(self):
+        from odoo.exceptions import AccessError
+        self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "False")
+        try:
+            analyst = self._mk_user("aidoo_sql_analyst2", analyst=True)
+            with self.assertRaises(AccessError):
+                self._exec_as(analyst)._check_sql_access("SELECT id FROM res_users")
+        finally:
+            self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "True")

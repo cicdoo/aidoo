@@ -52,7 +52,13 @@ are in scope for security reports include:
   `aidoo.sql_table_denylist` parameter): fnmatch patterns (e.g. `account_*, hr_*,
   *_payslip`) matched against the real table references parsed from each query's
   `FROM`/`JOIN` clauses (schema-qualified and quoted names included), so a
-  denied-table read is refused before execution.
+  denied-table read is refused before execution. SQL access is resolved
+  per user in `aidoo.tool.exec._check_sql_access`: AI SQL Analyst members may read
+  everything except that denylist; **every other user is default-deny**, unless a
+  manager sets a **per-user table allowlist** (`res.users.aidoo_sql_table_allowlist`)
+  — then they may read *only* tables matching it (e.g. grant `account_*` to one
+  user without the full-database analyst role). The global `aidoo.sql_enabled`
+  toggle disables the SQL tool for everyone.
 - **Capability tokens** — the MCP bridge holds only a short-lived, session-scoped
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only

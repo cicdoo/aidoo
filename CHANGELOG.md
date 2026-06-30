@@ -8,6 +8,14 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Per-user SQL access (allowlist) + working SQL toggle** — SQL access is now
+  resolved per user in `aidoo.tool.exec._check_sql_access`. AI SQL Analyst members
+  still read everything except the global denylist; every other user is
+  **default-deny** unless a manager grants them a per-user table allowlist
+  (`res.users.aidoo_sql_table_allowlist`, fnmatch globs e.g. `account_*`) — they
+  may then read only those tables. This lets you give one user accounting reads
+  without the full-database analyst role. The global `aidoo.sql_enabled` setting
+  (previously defined but unenforced) now actually disables the SQL tool.
 - **Configurable SQL table denylist** — a new `aidoo.sql_table_denylist` setting (Settings -> Tools & Security) lets admins block the read-only `sql_select` tool from reading sensitive tables (fnmatch globs, e.g. `account_*, hr_*`). Because raw SQL bypasses ORM record rules, this keeps tables like invoices/payroll out of reach even for AI SQL Analyst members. Enforced in `aidoo.tool.exec` by parsing the real FROM/JOIN table references (schema-qualified and quoted names included) before execution. Documented in SECURITY.md.
 
 ### Changed

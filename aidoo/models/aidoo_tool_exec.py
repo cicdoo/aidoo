@@ -29,6 +29,7 @@ import time
 
 from odoo import models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tools import str2bool
 
 _logger = logging.getLogger(__name__)
 
@@ -237,19 +238,43 @@ class AidooToolExec(models.AbstractModel):
             "aidoo.sql_table_denylist", "") or ""
         return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
 
-    def _check_sql_denylist(self, query):
-        """Block a SELECT that reads from a denylisted table. Raw SQL bypasses
-        Odoo record rules, so this is the lever to keep sensitive tables out of
-        reach even for AI SQL Analyst members."""
-        patterns = self._sql_table_denylist()
-        if not patterns:
+    def _check_sql_access(self, query):
+        """Authorize a validated SELECT against the user's SQL access scope.
+
+        - AI SQL Analyst members may read everything EXCEPT the global table
+          denylist (raw SQL bypasses record rules, so the denylist is the lever
+          to fence off sensitive tables for them).
+        - Other users get NO SQL access by default, unless they have a per-user
+          table allowlist — then they may read ONLY tables matching it. This lets
+          you grant, say, accounting reads to one user without the full-database
+          AI SQL Analyst role.
+        """
+        if not str2bool(self.env["ir.config_parameter"].sudo().get_param(
+                "aidoo.sql_enabled", "True"), True):
+            raise AccessError("SQL reporting is disabled on this instance.")
+        user = self.env.user
+        tables = _sql_table_refs(query)
+        if user.has_group("aidoo.group_ai_sql_analyst"):
+            denied = sorted({t for t in tables
+                             for p in self._sql_table_denylist()
+                             if fnmatch.fnmatchcase(t, p)})
+            if denied:
+                raise AccessError(
+                    "SQL reporting is not allowed on: %s (blocked by the AI SQL "
+                    "table denylist)." % ", ".join(denied))
             return
-        blocked = sorted({t for t in _sql_table_refs(query)
-                          for p in patterns if fnmatch.fnmatchcase(t, p)})
-        if blocked:
+        # Not an analyst: default-deny, gated by the per-user allowlist.
+        allow = user._ai_sql_allow_patterns()
+        if not allow:
             raise AccessError(
-                "SQL reporting is not allowed on: %s (blocked by the AI SQL "
-                "table denylist)." % ", ".join(blocked))
+                "You do not have SQL reporting access. Ask an administrator to "
+                "add you to the AI SQL Analyst group or grant specific tables.")
+        not_allowed = sorted({t for t in tables
+                              if not any(fnmatch.fnmatchcase(t, p) for p in allow)})
+        if not_allowed:
+            raise AccessError(
+                "SQL access to %s is not in your allowed tables." %
+                ", ".join(not_allowed))
 
     def _resolve_server_action(self, action):
         env = self.env
@@ -410,10 +435,8 @@ class AidooToolExec(models.AbstractModel):
 
     def _t_sql_select(self, session, query=None, params=None, max_rows=1000, **kw):
         self._check_tool(session, "sql_select")
-        if not self.env.user.has_group("aidoo.group_ai_sql_analyst"):
-            raise AccessError("You are not a member of the AI SQL Analyst group.")
         _validate_select(query)
-        self._check_sql_denylist(query)
+        self._check_sql_access(query)
         cap = min(int(max_rows or 1000), SQL_MAX_ROWS)
         try:
             timeout_ms = max(1000, int(self.env["ir.config_parameter"].sudo()

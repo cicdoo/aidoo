@@ -10,6 +10,7 @@ assistant's system prompt. Everything provider-specific (credential storage,
 login flow, is-authenticated probe) is delegated to the provider adapter
 (``aidoo.provider.<code>``)."""
 import logging
+import re
 
 from odoo import fields, models
 from odoo.tools import str2bool
@@ -37,6 +38,16 @@ class ResUsers(models.Model):
         help="When zero-trust is active, only read-only tools are available to "
              "this user — write tools are stripped regardless of the selection "
              "above. 'Inherit' follows the global default in Settings.")
+    # Per-user SQL table allowlist. Lets a user who is NOT in the AI SQL Analyst
+    # group run sql_select on a bounded set of tables (e.g. accounting), without
+    # granting them full-database SQL read. Empty + not an analyst = no SQL.
+    aidoo_sql_table_allowlist = fields.Char(
+        string="SQL Tables Allowed",
+        help="Comma/space-separated table-name patterns (fnmatch globs, e.g. "
+             "account_*, sale_order*) this user may read with the SQL tool even "
+             "when they are NOT in the AI SQL Analyst group. Leave empty to give "
+             "them no SQL access (the default). Members of AI SQL Analyst can read "
+             "everything except the global SQL denylist and ignore this field.")
     # Optional per-user Google Cloud project id (exported as GOOGLE_CLOUD_PROJECT
     # by the Gemini adapter). Needed by some account types.
     aidoo_cloud_project = fields.Char(
@@ -92,6 +103,12 @@ class ResUsers(models.Model):
         if self._ai_zero_trust():
             names = {n for n in names if n in READONLY_TOOL_SET}
         return names
+
+    def _ai_sql_allow_patterns(self):
+        """Parsed per-user SQL table allowlist (fnmatch globs, lowercased)."""
+        self.ensure_one()
+        raw = self.aidoo_sql_table_allowlist or ""
+        return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
 
     def _ai_account_email(self):
         """The email the assistant should treat as the user's."""
