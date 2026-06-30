@@ -7,6 +7,15 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Collapsible conversation list on mobile** — the chat sidebar (provider
+  picker + conversation history) now collapses into an off-canvas drawer on
+  small screens (`< md`). A hamburger button in a new mobile top bar
+  (`static/src/chat_action.xml`/`.js`, `scss/aidoo.scss`) opens it; a backdrop
+  tap or selecting a conversation closes it, returning focus to the chat. On
+  desktop the sidebar is unchanged (always visible). The artifact preview panel
+  is hidden on mobile so the conversation stays usable on a narrow viewport.
+
 <!--
 Add bullets here under ### Added / Changed / Fixed / Removed / Security.
 When adding or changing a provider, say which adapter
