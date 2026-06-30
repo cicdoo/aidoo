@@ -139,6 +139,83 @@ class TestAidooFeatures(TransactionCase):
             second.message_ids.filtered(lambda m: m.role == "divider").mapped(
                 "role"), ["divider"])
 
+    # ------------------------------------------------------------------
+    # Feature 1b — configurable prior-run context
+    # ------------------------------------------------------------------
+    def _msg(self, session, role, body):
+        return self.env["aidoo.message"].create({
+            "session_id": session.id, "role": role, "body": body})
+
+    def _ctx_session(self, agent):
+        """A session for the agent populated across three 'runs' separated by
+        dividers (user/assistant pairs r1q/r1a … r3q/r3a)."""
+        session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude",
+            "scheduled_id": agent.id, "name": agent.name})
+        self._msg(session, "user", "r1q")
+        self._msg(session, "assistant", "r1a")
+        self._msg(session, "divider", "run 2")
+        self._msg(session, "user", "r2q")
+        self._msg(session, "assistant", "r2a")
+        self._msg(session, "divider", "run 3")
+        self._msg(session, "user", "r3q")
+        self._msg(session, "assistant", "r3a")
+        return session
+
+    def test_run_context_none_is_empty(self):
+        agent = self._agent(context_mode="none")
+        self.assertEqual(agent._run_context(self._ctx_session(agent)), "")
+
+    def test_run_context_messages_window(self):
+        agent = self._agent(context_mode="messages", context_amount=2)
+        ctx = agent._run_context(self._ctx_session(agent))
+        self.assertIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", ctx)
+        self.assertIn("r3q", ctx)
+        self.assertIn("r3a", ctx)
+        self.assertNotIn("r2a", ctx)        # only the last 2 messages
+
+    def test_run_context_runs_window(self):
+        agent = self._agent(context_mode="runs", context_amount=1)
+        ctx = agent._run_context(self._ctx_session(agent))
+        self.assertIn("r3q", ctx)
+        self.assertIn("r3a", ctx)
+        self.assertNotIn("r2q", ctx)        # last run only
+        # Two runs back includes run 2 but not run 1.
+        agent.context_amount = 2
+        ctx2 = agent._run_context(self._ctx_session(agent))
+        self.assertIn("r2q", ctx2)
+        self.assertNotIn("r1q", ctx2)
+
+    def test_run_context_full(self):
+        agent = self._agent(context_mode="full")
+        ctx = agent._run_context(self._ctx_session(agent))
+        for needle in ("r1q", "r2a", "r3q"):
+            self.assertIn(needle, ctx)
+
+    def test_context_prefix_reaches_prompt_not_stored(self):
+        """A scheduled run with carried context feeds it into the model prompt
+        but never into the stored user message body."""
+        captured = {}
+
+        def _capture(this, session, prompt, is_first, token):
+            captured["prompt"] = prompt
+            return None
+
+        agent = self._agent(context_mode="messages", context_amount=2)
+        first = agent._run_once()
+        first.state = "done"
+        with patch("odoo.addons.aidoo.models.aidoo_runner."
+                   "AiAssistantRunner._launch", _capture):
+            second = agent._run_once()
+        # The prompt handed to the runner carries the prior-run context block…
+        self.assertIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", captured["prompt"])
+        # …but the stored user messages never contain it.
+        bodies = second.message_ids.filtered(
+            lambda m: m.role == "user").mapped("body")
+        self.assertTrue(bodies)
+        for b in bodies:
+            self.assertNotIn("CONTEXT FROM PREVIOUS SCHEDULED RUNS", b or "")
+
     def test_run_defers_while_previous_still_running(self):
         """A new tick must not stack onto a session that is still running."""
         agent = self._agent()
