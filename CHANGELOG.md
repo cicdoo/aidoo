@@ -7,6 +7,16 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Changed
+- **Chat history loads incrementally** — the conversation view no longer fetches
+  every message up front. `aidoo.session._messages_page(limit, before_id)` and
+  the `/aidoo/messages` route now return a newest-anchored page (default 30); the
+  OWL client (`static/src/chat_action.js`, `components/message_list.*`) loads the
+  most recent page first and fetches older messages on scroll-up — preserving the
+  viewport so content doesn't jump — with a "Load earlier messages" button as a
+  fallback when the page doesn't overflow. The floating companion keeps the
+  unlimited legacy behavior (no `limit` passed). Keeps long conversations fast to
+  open and light on the bus/DB.
 ### Added
 - **Collapsible conversation list on mobile** — the chat sidebar (provider
   picker + conversation history) now collapses into an off-canvas drawer on
