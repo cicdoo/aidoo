@@ -78,6 +78,7 @@ class AidooScheduled(models.Model):
         "aidoo.session", "scheduled_id", string="Runs", readonly=True)
     run_count = fields.Integer(compute="_compute_run_count")
 
+    @api.depends("session_ids")
     def _compute_run_count(self):
         for rec in self:
             rec.run_count = len(rec.session_ids)

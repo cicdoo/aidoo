@@ -26,7 +26,7 @@ class TestAidooFeatures(TransactionCase):
             "name": "Aidoo Feature Tester",
             "login": "aidoo_feature_tester",
             "email": "feature.tester@example.com",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         # Pretend the (default) Claude provider is connected for this user.
@@ -254,7 +254,7 @@ class TestAidooFeatures(TransactionCase):
     # ------------------------------------------------------------------
     def _channel_with_bot(self):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
-        return self.env["discuss.channel"].with_user(self.user).channel_get(
+        return self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
             [bot.id, self.user.partner_id.id])
 
     def test_user_message_spawns_session(self):
