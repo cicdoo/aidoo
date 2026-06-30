@@ -149,6 +149,7 @@
                         <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
                     </div>
                     <AiMessageList messages="state.messages" running="state.running"
+                                   hasMore="state.hasMore" onLoadMore.bind="loadMore"
                                    onOpenArtifact.bind="openArtifact"/>
                     <div t-if="state.running" class="px-2 pb-1">
                         <div t-if="state.notice" class="small text-muted fst-italic mb-1">
