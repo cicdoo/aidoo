@@ -115,7 +115,7 @@ class CodeAssistClient:
     """
 
     def __init__(self, creds, save_creds=None, project=None, timeout=120,
-                 on_retry=None, rpm=120):
+                 on_retry=None, rpm=120, deadline=None):
         self._creds = dict(creds or {})
         self._save = save_creds
         self._project = project or None
@@ -125,6 +125,10 @@ class CodeAssistClient:
         self._on_retry = on_retry
         # Proactive requests-per-minute cap on Code Assist calls (0 disables).
         self._rpm = int(rpm or 0)
+        # Optional wall-clock deadline (epoch seconds, ``time.time()``): the
+        # caller's turn timeout. We never begin a backoff wait that would finish
+        # past it, so total retry time can't overrun the run's budget.
+        self._deadline = deadline
         self._ctx = ssl.create_default_context()
 
     # ------------------------------------------------------------------
@@ -162,10 +166,11 @@ class CodeAssistClient:
                     pass
                 if e.code in (429, 503) and attempt < self._MAX_ATTEMPTS - 1:
                     delay = self._retry_delay(e.headers, body, attempt)
-                    self._notify_retry(attempt + 1, delay, e.code)
-                    time.sleep(delay)
-                    attempt += 1
-                    continue
+                    if self._can_wait(delay):
+                        self._notify_retry(attempt + 1, delay, e.code)
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
                 raise CodeAssistError(
                     "HTTP %s for %s: %s" % (e.code, url, body), status=e.code)
             except (urllib.error.URLError, OSError) as e:
@@ -173,15 +178,23 @@ class CodeAssistClient:
                 # short retries; a real outage still fails fast.
                 if attempt < self._MAX_NET_RETRIES:
                     delay = self._backoff(attempt)
-                    self._notify_retry(attempt + 1, delay, "network")
-                    time.sleep(delay)
-                    attempt += 1
-                    continue
+                    if self._can_wait(delay):
+                        self._notify_retry(attempt + 1, delay, "network")
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
                 raise CodeAssistError("Network error for %s: %s" % (url, e))
             if stream:
                 return resp
             with resp:
                 return resp.read().decode("utf-8", "replace")
+
+    def _can_wait(self, delay):
+        """True if a backoff of ``delay`` seconds finishes before the caller's
+        turn deadline (if one was supplied)."""
+        if not self._deadline:
+            return True
+        return (time.time() + delay) < self._deadline
 
     def _notify_retry(self, attempt, delay, reason):
         if self._on_retry:
@@ -327,10 +340,19 @@ class CodeAssistClient:
             if op.get("done"):
                 break
             time.sleep(2)
+        if not op.get("done"):
+            # Onboarding never converged within the polling window. Returning a
+            # None project here just defers the failure to a confusing 401/403 on
+            # the first generateContent call — fail loudly and clearly instead.
+            raise CodeAssistError(
+                "Code Assist onboarding did not complete in time; please retry.")
         resp = op.get("response") or {}
         proj = resp.get("cloudaicompanionProject")
         if isinstance(proj, dict):
             proj = proj.get("id")
+        if not proj:
+            raise CodeAssistError(
+                "Code Assist onboarding returned no project; please retry.")
         self._project = proj
         return self._project
 

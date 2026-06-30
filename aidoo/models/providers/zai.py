@@ -18,6 +18,7 @@ Per-user auth is a z.ai API key (stored mode 0600 under the ``.zai`` config dir,
 never the DB), with an optional shared fallback key (``aidoo.zai.api_key``).
 """
 import json
+import logging
 import os
 
 from odoo import _
@@ -25,6 +26,8 @@ from odoo.exceptions import UserError
 
 from .base import AidooProvider, SYSTEM_PROMPT, _bridge_tool_schemas
 from .zai_client import ZaiClient, ZaiError, ZAI_CODING_BASE
+
+_logger = logging.getLogger(__name__)
 
 
 class AidooProviderZai(AidooProvider):
@@ -113,7 +116,8 @@ class AidooProviderZai(AidooProvider):
             key,
             base_url=self._base_url(),
             on_retry=_on_retry,
-            rpm=int(self._pconfig("rpm_limit", 0) or 0))
+            rpm=int(self._pconfig("rpm_limit", 0) or 0),
+            deadline=ctx.get("deadline"))
         model = self._model()
         messages = self._build_messages(session, ctx)
         tools = self._tool_specs(ctx.get("allowed_tools") or [])
@@ -160,6 +164,9 @@ class AidooProviderZai(AidooProvider):
                     if not isinstance(args, dict):
                         args = {}
                 except ValueError:
+                    _logger.warning(
+                        "z.ai: tool %s sent non-JSON arguments, using {}: %.200s",
+                        c.get("name"), c.get("arguments"))
                     args = {}
                 yield {"op": "tool_use", "msg_id": msg_id, "id": c["id"],
                        "name": c["name"], "input": args}
@@ -173,6 +180,7 @@ class AidooProviderZai(AidooProvider):
 
         yield {"op": "text", "msg_id": "z%s-cap" % session.turn_count,
                "text": _("\n\n_(stopped after %s tool rounds)_") % max_rounds}
+        return  # hard stop: never run beyond the round cap
 
     # ------------------------------------------------------------------
     # Messages / tool-schema assembly
