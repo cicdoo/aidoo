@@ -26,6 +26,7 @@ export class AiChatAction extends Component {
             sessions: [],
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
+            sidebarOpen: false,    // mobile: off-canvas conversation drawer open?
             currentId: null,
             currentProvider: "claude",
             messages: [],
@@ -79,6 +80,11 @@ export class AiChatAction extends Component {
 
     get currentProvider() {
         return this._provider(this.state.currentProvider);
+    }
+
+    get currentSessionName() {
+        const s = this.state.sessions.find((x) => x.id === this.state.currentId);
+        return s ? s.name : "";
     }
 
     get isAuthed() {
@@ -286,7 +292,16 @@ export class AiChatAction extends Component {
         await this._openSession(s.id);
     }
 
+    // ------------------------------------------------------------------
+    // Sidebar (collapsible on mobile)
+    // ------------------------------------------------------------------
+    toggleSidebar() {
+        this.state.sidebarOpen = !this.state.sidebarOpen;
+    }
+
     async _openSession(id) {
+        // Opening a conversation on mobile returns focus to the chat surface.
+        this.state.sidebarOpen = false;
         if (this.state.currentId && this.state.currentId !== id) {
             this.aiBus.unregister(this.state.currentId);
         }
