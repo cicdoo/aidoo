@@ -19,6 +19,11 @@ from odoo.tools import html2plaintext, plaintext2html
 
 _logger = logging.getLogger(__name__)
 
+# Chat history paging: the OWL client loads the most recent AIDOO_MSG_PAGE
+# messages first and fetches older ones on scroll-up (capped per request).
+AIDOO_MSG_PAGE = 30
+AIDOO_MSG_PAGE_MAX = 200
+
 # Providers selectable per conversation. Each maps to an aidoo.provider.<code>
 # adapter AbstractModel that owns all provider-specific behavior.
 PROVIDERS = [
@@ -166,6 +171,36 @@ class AiAssistantSession(models.Model):
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
+
+    # ------------------------------------------------------------------
+    # Message paging (newest-anchored, for the OWL chat)
+    # ------------------------------------------------------------------
+    def _messages_page(self, limit=None, before_id=None):
+        """Serialize a page of this conversation's messages for the chat client.
+
+        Without ``limit`` the whole conversation is returned (legacy behavior, used
+        e.g. by the floating companion). With ``limit`` the page is *newest-anchored*:
+        the most recent ``limit`` messages in chronological order, or — when
+        ``before_id`` is given — the ``limit`` messages immediately older than that id
+        (scroll-up). ``has_more`` tells the client whether still-older messages exist.
+        """
+        self.ensure_one()
+        if not limit:
+            return {"messages": self.message_ids._to_frontend(), "has_more": False}
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = AIDOO_MSG_PAGE
+        limit = max(1, min(limit, AIDOO_MSG_PAGE_MAX))
+        domain = [("session_id", "=", self.id)]
+        if before_id:
+            domain.append(("id", "<", int(before_id)))
+        # Fetch newest-first with one extra row to detect more history, then flip
+        # back to chronological order for display.
+        recs = self.env["aidoo.message"].search(domain, order="id desc", limit=limit + 1)
+        has_more = len(recs) > limit
+        recs = recs[:limit].sorted("id")
+        return {"messages": recs._to_frontend(), "has_more": has_more}
 
     # --- Bridge token bookkeeping (only the jti/salt are stored, never the token) ---
     bridge_jti = fields.Char(copy=False, groups="base.group_system")

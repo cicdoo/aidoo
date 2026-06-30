@@ -12,6 +12,10 @@ import { AiComposer } from "./components/composer";
 import { ReportFrame } from "./components/report_frame";
 import { extractHtmlBlocks } from "./artifacts";
 
+// Load the conversation in newest-first pages; older messages stream in on
+// scroll-up. Keep in sync with AIDOO_MSG_PAGE on the server.
+const MESSAGE_PAGE = 30;
+
 export class AiChatAction extends Component {
     static template = "aidoo.ChatAction";
     static components = { AiMessageList, AiComposer, ReportFrame };
@@ -29,9 +33,11 @@ export class AiChatAction extends Component {
             sessions: [],
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
+            sidebarOpen: false,    // mobile: off-canvas conversation drawer open?
             currentId: null,
             currentProvider: "claude",
             messages: [],
+            hasMore: false,         // older messages exist above the loaded window
             running: false,
             notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
@@ -83,6 +89,11 @@ export class AiChatAction extends Component {
 
     get currentProvider() {
         return this._provider(this.state.currentProvider);
+    }
+
+    get currentSessionName() {
+        const s = this.state.sessions.find((x) => x.id === this.state.currentId);
+        return s ? s.name : "";
     }
 
     get isAuthed() {
@@ -291,18 +302,31 @@ export class AiChatAction extends Component {
         await this._openSession(s.id);
     }
 
+    // ------------------------------------------------------------------
+    // Sidebar (collapsible on mobile)
+    // ------------------------------------------------------------------
+    toggleSidebar() {
+        this.state.sidebarOpen = !this.state.sidebarOpen;
+    }
+
     async _openSession(id) {
+        // Opening a conversation on mobile returns focus to the chat surface.
+        this.state.sidebarOpen = false;
         if (this.state.currentId && this.state.currentId !== id) {
             this.aiBus.unregister(this.state.currentId);
         }
         this._resetAuthForms();
         this.state.currentId = id;
         this.aiBus.register(id, (p) => this._onBusEvent(p));
-        const data = await rpc("/aidoo/messages", { session_id: id });
+        const data = await rpc("/aidoo/messages", {
+            session_id: id,
+            limit: MESSAGE_PAGE,
+        });
         this.state.currentProvider = data.provider;
         this.state.contextLabel = data.context_label || "";
         this.state.currentSkillId = data.skill_id || false;
         this.state.messages = data.messages;
+        this.state.hasMore = !!data.has_more;
         this.state.running = data.state === "running";
         this.state.artifact = null;
         this.state.artifactOpen = false;
@@ -325,6 +349,44 @@ export class AiChatAction extends Component {
     _skillName(id) {
         const s = this.state.skills.find((x) => x.id === id);
         return s ? s.name : "";
+    }
+
+    // ------------------------------------------------------------------
+    // Message paging (load older on scroll-up)
+    // ------------------------------------------------------------------
+    // The smallest real (numeric, server-assigned) message id currently loaded.
+    // Optimistic placeholders use string ids ("tmp-…"/"err-…") and are skipped.
+    _oldestLoadedId() {
+        let oldest = null;
+        for (const m of this.state.messages) {
+            if (typeof m.id === "number" && (oldest === null || m.id < oldest)) {
+                oldest = m.id;
+            }
+        }
+        return oldest;
+    }
+
+    async loadMore() {
+        if (this._loadingMore || !this.state.hasMore || !this.state.currentId) {
+            return;
+        }
+        const before = this._oldestLoadedId();
+        if (!before) {
+            return;
+        }
+        this._loadingMore = true;
+        try {
+            const data = await rpc("/aidoo/messages", {
+                session_id: this.state.currentId,
+                limit: MESSAGE_PAGE,
+                before_id: before,
+            });
+            // Prepend the older page above the current window.
+            this.state.messages.unshift(...data.messages);
+            this.state.hasMore = !!data.has_more;
+        } finally {
+            this._loadingMore = false;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -425,10 +487,15 @@ export class AiChatAction extends Component {
 
     async _reload() {
         if (!this.state.currentId) return;
+        // Refresh the currently-loaded window (keep however much the user has
+        // paged in), not the whole history.
+        const keep = Math.max(MESSAGE_PAGE, this.state.messages.length);
         const data = await rpc("/aidoo/messages", {
             session_id: this.state.currentId,
+            limit: keep,
         });
         this.state.messages = data.messages;
+        this.state.hasMore = !!data.has_more;
     }
 
     async onSend(text, files = []) {

@@ -173,8 +173,16 @@ class AiAssistantChat(http.Controller):
                 "context_label": session._context_label()}
 
     @http.route("/aidoo/messages", type="jsonrpc", auth="user")
-    def messages(self, session_id=None):
+    def messages(self, session_id=None, limit=None, before_id=None):
+        """Conversation header + a page of messages.
+
+        Without ``limit`` the whole history is returned (legacy). With ``limit``
+        the newest page is returned, and ``before_id`` pages further back (the
+        client requests older messages as the user scrolls up). ``has_more``
+        signals whether still-older messages remain.
+        """
         session = self._session(session_id)
+        page = session._messages_page(limit=limit, before_id=before_id)
         return {
             "id": session.id,
             "name": session.name,
@@ -182,7 +190,8 @@ class AiAssistantChat(http.Controller):
             "provider": session.provider,
             "skill_id": session.skill_id.id or False,
             "context_label": session._context_label(),
-            "messages": session.message_ids._to_frontend(),
+            "messages": page["messages"],
+            "has_more": page["has_more"],
         }
 
     @http.route("/aidoo/upload", type="http", auth="user", methods=["POST"])

@@ -7,24 +7,24 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Changed
+- **Chat history loads incrementally** — the conversation view no longer fetches
+  every message up front. `aidoo.session._messages_page(limit, before_id)` and
+  the `/aidoo/messages` route now return a newest-anchored page (default 30); the
+  OWL client (`static/src/chat_action.js`, `components/message_list.*`) loads the
+  most recent page first and fetches older messages on scroll-up — preserving the
+  viewport so content doesn't jump — with a "Load earlier messages" button as a
+  fallback when the page doesn't overflow. The floating companion keeps the
+  unlimited legacy behavior (no `limit` passed). Keeps long conversations fast to
+  open and light on the bus/DB.
 ### Added
-- **AI skills (reusable instruction presets)** — a new `aidoo.skill` model
-  (`models/aidoo_skill.py`) lets users save named instruction presets and attach
-  one to a chat conversation (`aidoo.session.skill_id`) or a scheduled agent
-  (`aidoo.scheduled.skill_id`). While attached, the skill's instructions are
-  injected into the model prompt **every turn for all providers** — by extending
-  the shared per-turn identity block (`res.users._ai_identity_prompt(skill=…)`),
-  which already reaches Claude (system-prompt flag), Codex/Grok (folded prompt)
-  and native Gemini/Z.AI (system instruction), so no provider adapter changes.
-  Skills are **personal by default**; an *AI Assistant Manager* can flag one
-  `is_shared` to publish it to all users (own + shared visible, own-only editable,
-  enforced by record rules + a manager-only guard on `is_shared`). A backend
-  **Skills** menu (list/form, `views/aidoo_skill_views.xml`) manages them. In the
-  chat, a skill picker in the sidebar sets the default for new conversations and a
-  per-conversation selector in the chat header changes the open chat live (new
-  `/aidoo/skill` route; `/aidoo/new` accepts `skill_id`; `/aidoo/providers` and
-  `/aidoo/messages` carry skills/the current skill). On a scheduled agent, the
-  selected skill is applied to every run.
+- **Collapsible conversation list on mobile** — the chat sidebar (provider
+  picker + conversation history) now collapses into an off-canvas drawer on
+  small screens (`< md`). A hamburger button in a new mobile top bar
+  (`static/src/chat_action.xml`/`.js`, `scss/aidoo.scss`) opens it; a backdrop
+  tap or selecting a conversation closes it, returning focus to the chat. On
+  desktop the sidebar is unchanged (always visible). The artifact preview panel
+  is hidden on mobile so the conversation stays usable on a narrow viewport.
 
 <!--
 Add bullets here under ### Added / Changed / Fixed / Removed / Security.
