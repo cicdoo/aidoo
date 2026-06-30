@@ -8,6 +8,16 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Per-run context for scheduled agents** — a scheduled agent
+  (`aidoo.scheduled`) can now carry context from its previous runs into each new
+  run, configurable per agent (`context_mode`: none / last N messages / last N
+  runs / full history, with `context_amount` = N). The prior context is read
+  fresh from the agent's own session each run and fed in as a **non-persisted**
+  prompt prefix (never stored, so it cannot compound), while each run keeps its
+  isolated CLI conversation id so resume-based providers never replay an
+  ever-growing transcript. Native adapters (Gemini, Z.AI) now gate their implicit
+  history replay on the first-turn flag so the configured prefix is the single,
+  non-duplicated source of prior context. Defaults to `none` (unchanged behavior).
 - **Native (in-process) Z.AI (GLM) provider** — a new `aidoo.provider.zai`
   adapter (`models/providers/zai.py`) talks to z.ai's **GLM Coding Plan**
   endpoint — the OpenAI-compatible chat API at

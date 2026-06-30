@@ -42,6 +42,9 @@
                         <group string="Run">
                             <field name="user_id"/>
                             <field name="provider"/>
+                            <field name="context_mode"/>
+                            <field name="context_amount"
+                                   invisible="context_mode not in ('messages', 'runs')"/>
                             <field name="active"/>
                         </group>
                         <group string="Schedule">
