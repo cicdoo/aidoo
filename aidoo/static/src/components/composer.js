@@ -10,6 +10,10 @@ export class AiComposer extends Component {
         onSend: Function,
         disabled: Boolean,
         sessionId: { type: Number, optional: true },
+        // Skill picker (sits next to the attach button).
+        skills: { type: Array, optional: true },
+        skillId: { type: [Number, Boolean], optional: true },
+        onSelectSkill: { type: Function, optional: true },
     };
 
     setup() {
@@ -17,6 +21,18 @@ export class AiComposer extends Component {
         this.state = useState({ text: "", files: [], uploading: false, error: "" });
         this.inputRef = useRef("input");
         this.fileRef = useRef("file");
+    }
+
+    // The currently-selected skill's name (for the picker button label/title).
+    get currentSkillName() {
+        const s = (this.props.skills || []).find((x) => x.id === this.props.skillId);
+        return s ? s.name : "";
+    }
+
+    onSkillChange(ev) {
+        const raw = ev.target.value;
+        const id = raw ? parseInt(raw, 10) : false;
+        this.props.onSelectSkill?.(id);
     }
 
     onKeydown(ev) {
