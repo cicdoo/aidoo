@@ -7,6 +7,13 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Changed
+- **Provider icon in the chat list** — each conversation in the sidebar now shows
+  its provider's icon (tinted with the provider accent, provider name on hover)
+  instead of a generic comment icon, and the uppercase provider text badge is
+  removed. Each adapter declares a `_provider_icon` (Font Awesome) exposed via the
+  provider descriptor (`models/providers/*.py`, `static/src/chat_action.xml`).
+
 ### Added
 - **Delete a conversation** — a trash control on each conversation in the chat
   sidebar (`static/src/chat_action.js`/`.xml`) deletes the whole chat and its

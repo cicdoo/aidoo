@@ -47,10 +47,10 @@
                     <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
                         <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
-                            <i class="fa fa-comment-o me-1"/>
+                            <i t-attf-class="fa {{ this._provider(s.provider).icon or 'fa-comment-o' }} me-2 o_ai_session_icon"
+                               t-attf-style="color: {{ this._provider(s.provider).accent }};"
+                               t-att-title="this._provider(s.provider).label"/>
                             <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
-                            <span class="badge bg-secondary ms-1 text-uppercase"
-                                  style="font-size:0.6rem;" t-esc="s.provider"/>
                             <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
                                title="Favorite"
                                t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
