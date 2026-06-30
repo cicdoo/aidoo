@@ -87,6 +87,44 @@ class TestAidooFeatures(TransactionCase):
         # display_name on a non-existent id is falsy → no leak, empty label.
         self.assertEqual(session._context_label(), "")
 
+    def test_context_note_includes_selection(self):
+        p1 = self.env["res.partner"].create({"name": "A"})
+        p2 = self.env["res.partner"].create({"name": "B"})
+        session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude",
+            "context_model": "res.partner", "context_view_type": "kanban",
+            "context_selected_ids": "[%s, %s]" % (p1.id, p2.id),
+        })
+        note = session._context_note()
+        self.assertIn("kanban", note.lower())          # uses the actual view type
+        self.assertIn("selected", note.lower())
+        self.assertIn("orm_read", note)
+        self.assertIn(str(p1.id), note)
+        # The chip label reflects the selection count.
+        self.assertIn("2 selected", session._context_label())
+
+    def test_context_note_includes_groupby_and_filters(self):
+        session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude",
+            "context_model": "res.partner", "context_view_type": "list",
+            "context_groupby": '["country_id", "is_company"]',
+            "context_filters": "Companies · Country: Belgium",
+        })
+        note = session._context_note()
+        self.assertIn("grouped by", note.lower())
+        self.assertIn("country_id", note)
+        self.assertIn("Belgium", note)            # the filter summary is surfaced
+
+    def test_richer_context_only_first_turn(self):
+        session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude",
+            "context_model": "res.partner",
+            "context_groupby": '["country_id"]',
+        })
+        self.assertTrue(session._context_note())
+        session.turn_count = 1
+        self.assertEqual(session._context_note(), "")
+
     # ------------------------------------------------------------------
     # Feature 1 — scheduled agents
     # ------------------------------------------------------------------

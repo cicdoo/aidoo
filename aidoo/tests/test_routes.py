@@ -148,3 +148,36 @@ class TestAidooRoutes(HttpCase):
         body = self._call("/aidoo/delete", {"session_id": foreign.id})
         self.assertIn("error", body)
         self.assertTrue(foreign.exists())
+
+    # ------------------------------------------------------------------
+    # /aidoo/new — richer view context (selection / grouping / filters)
+    # ------------------------------------------------------------------
+    def test_new_stores_view_context(self):
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/new", {
+            "context_model": "res.partner",
+            "context_view_type": "kanban",
+            "context_domain": '[["is_company", "=", true]]',
+            "context_groupby": '["country_id"]',
+            "context_filters": "Companies",
+            "context_selected_ids": "[1, 2, 3]",
+        })
+        sess = self.env["aidoo.session"].browse(body["result"]["id"])
+        self.assertEqual(sess.context_model, "res.partner")
+        self.assertEqual(sess.context_view_type, "kanban")
+        self.assertEqual(sess._context_groupby(), ["country_id"])
+        self.assertEqual(sess._context_selected_ids(), [1, 2, 3])
+        self.assertEqual(sess.context_filters, "Companies")
+
+    def test_new_ignores_malformed_view_context(self):
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/new", {
+            "context_model": "res.partner",
+            "context_groupby": "not-json",
+            "context_selected_ids": "{bad}",
+        })
+        sess = self.env["aidoo.session"].browse(body["result"]["id"])
+        # Malformed values are silently dropped, not raised.
+        self.assertFalse(sess.context_groupby)
+        self.assertFalse(sess.context_selected_ids)
+        self.assertEqual(sess.context_model, "res.partner")

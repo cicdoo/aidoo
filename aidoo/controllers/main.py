@@ -144,7 +144,8 @@ class AiAssistantChat(http.Controller):
 
     @http.route("/aidoo/new", type="jsonrpc", auth="user")
     def new(self, provider=None, skill_id=None, context_model=None,
-            context_res_id=None, context_domain=None):
+            context_res_id=None, context_domain=None, context_view_type=None,
+            context_groupby=None, context_filters=None, context_selected_ids=None):
         vals = {"user_id": request.env.uid}
         if provider in _PROVIDER_CODES:
             vals["provider"] = provider
@@ -152,8 +153,10 @@ class AiAssistantChat(http.Controller):
         if skill:
             vals["skill_id"] = skill.id
         # Optional focus context (from "Ask Aidoo"): a record on a form, or the
-        # filtered record set on a list. Only stored when the user may actually
-        # read it — never seed a reference to something outside their rights.
+        # filtered/selected record set on any multi-record view. Only stored when
+        # the user may actually read the model — never seed something outside
+        # their rights (the records are still re-read under their own rights at
+        # tool time, so the ids/domain leak nothing on their own).
         if context_model and context_model in request.env:
             try:
                 Model = request.env[context_model]
@@ -170,14 +173,37 @@ class AiAssistantChat(http.Controller):
                             vals["context_res_id"] = rec.id
                     except (AccessError, ValueError):
                         pass
-                elif context_domain:
-                    # A list focus: keep the domain as a compact JSON string.
-                    try:
-                        dom = json.loads(context_domain)
-                        if isinstance(dom, list):
-                            vals["context_domain"] = json.dumps(dom)
-                    except (ValueError, TypeError):
-                        pass
+                else:
+                    # A multi-record view: keep the domain, group-by, filter
+                    # summary, view type and explicit selection.
+                    if context_domain:
+                        try:
+                            dom = json.loads(context_domain)
+                            if isinstance(dom, list):
+                                vals["context_domain"] = json.dumps(dom)
+                        except (ValueError, TypeError):
+                            pass
+                    if context_view_type:
+                        vals["context_view_type"] = str(context_view_type)[:32]
+                    if context_filters:
+                        vals["context_filters"] = str(context_filters)[:1000]
+                    if context_groupby:
+                        try:
+                            gb = json.loads(context_groupby)
+                            if isinstance(gb, list):
+                                vals["context_groupby"] = json.dumps(
+                                    [str(g) for g in gb][:20])
+                        except (ValueError, TypeError):
+                            pass
+                    if context_selected_ids:
+                        try:
+                            ids = json.loads(context_selected_ids)
+                            if isinstance(ids, list):
+                                ids = [int(i) for i in ids if isinstance(i, (int, float))][:200]
+                                if ids:
+                                    vals["context_selected_ids"] = json.dumps(ids)
+                        except (ValueError, TypeError):
+                            pass
         session = request.env["aidoo.session"].create(vals)
         return {"id": session.id, "name": session.name, "state": session.state,
                 "provider": session.provider,

@@ -8,6 +8,7 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Floating companion is fully view-context aware** — the "Ask Aidoo" companion now seeds a conversation with what the user is actually looking at across **all** multi-record views (list, kanban, pivot, graph, calendar), not just list/form: the **selected records** (ticked rows), the active **filters**, **group-by** and **domain**. Captured via shared view-controller patches reading `env.searchModel` (domain/groupBy/facets) and `model.root.selection` (`static/src/view_patches.js`), forwarded by `floating_button.js` to `/aidoo/new` (new params: `context_view_type` / `context_groupby` / `context_filters` / `context_selected_ids`) and described to the model in `aidoo.session._context_note()`. Records are still re-read under the user's own rights at tool time. The companion now also appears on kanban/pivot/graph/calendar (was form/list only).
 - **Per-user SQL access (allowlist) + working SQL toggle** — SQL access is now
   resolved per user in `aidoo.tool.exec._check_sql_access`. AI SQL Analyst members
   still read everything except the global denylist; every other user is

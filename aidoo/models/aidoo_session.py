@@ -156,6 +156,11 @@ class AiAssistantSession(models.Model):
     # For list focus: the effective search domain (JSON) the user has applied,
     # so the assistant can query exactly the records the user is looking at.
     context_domain = fields.Text(copy=False)
+    # Richer view context (any multi-record view: list/kanban/pivot/graph/calendar).
+    context_view_type = fields.Char(copy=False)             # e.g. "list", "kanban"
+    context_groupby = fields.Text(copy=False)               # JSON list of field names
+    context_filters = fields.Text(copy=False)               # human-readable facet summary
+    context_selected_ids = fields.Text(copy=False)          # JSON list of ticked record ids
 
     # Set when the session was launched by a scheduled agent (delivery routes
     # back to it when the turn finishes).
@@ -506,7 +511,10 @@ class AiAssistantSession(models.Model):
         model_label = self.env["ir.model"]._get(self.context_model).name \
             or self.context_model
         if not self.context_res_id:
-            return model_label  # list/model-level focus
+            # list/model-level focus — show the selection count when there is one.
+            n = len(self._context_selected_ids())
+            return _("%(m)s · %(n)s selected") % {"m": model_label, "n": n} \
+                if n else model_label
         try:
             rec = self.env[self.context_model].browse(self.context_res_id)
             if not rec.exists():
@@ -532,20 +540,56 @@ class AiAssistantSession(models.Model):
                 "the ORM tools to read it before answering."
             ) % {"model": self.context_model, "rid": self.context_res_id,
                  "label": label}
-        note = _(
-            "The user is currently looking at the \"%(label)s\" list (model "
-            "%(model)s)."
-        ) % {"label": label, "model": self.context_model}
+        view = (self.context_view_type or "list").strip() or "list"
+        parts = [_(
+            "The user is currently looking at the \"%(label)s\" %(view)s view "
+            "(model %(model)s)."
+        ) % {"label": label, "view": view, "model": self.context_model}]
+
+        selected = self._context_selected_ids()
+        if selected:
+            parts.append(_(
+                "They have selected %(n)s specific record(s): ids %(ids)s. Treat "
+                "these as the focus — read them with orm_read before answering."
+            ) % {"n": len(selected), "ids": selected})
+
         if self.context_domain:
-            note += " " + _(
-                "It is filtered to the records matching this Odoo domain: %s. Use "
-                "orm_search_read with that domain to see exactly those records."
-            ) % self.context_domain
-        else:
-            note += " " + _(
+            parts.append(_(
+                "The view is filtered to the records matching this Odoo domain: "
+                "%s. Use orm_search_read with that domain to see exactly those "
+                "records."
+            ) % self.context_domain)
+
+        groupby = self._context_groupby()
+        if groupby:
+            parts.append(_("It is grouped by: %s.") % ", ".join(groupby))
+
+        if self.context_filters:
+            parts.append(_("Active search filters: %s.") % self.context_filters)
+
+        if not selected and not self.context_domain:
+            parts.append(_(
                 "Treat this model as the focus of the conversation; use the ORM "
-                "tools to query its records before answering.")
-        return note
+                "tools to query its records before answering."))
+        return " ".join(parts)
+
+    def _context_selected_ids(self):
+        """The ticked record ids stored with this conversation (or [])."""
+        self.ensure_one()
+        try:
+            ids = json.loads(self.context_selected_ids or "[]")
+            return [int(i) for i in ids] if isinstance(ids, list) else []
+        except (ValueError, TypeError):
+            return []
+
+    def _context_groupby(self):
+        """The group-by field names stored with this conversation (or [])."""
+        self.ensure_one()
+        try:
+            gb = json.loads(self.context_groupby or "[]")
+            return [str(g) for g in gb] if isinstance(gb, list) else []
+        except (ValueError, TypeError):
+            return []
 
     def _compose_prompt(self, body, paths):
         """Compose the prompt text: the user's body plus, when relevant, a
