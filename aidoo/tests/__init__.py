@@ -5,6 +5,7 @@
 from . import test_sql_guard
 from . import test_bridge_token
 from . import test_tool_access
+from . import test_tool_exec
 from . import test_runner_web
 from . import test_tool_log
 from . import test_ir_http_auth

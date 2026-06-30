@@ -9,6 +9,7 @@ command from a ctx (writing whatever config files its CLI needs), and normalize
 its CLI's stream events into the common op format without ever raising on junk."""
 import sys
 import tempfile
+from unittest.mock import patch
 
 from odoo.tests.common import TransactionCase, tagged
 
@@ -28,6 +29,13 @@ class TestProviders(TransactionCase):
 
     def _adapter(self, code):
         return self.env["aidoo.provider.%s" % code]
+
+    def _no_audit(self):
+        """Stub the separate-cursor audit writer: it can't see the uncommitted
+        test session and would raise an FK error. Audit is covered by
+        test_tool_log; here we only exercise the native tool loop."""
+        return patch.object(type(self.env["aidoo.tool_log"]), "_record",
+                            lambda self, vals: None)
 
     def _ctx(self, code):
         return {
@@ -269,3 +277,131 @@ class TestProviders(TransactionCase):
         self.assertEqual(coerced["domain"], [["customer_rank", ">", 0]])
         self.assertEqual(coerced["fields"], ["name"])
         self.assertEqual(coerced["model"], "res.partner")
+
+    # ------------------------------------------------------------------
+    # Native tool-calling loop — the in-process _run_stream generators drive a
+    # full streaming -> tool_use -> tool_result -> next round cycle, then stop.
+    # We fake only the network client; the real tool executor runs the tool.
+    # ------------------------------------------------------------------
+    def _native_user_env(self, provider):
+        user = self.env["res.users"].create({
+            "name": "Native Loop Tester %s" % provider,
+            "login": "aidoo_native_%s" % provider,
+            "group_ids": [(4, self.env.ref("base.group_user").id),
+                          (4, self.env.ref("aidoo.group_ai_user").id)],
+        })
+        user_env = self.env(user=user)
+        session = user_env["aidoo.session"].create(
+            {"user_id": user.id, "provider": provider})
+        adapter = user_env["aidoo.provider.%s" % provider]
+        ctx = {
+            "allowed_tools": ["orm_read"], "max_turns": 30,
+            "identity": "ODOO USER CONTEXT", "is_first": True,
+            "prompt": "what is my login?", "deadline": None,
+        }
+        return user, user_env, session, adapter, ctx
+
+    def test_zai_native_tool_loop(self):
+        from odoo.addons.aidoo.models.providers import zai_client
+        user, user_env, session, adapter, ctx = self._native_user_env("zai")
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.zai.api_key", "test-key")
+        args = ('{"model": "res.users", "ids": [%s], "fields": ["login"]}'
+                % user.id)
+        rounds = [
+            # Round 0: the model asks to call orm_read.
+            [{"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "id": "call_1",
+                 "function": {"name": "orm_read", "arguments": args}}]}}]}],
+            # Round 1: the model answers in plain text and stops (no tool calls).
+            [{"choices": [{"delta": {"content": "Your login is "
+                                     "aidoo_native_zai."}}]}],
+        ]
+        calls = {"n": 0}
+
+        def fake_stream_chat(self, model, messages, **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            for chunk in rounds[i]:
+                yield chunk
+
+        with patch.object(zai_client.ZaiClient, "stream_chat",
+                          new=fake_stream_chat), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        kinds = [o["op"] for o in ops]
+        self.assertIn("tool_use", kinds)
+        self.assertIn("tool_result", kinds)
+        self.assertIn("text", kinds)
+        # The loop made exactly two model rounds and then terminated.
+        self.assertEqual(calls["n"], 2)
+        tool_use = next(o for o in ops if o["op"] == "tool_use")
+        self.assertEqual(tool_use["name"], "orm_read")
+        tool_result = next(o for o in ops if o["op"] == "tool_result")
+        self.assertFalse(tool_result["is_error"])
+        self.assertIn("aidoo_native_zai", tool_result["text"])
+
+    def test_zai_native_loop_stops_at_round_cap(self):
+        """A model that calls a tool forever is bounded by max_turns and emits the
+        cap notice, never an unbounded loop."""
+        from odoo.addons.aidoo.models.providers import zai_client
+        user, user_env, session, adapter, ctx = self._native_user_env("zai")
+        ctx["max_turns"] = 3
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.zai.api_key", "test-key")
+        args = '{"model": "res.users", "ids": [%s]}' % user.id
+        calls = {"n": 0}
+
+        def always_calls_tool(self, model, messages, **kw):
+            calls["n"] += 1
+            yield {"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "id": "c", "function": {
+                    "name": "orm_read", "arguments": args}}]}}]}
+
+        with patch.object(zai_client.ZaiClient, "stream_chat",
+                          new=always_calls_tool), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        self.assertEqual(calls["n"], 3)  # capped at max_turns
+        self.assertTrue(any("stopped after" in o.get("text", "")
+                            for o in ops if o["op"] == "text"))
+
+    def test_gemini_native_tool_loop(self):
+        from odoo.addons.aidoo.models.providers import codeassist, gemini
+        user, user_env, session, adapter, ctx = self._native_user_env("gemini")
+        # A configured project makes resolution authoritative and skips the
+        # auto-cache filesystem write, keeping the test side-effect free.
+        user.sudo().aidoo_cloud_project = "proj"
+        rounds = [
+            # Round 0: a functionCall part asking for orm_read.
+            [{"candidates": [{"content": {"parts": [
+                {"functionCall": {"name": "orm_read", "args": {
+                    "model": "res.users", "ids": [user.id],
+                    "fields": ["login"]}}}]}}]}],
+            # Round 1: a text part and stop.
+            [{"candidates": [{"content": {"parts": [
+                {"text": "Your login is aidoo_native_gemini."}]}}]}],
+        ]
+        calls = {"n": 0}
+
+        def fake_stream_generate(self, model, contents, **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            for resp in rounds[i]:
+                yield resp
+
+        with patch.object(gemini.AidooProviderGemini, "_load_oauth",
+                          new=lambda self, u: {"access_token": "x"}), \
+                patch.object(codeassist.CodeAssistClient, "ensure_project",
+                             new=lambda self, meta=None: "proj"), \
+                patch.object(codeassist.CodeAssistClient, "stream_generate",
+                             new=fake_stream_generate), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        kinds = [o["op"] for o in ops]
+        self.assertIn("tool_use", kinds)
+        self.assertIn("tool_result", kinds)
+        self.assertIn("text", kinds)
+        self.assertEqual(calls["n"], 2)
+        self.assertIn("aidoo_native_gemini",
+                      next(o for o in ops if o["op"] == "tool_result")["text"])
