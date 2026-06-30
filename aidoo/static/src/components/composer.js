@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import { Component, useState, useRef } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+import { SkillPickerDialog } from "./skill_picker_dialog";
 
 export class AiComposer extends Component {
     static template = "aidoo.Composer";
@@ -21,6 +23,7 @@ export class AiComposer extends Component {
         this.state = useState({ text: "", files: [], uploading: false, error: "" });
         this.inputRef = useRef("input");
         this.fileRef = useRef("file");
+        this.dialog = useService("dialog");
     }
 
     // The currently-selected skill's name (for the picker button label/title).
@@ -29,10 +32,13 @@ export class AiComposer extends Component {
         return s ? s.name : "";
     }
 
-    onSkillChange(ev) {
-        const raw = ev.target.value;
-        const id = raw ? parseInt(raw, 10) : false;
-        this.props.onSelectSkill?.(id);
+    // Open the searchable skill dialog; selecting an entry applies it to the chat.
+    openSkillPicker() {
+        this.dialog.add(SkillPickerDialog, {
+            skills: this.props.skills || [],
+            currentId: this.props.skillId,
+            onSelect: (id) => this.props.onSelectSkill?.(id),
+        });
     }
 
     onKeydown(ev) {

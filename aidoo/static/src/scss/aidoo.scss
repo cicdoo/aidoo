@@ -374,3 +374,8 @@
     // Reuse the chat sub-components inside the compact panel.
     .o_ai_message_list { min-height: 0; flex: 1 1 auto; }
 }
+
+// Skill picker button in the composer: keep the selected-skill label compact.
+.o_ai_skill_btn_label {
+    max-width: 140px;
+}

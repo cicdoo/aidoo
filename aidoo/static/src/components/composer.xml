@@ -31,20 +31,16 @@
                         t-on-click="pickFiles">
                     <i t-attf-class="fa {{ state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip' }}"/>
                 </button>
-                <!-- Skill picker: instruction preset followed every turn in this chat. -->
-                <div class="o_ai_skill_pick d-flex align-items-center">
-                    <i class="fa fa-magic text-muted me-1"/>
-                    <select class="form-select form-select-sm w-auto o_ai_skill_select"
-                            t-on-change="onSkillChange"
-                            t-att-title="currentSkillName ? ('Skill: ' + currentSkillName) : 'Attach an instruction skill (create them in the Skills menu)'">
-                        <option value="" t-att-selected="!props.skillId">No skill</option>
-                        <t t-foreach="props.skills or []" t-as="sk" t-key="sk.id">
-                            <option t-att-value="sk.id"
-                                    t-att-selected="sk.id === props.skillId"
-                                    t-esc="sk.name"/>
-                        </t>
-                    </select>
-                </div>
+                <!-- Skill picker: opens a searchable dialog. The chosen skill's
+                     instructions are followed every turn in this chat. -->
+                <button class="btn btn-light o_ai_skill_btn d-flex align-items-center"
+                        t-att-title="currentSkillName ? ('Skill: ' + currentSkillName) : 'Pick an instruction skill'"
+                        t-on-click="openSkillPicker">
+                    <i class="fa fa-magic"/>
+                    <span t-if="currentSkillName"
+                          class="ms-1 d-none d-md-inline text-truncate o_ai_skill_btn_label"
+                          t-esc="currentSkillName"/>
+                </button>
                 <textarea t-ref="input"
                           class="form-control o_ai_composer_input"
                           rows="1"

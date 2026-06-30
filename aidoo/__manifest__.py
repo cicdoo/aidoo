@@ -63,6 +63,8 @@ gemini / grok).
             'aidoo/static/src/components/message_list.xml',
             'aidoo/static/src/components/composer.js',
             'aidoo/static/src/components/composer.xml',
+            'aidoo/static/src/components/skill_picker_dialog.js',
+            'aidoo/static/src/components/skill_picker_dialog.xml',
             'aidoo/static/src/chat_action.js',
             'aidoo/static/src/chat_action.xml',
             'aidoo/static/src/cog_menu_item.js',

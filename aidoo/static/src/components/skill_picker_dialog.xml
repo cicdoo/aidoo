@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<templates xml:space="preserve">
+
+    <t t-name="aidoo.SkillPickerDialog">
+        <Dialog title="'Select a skill'" size="'md'">
+            <div class="o_ai_skill_dialog">
+                <input type="text" class="form-control mb-2" t-ref="search"
+                       placeholder="Search skills…" t-model="state.query"/>
+                <div class="list-group o_ai_skill_list">
+                    <button class="list-group-item list-group-item-action d-flex align-items-center"
+                            t-att-class="{ active: !props.currentId }"
+                            t-on-click="() => this.pick(false)">
+                        <i class="fa fa-ban me-2 text-muted"/>
+                        <span>No skill</span>
+                    </button>
+                    <t t-foreach="filtered" t-as="sk" t-key="sk.id">
+                        <button class="list-group-item list-group-item-action"
+                                t-att-class="{ active: sk.id === props.currentId }"
+                                t-on-click="() => this.pick(sk.id)">
+                            <div class="fw-bold">
+                                <i class="fa fa-magic me-2"/><t t-esc="sk.name"/>
+                            </div>
+                            <small t-if="sk.description" class="text-muted d-block"
+                                   t-esc="sk.description"/>
+                        </button>
+                    </t>
+                    <div t-if="!filtered.length"
+                         class="text-muted text-center p-3 small">
+                        No skills found. Create one in the <b>Skills</b> menu.
+                    </div>
+                </div>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="() => props.close()">
+                    Close
+                </button>
+            </t>
+        </Dialog>
+    </t>
+
+</templates>
