@@ -42,6 +42,7 @@
                         <group string="Run">
                             <field name="user_id"/>
                             <field name="provider"/>
+                            <field name="skill_id"/>
                             <field name="context_mode"/>
                             <field name="context_amount"
                                    invisible="context_mode not in ('messages', 'runs')"/>
@@ -60,6 +61,9 @@
                     <group string="Prompt">
                         <field name="prompt" nolabel="1"
                                placeholder="What should the assistant do on each run?"/>
+                    </group>
+                    <group string="Skill Instructions" invisible="not skill_id">
+                        <field name="skill_preview" nolabel="1" readonly="1"/>
                     </group>
                     <group string="Delivery">
                         <field name="delivery"/>

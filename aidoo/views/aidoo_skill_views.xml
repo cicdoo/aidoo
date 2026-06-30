@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+
+    <record id="view_aidoo_skill_list" model="ir.ui.view">
+        <field name="name">aidoo.skill.list</field>
+        <field name="model">aidoo.skill</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="description"/>
+                <field name="user_id"/>
+                <field name="is_shared"/>
+                <field name="active" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_aidoo_skill_form" model="ir.ui.view">
+        <field name="name">aidoo.skill.form</field>
+        <field name="model">aidoo.skill</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="e.g. Sales Analyst"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="description"
+                               placeholder="Short summary shown in the picker"/>
+                        <field name="user_id" readonly="1"/>
+                        <field name="is_shared" groups="aidoo.group_ai_manager"/>
+                        <field name="active" invisible="1"/>
+                    </group>
+                    <group string="Instructions">
+                        <field name="instructions" nolabel="1"
+                               placeholder="Instructions the assistant follows every turn while this skill is attached, e.g. 'Always answer with a concise markdown table and offer a chart.'"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_aidoo_skill_search" model="ir.ui.view">
+        <field name="name">aidoo.skill.search</field>
+        <field name="model">aidoo.skill</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="user_id"/>
+                <filter name="my_skills" string="My Skills"
+                        domain="[('user_id', '=', uid)]"/>
+                <filter name="shared" string="Shared"
+                        domain="[('is_shared', '=', True)]"/>
+                <filter name="archived" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_user" string="Owner"
+                            context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_aidoo_skill" model="ir.actions.act_window">
+        <field name="name">Skills</field>
+        <field name="res_model">aidoo.skill</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create an AI skill</p>
+            <p>A skill is a reusable set of instructions. Attach one to a chat or a
+               scheduled agent and the assistant follows it on every turn.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_ai_skills" name="Skills"
+              parent="menu_ai_root" action="action_aidoo_skill"
+              sequence="15" groups="group_ai_user"/>
+
+</odoo>

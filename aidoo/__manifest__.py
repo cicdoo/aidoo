@@ -34,7 +34,7 @@ gemini / grok).
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '19.0.1.1.0',
+    'version': '19.0.1.2.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},
@@ -47,6 +47,7 @@ gemini / grok).
         'views/res_users_views.xml',
         'views/aidoo_log_views.xml',
         'views/aidoo_scheduled_views.xml',
+        'views/aidoo_skill_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

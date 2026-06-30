@@ -141,6 +141,10 @@ class AiAssistantSession(models.Model):
     turn_count = fields.Integer(default=0, copy=False)
     is_favorite = fields.Boolean(
         string="Favorite", default=False, copy=False, index=True)
+    # Optional reusable instruction preset applied to every turn (its text is
+    # injected into the identity block — see _ai_identity_prompt).
+    skill_id = fields.Many2one(
+        "aidoo.skill", string="Skill", ondelete="set null", copy=False)
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
     last_error = fields.Text(copy=False)
@@ -619,7 +623,8 @@ class AiAssistantSession(models.Model):
             self.name = (title[:60] + ("…" if len(title) > 60 else "")) or self.name
 
         is_first = self.turn_count == 0
-        identity = self.user_id._ai_identity_prompt(set(self._effective_tools()))
+        identity = self.user_id._ai_identity_prompt(
+            set(self._effective_tools()), skill=self.skill_id)
         prompt = adapter._build_prompt(self, body, paths, is_first, identity)
         if context_prefix:
             # Prepended to the model prompt only (never the stored message body).

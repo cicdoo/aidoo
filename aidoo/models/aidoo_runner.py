@@ -61,7 +61,8 @@ class AiAssistantRunner(models.AbstractModel):
             adapter._sync_cli_account(session.user_id)
         allowed_tools = sorted(session._effective_tools())
         excluded_models = sorted(session._ai_excluded_models())
-        identity = session.user_id._ai_identity_prompt(set(allowed_tools))
+        identity = session.user_id._ai_identity_prompt(
+            set(allowed_tools), skill=session.skill_id)
 
         # ``is_first`` is turn-based (passed by send_message). Each adapter decides
         # internally how to honor resume vs. start fresh (Claude checks its

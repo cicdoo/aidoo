@@ -74,3 +74,43 @@ class TestAidooRoutes(HttpCase):
         self.assertIn("error", body)
         other_session.invalidate_recordset(["is_favorite"])
         self.assertFalse(other_session.is_favorite)
+
+    # ------------------------------------------------------------------
+    # Skills: /aidoo/new with a skill, /aidoo/skill toggle, unreadable reject
+    # ------------------------------------------------------------------
+    def test_new_and_set_skill(self):
+        skill = self.env["aidoo.skill"].with_user(self.user).create(
+            {"name": "Tabler", "instructions": "Answer in a table."})
+        self.authenticate("aidoo_routes_user", self.password)
+
+        created = self._call("/aidoo/new",
+                             {"provider": "claude", "skill_id": skill.id})
+        self.assertEqual(created["result"]["skill_id"], skill.id)
+        sess = self.env["aidoo.session"].browse(created["result"]["id"])
+        self.assertEqual(sess.skill_id, skill)
+
+        # Clear it via /aidoo/skill, then set it back.
+        self._call("/aidoo/skill", {"session_id": self.conv.id, "skill_id": False})
+        self.conv.invalidate_recordset(["skill_id"])
+        self.assertFalse(self.conv.skill_id)
+        self._call("/aidoo/skill",
+                   {"session_id": self.conv.id, "skill_id": skill.id})
+        self.conv.invalidate_recordset(["skill_id"])
+        self.assertEqual(self.conv.skill_id, skill)
+
+    def test_set_skill_rejects_unreadable_skill(self):
+        """A private skill owned by another user can't be attached."""
+        other = self.env["res.users"].create({
+            "name": "SkillOwner", "login": "aidoo_skillowner",
+            "group_ids": [(6, 0, [
+                self.env.ref("base.group_user").id,
+                self.env.ref("aidoo.group_ai_user").id])],
+        })
+        private = self.env["aidoo.skill"].with_user(other).create(
+            {"name": "Secret", "instructions": "x"})
+        self.authenticate("aidoo_routes_user", self.password)
+        self._call("/aidoo/skill",
+                   {"session_id": self.conv.id, "skill_id": private.id})
+        # Not readable -> resolved to empty -> session keeps no skill.
+        self.conv.invalidate_recordset(["skill_id"])
+        self.assertFalse(self.conv.skill_id)
