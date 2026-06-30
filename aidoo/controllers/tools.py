@@ -21,6 +21,7 @@ from odoo.http import request
 from ..models.aidoo_tool_exec import (  # noqa: F401
     _validate_select,
     _strip_sql_literals,
+    _sql_table_refs,
 )
 
 

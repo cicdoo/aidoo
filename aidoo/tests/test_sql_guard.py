@@ -12,6 +12,7 @@ from odoo.tests.common import TransactionCase, tagged
 from odoo.addons.aidoo.controllers.tools import (
     _validate_select,
     _strip_sql_literals,
+    _sql_table_refs,
 )
 
 
@@ -93,3 +94,63 @@ class TestSqlGuard(TransactionCase):
         self.assertNotIn("drop", stripped.lower())
         self.assertNotIn("delete", stripped.lower())
         self.assertNotIn("update", stripped.lower())
+
+    # --- table-reference extraction (powers the configurable denylist) ------
+    def test_table_refs_simple(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT id FROM account_move"), {"account_move"})
+
+    def test_table_refs_join_and_comma(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM sale_order s "
+                            "JOIN account_move m ON m.id = s.id"),
+            {"sale_order", "account_move"})
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM account_move m, res_partner p"),
+            {"account_move", "res_partner"})
+
+    def test_table_refs_schema_and_quoted(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM public.account_move"), {"account_move"})
+        self.assertEqual(
+            _sql_table_refs('SELECT * FROM "account_move"'), {"account_move"})
+
+    def test_table_refs_ignores_columns(self):
+        # account_id is a column, not a table — must NOT be reported.
+        refs = _sql_table_refs("SELECT account_id, amount FROM sale_order")
+        self.assertEqual(refs, {"sale_order"})
+
+    def test_table_refs_subquery_and_cte(self):
+        self.assertIn(
+            "account_move",
+            _sql_table_refs("SELECT * FROM (SELECT id FROM account_move) x"))
+        self.assertIn(
+            "account_move",
+            _sql_table_refs("WITH t AS (SELECT id FROM account_move) "
+                            "SELECT * FROM t"))
+
+    # --- denylist enforcement on the SQL tool ------------------------------
+    def _exec(self):
+        return self.env["aidoo.tool.exec"]
+
+    def test_denylist_blocks_matching_table(self):
+        from odoo.exceptions import AccessError
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.sql_table_denylist", "account_*, hr_*")
+        with self.assertRaises(AccessError):
+            self._exec()._check_sql_denylist("SELECT id FROM account_move")
+        # A quoted name can't slip past it.
+        with self.assertRaises(AccessError):
+            self._exec()._check_sql_denylist('SELECT id FROM "account_move_line"')
+
+    def test_denylist_allows_other_tables(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.sql_table_denylist", "account_*, hr_*")
+        # No exception for a non-denied table, even if a column starts with the
+        # denied prefix.
+        self._exec()._check_sql_denylist("SELECT account_id FROM sale_order")
+
+    def test_denylist_empty_is_noop(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.sql_table_denylist", "")
+        self._exec()._check_sql_denylist("SELECT id FROM account_move")

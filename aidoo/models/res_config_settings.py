@@ -147,6 +147,14 @@ class ResConfigSettings(models.TransientModel):
         string="Enable SQL Reporting Tool",
         config_parameter="aidoo.sql_enabled", default=True,
         help="Allow the read-only SQL tool (members of the AI SQL Analyst group).")
+    aidoo_sql_table_denylist = fields.Char(
+        string="SQL Table Denylist",
+        config_parameter="aidoo.sql_table_denylist", default="",
+        help="Comma/space-separated table-name patterns (fnmatch globs, e.g. "
+             "account_*, hr_*, *_payslip) that the SQL reporting tool may NOT "
+             "read from. Raw SQL bypasses Odoo record rules, so use this to keep "
+             "sensitive tables (invoices, payroll…) out of reach even for AI SQL "
+             "Analyst members. Empty = no extra restriction.")
     aidoo_zero_trust_default = fields.Boolean(
         string="Zero-Trust by Default (read-only)",
         config_parameter="aidoo.zero_trust_default", default=False,

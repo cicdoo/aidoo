@@ -7,6 +7,9 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Configurable SQL table denylist** — a new `aidoo.sql_table_denylist` setting (Settings -> Tools & Security) lets admins block the read-only `sql_select` tool from reading sensitive tables (fnmatch globs, e.g. `account_*, hr_*`). Because raw SQL bypasses ORM record rules, this keeps tables like invoices/payroll out of reach even for AI SQL Analyst members. Enforced in `aidoo.tool.exec` by parsing the real FROM/JOIN table references (schema-qualified and quoted names included) before execution. Documented in SECURITY.md.
+
 ### Changed
 - **Provider icon in the chat list** — each conversation in the sidebar now shows
   its provider's icon (tinted with the provider accent, provider name on hover)

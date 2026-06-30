@@ -44,7 +44,15 @@ are in scope for security reports include:
   fabricates a tool name or arguments still cannot exceed the user's permissions.
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
-  `SET TRANSACTION READ ONLY` with a statement timeout.
+  `SET TRANSACTION READ ONLY` with a statement timeout. It is gated to the
+  *AI SQL Analyst* group. Note that **raw SQL bypasses ORM record rules and model
+  ACLs** — that group is effectively an instance-wide *read* grant, not a
+  per-model one. To keep sensitive tables out of reach even for its members, set
+  an **SQL table denylist** (Settings → *Tools & Security*, or the
+  `aidoo.sql_table_denylist` parameter): fnmatch patterns (e.g. `account_*, hr_*,
+  *_payslip`) matched against the real table references parsed from each query's
+  `FROM`/`JOIN` clauses (schema-qualified and quoted names included), so a
+  denied-table read is refused before execution.
 - **Capability tokens** — the MCP bridge holds only a short-lived, session-scoped
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only

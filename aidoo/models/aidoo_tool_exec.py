@@ -88,6 +88,74 @@ def _validate_select(query):
     return True
 
 
+# Clause keywords that end a FROM item list (so we stop collecting table names).
+_SQL_FROM_STOP = {
+    "where", "group", "having", "order", "limit", "offset", "union", "intersect",
+    "except", "window", "fetch", "for", "on", "using", "join", "inner", "left",
+    "right", "full", "cross", "natural", "lateral", "returning",
+}
+_SQL_IDENT_RE = re.compile(r'^("[^"]*"|[A-Za-z_][A-Za-z0-9_$]*)$')
+
+
+def _sql_strip_comments_strings(sql):
+    """Like _strip_sql_literals but KEEPS identifiers (quoted or not) so we can
+    still see table names — used only by the table denylist."""
+    sql = re.sub(r"--[^\n]*", " ", sql)
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    sql = re.sub(r"\$(\w*)\$.*?\$\1\$", " ", sql, flags=re.DOTALL)
+    sql = re.sub(r"'(?:[^']|'')*'", " ", sql)  # string literals only
+    return sql
+
+
+def _sql_table_refs(query):
+    """Best-effort set of real table names referenced after FROM/JOIN, lowercased
+    with schema and quotes stripped. Only table-position identifiers are returned,
+    so a column named like a denied table (e.g. account_id) is NOT flagged."""
+    bare = _sql_strip_comments_strings(query)
+    tokens = re.findall(r'"[^"]*"|[A-Za-z_][A-Za-z0-9_$]*|[(),.]', bare)
+    unq = lambda t: t[1:-1] if t.startswith('"') else t
+    refs, i, n = set(), 0, len(tokens)
+    while i < n:
+        low = tokens[i].lower()
+        if low in ("from", "join"):
+            after_join = low == "join"
+            i += 1
+            expect = True
+            while i < n:
+                tok = tokens[i]
+                tl = tok.lower()
+                if expect:
+                    if tl in ("only", "lateral"):
+                        i += 1
+                        continue
+                    if tok == "(":          # subquery — its inner FROM is scanned later
+                        break
+                    if _SQL_IDENT_RE.match(tok):
+                        name = unq(tok)
+                        if (i + 2 < n and tokens[i + 1] == "."
+                                and _SQL_IDENT_RE.match(tokens[i + 2])):
+                            name = unq(tokens[i + 2])  # schema.table -> table
+                            i += 2
+                        refs.add(name.lower())
+                        expect = False
+                        i += 1
+                        if after_join:       # a JOIN names exactly one table
+                            break
+                        continue
+                    break
+                else:
+                    if tok == ",":
+                        expect = True
+                        i += 1
+                        continue
+                    if tl in _SQL_FROM_STOP or tok == ")":
+                        break
+                    i += 1                   # alias / AS / etc.
+            continue
+        i += 1
+    return refs
+
+
 class AidooToolExec(models.AbstractModel):
     _name = "aidoo.tool.exec"
     _description = "Aidoo Tool Executor (shared enforcement + audit)"
@@ -162,6 +230,26 @@ class AidooToolExec(models.AbstractModel):
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
             raise ValidationError(
                 "Method '%s' is not in the AI action allowlist." % method)
+
+    def _sql_table_denylist(self):
+        """Admin-configured fnmatch patterns for tables the SQL tool may not read."""
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "aidoo.sql_table_denylist", "") or ""
+        return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
+
+    def _check_sql_denylist(self, query):
+        """Block a SELECT that reads from a denylisted table. Raw SQL bypasses
+        Odoo record rules, so this is the lever to keep sensitive tables out of
+        reach even for AI SQL Analyst members."""
+        patterns = self._sql_table_denylist()
+        if not patterns:
+            return
+        blocked = sorted({t for t in _sql_table_refs(query)
+                          for p in patterns if fnmatch.fnmatchcase(t, p)})
+        if blocked:
+            raise AccessError(
+                "SQL reporting is not allowed on: %s (blocked by the AI SQL "
+                "table denylist)." % ", ".join(blocked))
 
     def _resolve_server_action(self, action):
         env = self.env
@@ -325,6 +413,7 @@ class AidooToolExec(models.AbstractModel):
         if not self.env.user.has_group("aidoo.group_ai_sql_analyst"):
             raise AccessError("You are not a member of the AI SQL Analyst group.")
         _validate_select(query)
+        self._check_sql_denylist(query)
         cap = min(int(max_rows or 1000), SQL_MAX_ROWS)
         try:
             timeout_ms = max(1000, int(self.env["ir.config_parameter"].sudo()

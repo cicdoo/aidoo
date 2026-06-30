@@ -138,6 +138,11 @@
                                  help="Read-only SQL for the AI SQL Analyst group.">
                             <field name="aidoo_sql_enabled"/>
                         </setting>
+                        <setting string="SQL Table Denylist"
+                                 help="Table-name patterns (fnmatch globs) the SQL tool may NOT read from. Raw SQL bypasses Odoo record rules, so use this to keep sensitive tables out of reach even for AI SQL Analyst members.">
+                            <field name="aidoo_sql_table_denylist"
+                                   placeholder="account_*, hr_*, *_payslip"/>
+                        </setting>
                         <setting string="Zero-Trust by Default (read-only)"
                                  help="When on, users left on 'Inherit' may only use read-only tools. A per-user override can still allow writes.">
                             <field name="aidoo_zero_trust_default"/>
