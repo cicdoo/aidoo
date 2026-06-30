@@ -129,6 +129,19 @@ class AiAssistantChat(http.Controller):
             return {"deleted": True}
         return {"deleted": False}
 
+    @http.route("/aidoo/delete", type="jsonrpc", auth="user")
+    def delete(self, session_id=None):
+        """Delete one of the caller's own conversations and all its messages.
+
+        Ownership is enforced by ``_session`` (record-rule scoped). Refuses while
+        a run is in flight so we never unlink a session a background worker is
+        still writing to. The messages cascade with the session."""
+        session = self._session(session_id)
+        if session.state == "running":
+            return {"deleted": False, "reason": "running"}
+        session.unlink()
+        return {"deleted": True}
+
     @http.route("/aidoo/new", type="jsonrpc", auth="user")
     def new(self, provider=None, skill_id=None, context_model=None,
             context_res_id=None, context_domain=None):

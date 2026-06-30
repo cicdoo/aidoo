@@ -7,6 +7,14 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Delete a conversation** — a trash control on each conversation in the chat
+  sidebar (`static/src/chat_action.js`/`.xml`) deletes the whole chat and its
+  messages after a confirmation dialog, via a new owner-scoped `/aidoo/delete`
+  route. It refuses while a run is in flight, and (like the other chat routes)
+  only ever touches the caller's own sessions; the messages cascade with the
+  session. Previously only empty conversations could be removed (`/aidoo/discard`).
+
 ### Changed
 - **Chat history loads incrementally** — the conversation view no longer fetches
   every message up front. `aidoo.session._messages_page(limit, before_id)` and

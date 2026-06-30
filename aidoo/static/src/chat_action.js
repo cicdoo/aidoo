@@ -7,6 +7,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 import { browser } from "@web/core/browser/browser";
+import { _t } from "@web/core/l10n/translation";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { AiMessageList } from "./components/message_list";
 import { AiComposer } from "./components/composer";
 import { ReportFrame } from "./components/report_frame";
@@ -24,6 +26,7 @@ export class AiChatAction extends Component {
     setup() {
         this.aiBus = useService("aidoo");
         this.notification = useService("notification");
+        this.dialog = useService("dialog");
         this.state = useState({
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
@@ -286,6 +289,41 @@ export class AiChatAction extends Component {
             session_id: session.id,
             is_favorite: session.is_favorite,
         });
+    }
+
+    // Delete a whole conversation (and its messages) after confirming.
+    _deleteSession(session) {
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Delete conversation"),
+            body: _t(
+                'Delete "%s" and all of its messages? This cannot be undone.',
+                session.name || _t("this conversation")),
+            confirmLabel: _t("Delete"),
+            confirm: async () => {
+                const res = await rpc("/aidoo/delete", { session_id: session.id });
+                if (!res.deleted) {
+                    this.notification.add(
+                        _t("Can't delete a conversation while it is still running."),
+                        { type: "warning" });
+                    return;
+                }
+                this._removeSessionFromList(session.id);
+            },
+            cancel: () => {},
+        });
+    }
+
+    _removeSessionFromList(id) {
+        this.state.sessions = this.state.sessions.filter((s) => s.id !== id);
+        if (this.state.currentId === id) {
+            this.aiBus.unregister(id);
+            this.state.currentId = null;
+            if (this.state.sessions.length) {
+                this._openSession(this.state.sessions[0].id);
+            } else {
+                this._newSession();
+            }
+        }
     }
 
     async _newSession(context = null) {

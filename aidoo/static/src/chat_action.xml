@@ -54,6 +54,9 @@
                             <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
                                title="Favorite"
                                t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
+                            <i class="fa fa-trash-o o_ai_session_del ms-1"
+                               title="Delete conversation"
+                               t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
                         </div>
                     </t>
                 </div>

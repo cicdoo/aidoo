@@ -75,6 +75,22 @@
             &:hover .o_ai_session_star {
                 opacity: 1;
             }
+
+            // Delete control: muted, revealed on hover, red on hover.
+            .o_ai_session_del {
+                flex: 0 0 auto;
+                padding: 0 2px;
+                cursor: pointer;
+                color: $o-gray-500;
+                opacity: 0;
+
+                &:hover {
+                    color: $o-danger;
+                }
+            }
+            &:hover .o_ai_session_del {
+                opacity: 1;
+            }
         }
     }
 

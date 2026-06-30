@@ -82,10 +82,12 @@ are in scope for security reports include:
   model the user cannot read is silently dropped, so context seeding never
   discloses data the user could not already see.
 - **Conversation management is owner-scoped** — the favorite (`/aidoo/favorite`),
-  discard (`/aidoo/discard`), messages (`/aidoo/messages`) and listing routes
-  resolve the session through the same ownership check as the rest of the chat API
-  (`_session()` rejects a session the acting user does not own, on top of the
-  `aidoo.session` record rule). History paging does not widen this: the
+  discard (`/aidoo/discard`), delete (`/aidoo/delete`), messages (`/aidoo/messages`)
+  and listing routes resolve the session through the same ownership check as the
+  rest of the chat API (`_session()` rejects a session the acting user does not own,
+  on top of the `aidoo.session` record rule). Deletion additionally refuses while a
+  run is in flight and only unlinks the caller's own session (its messages cascade);
+  it cannot remove another user's conversation. History paging does not widen this: the
   `/aidoo/messages` `limit`/`before_id` arguments only page within the *already
   authorized* session's own messages — `before_id` is cast to `int` and used as a
   `<` cursor in a domain scoped to that session — so it discloses nothing the

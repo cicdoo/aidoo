@@ -114,3 +114,37 @@ class TestAidooRoutes(HttpCase):
         # Not readable -> resolved to empty -> session keeps no skill.
         self.conv.invalidate_recordset(["skill_id"])
         self.assertFalse(self.conv.skill_id)
+
+    # ------------------------------------------------------------------
+    # Deleting a whole conversation (/aidoo/delete)
+    # ------------------------------------------------------------------
+    def test_delete_conversation_removes_it_with_messages(self):
+        self.env["aidoo.message"].create(
+            {"session_id": self.conv.id, "role": "user", "body": "hi"})
+        sid = self.conv.id
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/delete", {"session_id": sid})
+        self.assertTrue(body["result"]["deleted"])
+        self.assertFalse(self.env["aidoo.session"].sudo().browse(sid).exists())
+
+    def test_delete_refuses_while_running(self):
+        self.conv.state = "running"
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/delete", {"session_id": self.conv.id})
+        self.assertFalse(body["result"]["deleted"])
+        self.assertEqual(body["result"].get("reason"), "running")
+        self.assertTrue(self.conv.exists())
+
+    def test_delete_rejects_other_users_session(self):
+        other = self.env["res.users"].create({
+            "name": "Owner2", "login": "aidoo_owner2",
+            "group_ids": [(6, 0, [
+                self.env.ref("base.group_user").id,
+                self.env.ref("aidoo.group_ai_user").id])],
+        })
+        foreign = self.env["aidoo.session"].create(
+            {"user_id": other.id, "provider": "claude"})
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/delete", {"session_id": foreign.id})
+        self.assertIn("error", body)
+        self.assertTrue(foreign.exists())
