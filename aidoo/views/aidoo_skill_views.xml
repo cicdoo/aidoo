@@ -37,12 +37,40 @@
                         <field name="is_shared" groups="aidoo.group_ai_manager"/>
                         <field name="active" invisible="1"/>
                     </group>
-                    <group string="Instructions">
-                        <field name="instructions" nolabel="1"
-                               placeholder="Instructions the assistant follows every turn while this skill is attached, e.g. 'Always answer with a concise markdown table and offer a chart.'"/>
-                    </group>
+                    <separator string="Instructions"/>
+                    <field name="instructions" nolabel="1"
+                           placeholder="Instructions the assistant follows every turn while this skill is attached, e.g. 'Always answer with a concise markdown table and offer a chart.'"/>
                 </sheet>
             </form>
+        </field>
+    </record>
+
+    <record id="view_aidoo_skill_kanban" model="ir.ui.view">
+        <field name="name">aidoo.skill.kanban</field>
+        <field name="model">aidoo.skill</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="is_shared"/>
+                <field name="description"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <a type="open">
+                                <field name="name" class="fw-bold fs-5"/>
+                            </a>
+                            <span t-if="record.is_shared.raw_value"
+                                  class="badge text-bg-success">Shared</span>
+                        </div>
+                        <div class="text-muted small mt-1"
+                             t-if="record.description.raw_value">
+                            <field name="description"/>
+                        </div>
+                        <div class="small text-muted mt-2">
+                            <i class="fa fa-user-o me-1" title="Owner"/><field name="user_id"/>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
         </field>
     </record>
 
@@ -70,7 +98,7 @@
     <record id="action_aidoo_skill" model="ir.actions.act_window">
         <field name="name">Skills</field>
         <field name="res_model">aidoo.skill</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">kanban,list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create an AI skill</p>
             <p>A skill is a reusable set of instructions. Attach one to a chat or a

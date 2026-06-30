@@ -58,13 +58,12 @@
                             <field name="last_run"/>
                         </group>
                     </group>
-                    <group string="Prompt">
-                        <field name="prompt" nolabel="1"
-                               placeholder="What should the assistant do on each run?"/>
-                    </group>
-                    <group string="Skill Instructions" invisible="not skill_id">
-                        <field name="skill_preview" nolabel="1" readonly="1"/>
-                    </group>
+                    <separator string="Prompt"/>
+                    <field name="prompt" nolabel="1"
+                           placeholder="What should the assistant do on each run?"/>
+                    <separator string="Skill Instructions" invisible="not skill_id"/>
+                    <field name="skill_preview" nolabel="1" readonly="1"
+                           invisible="not skill_id"/>
                     <group string="Delivery">
                         <field name="delivery"/>
                         <field name="email_to" invisible="delivery != 'email'"
@@ -90,6 +89,43 @@
         </field>
     </record>
 
+    <record id="view_aidoo_scheduled_kanban" model="ir.ui.view">
+        <field name="name">aidoo.scheduled.kanban</field>
+        <field name="model">aidoo.scheduled</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="next_run"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <a type="open">
+                                <field name="name" class="fw-bold fs-5"/>
+                            </a>
+                            <span class="badge text-bg-secondary text-uppercase">
+                                <field name="provider"/>
+                            </span>
+                        </div>
+                        <div class="text-muted small mt-1">
+                            <i class="fa fa-clock-o me-1" title="Schedule"/>Every
+                            <field name="interval_number"/>
+                            <field name="interval_type"/>
+                        </div>
+                        <div class="small mt-1">
+                            <i class="fa fa-paper-plane-o me-1" title="Delivery"/><field name="delivery"/>
+                            <span class="ms-2">
+                                <i class="fa fa-user-o me-1" title="Run as"/><field name="user_id"/>
+                            </span>
+                        </div>
+                        <div class="small text-muted mt-1"
+                             t-if="record.next_run.raw_value">
+                            Next: <field name="next_run"/>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
     <record id="view_aidoo_scheduled_search" model="ir.ui.view">
         <field name="name">aidoo.scheduled.search</field>
         <field name="model">aidoo.scheduled</field>
@@ -111,7 +147,7 @@
     <record id="action_aidoo_scheduled" model="ir.actions.act_window">
         <field name="name">Scheduled Agents</field>
         <field name="res_model">aidoo.scheduled</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">kanban,list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a scheduled AI agent</p>
             <p>Save a prompt that runs on a schedule and delivers its answer by
