@@ -19,6 +19,11 @@ from odoo.tools import html2plaintext, plaintext2html
 
 _logger = logging.getLogger(__name__)
 
+# Chat history paging: the OWL client loads the most recent AIDOO_MSG_PAGE
+# messages first and fetches older ones on scroll-up (capped per request).
+AIDOO_MSG_PAGE = 30
+AIDOO_MSG_PAGE_MAX = 200
+
 # Providers selectable per conversation. Each maps to an aidoo.provider.<code>
 # adapter AbstractModel that owns all provider-specific behavior.
 PROVIDERS = [
@@ -136,6 +141,10 @@ class AiAssistantSession(models.Model):
     turn_count = fields.Integer(default=0, copy=False)
     is_favorite = fields.Boolean(
         string="Favorite", default=False, copy=False, index=True)
+    # Optional reusable instruction preset applied to every turn (its text is
+    # injected into the identity block — see _ai_identity_prompt).
+    skill_id = fields.Many2one(
+        "aidoo.skill", string="Skill", ondelete="set null", copy=False)
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
     last_error = fields.Text(copy=False)
@@ -147,6 +156,11 @@ class AiAssistantSession(models.Model):
     # For list focus: the effective search domain (JSON) the user has applied,
     # so the assistant can query exactly the records the user is looking at.
     context_domain = fields.Text(copy=False)
+    # Richer view context (any multi-record view: list/kanban/pivot/graph/calendar).
+    context_view_type = fields.Char(copy=False)             # e.g. "list", "kanban"
+    context_groupby = fields.Text(copy=False)               # JSON list of field names
+    context_filters = fields.Text(copy=False)               # human-readable facet summary
+    context_selected_ids = fields.Text(copy=False)          # JSON list of ticked record ids
 
     # Set when the session was launched by a scheduled agent (delivery routes
     # back to it when the turn finishes).
@@ -162,6 +176,36 @@ class AiAssistantSession(models.Model):
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
+
+    # ------------------------------------------------------------------
+    # Message paging (newest-anchored, for the OWL chat)
+    # ------------------------------------------------------------------
+    def _messages_page(self, limit=None, before_id=None):
+        """Serialize a page of this conversation's messages for the chat client.
+
+        Without ``limit`` the whole conversation is returned (legacy behavior, used
+        e.g. by the floating companion). With ``limit`` the page is *newest-anchored*:
+        the most recent ``limit`` messages in chronological order, or — when
+        ``before_id`` is given — the ``limit`` messages immediately older than that id
+        (scroll-up). ``has_more`` tells the client whether still-older messages exist.
+        """
+        self.ensure_one()
+        if not limit:
+            return {"messages": self.message_ids._to_frontend(), "has_more": False}
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = AIDOO_MSG_PAGE
+        limit = max(1, min(limit, AIDOO_MSG_PAGE_MAX))
+        domain = [("session_id", "=", self.id)]
+        if before_id:
+            domain.append(("id", "<", int(before_id)))
+        # Fetch newest-first with one extra row to detect more history, then flip
+        # back to chronological order for display.
+        recs = self.env["aidoo.message"].search(domain, order="id desc", limit=limit + 1)
+        has_more = len(recs) > limit
+        recs = recs[:limit].sorted("id")
+        return {"messages": recs._to_frontend(), "has_more": has_more}
 
     # --- Bridge token bookkeeping (only the jti/salt are stored, never the token) ---
     bridge_jti = fields.Char(copy=False, groups="base.group_system")
@@ -467,7 +511,10 @@ class AiAssistantSession(models.Model):
         model_label = self.env["ir.model"]._get(self.context_model).name \
             or self.context_model
         if not self.context_res_id:
-            return model_label  # list/model-level focus
+            # list/model-level focus — show the selection count when there is one.
+            n = len(self._context_selected_ids())
+            return _("%(m)s · %(n)s selected") % {"m": model_label, "n": n} \
+                if n else model_label
         try:
             rec = self.env[self.context_model].browse(self.context_res_id)
             if not rec.exists():
@@ -493,20 +540,56 @@ class AiAssistantSession(models.Model):
                 "the ORM tools to read it before answering."
             ) % {"model": self.context_model, "rid": self.context_res_id,
                  "label": label}
-        note = _(
-            "The user is currently looking at the \"%(label)s\" list (model "
-            "%(model)s)."
-        ) % {"label": label, "model": self.context_model}
+        view = (self.context_view_type or "list").strip() or "list"
+        parts = [_(
+            "The user is currently looking at the \"%(label)s\" %(view)s view "
+            "(model %(model)s)."
+        ) % {"label": label, "view": view, "model": self.context_model}]
+
+        selected = self._context_selected_ids()
+        if selected:
+            parts.append(_(
+                "They have selected %(n)s specific record(s): ids %(ids)s. Treat "
+                "these as the focus — read them with orm_read before answering."
+            ) % {"n": len(selected), "ids": selected})
+
         if self.context_domain:
-            note += " " + _(
-                "It is filtered to the records matching this Odoo domain: %s. Use "
-                "orm_search_read with that domain to see exactly those records."
-            ) % self.context_domain
-        else:
-            note += " " + _(
+            parts.append(_(
+                "The view is filtered to the records matching this Odoo domain: "
+                "%s. Use orm_search_read with that domain to see exactly those "
+                "records."
+            ) % self.context_domain)
+
+        groupby = self._context_groupby()
+        if groupby:
+            parts.append(_("It is grouped by: %s.") % ", ".join(groupby))
+
+        if self.context_filters:
+            parts.append(_("Active search filters: %s.") % self.context_filters)
+
+        if not selected and not self.context_domain:
+            parts.append(_(
                 "Treat this model as the focus of the conversation; use the ORM "
-                "tools to query its records before answering.")
-        return note
+                "tools to query its records before answering."))
+        return " ".join(parts)
+
+    def _context_selected_ids(self):
+        """The ticked record ids stored with this conversation (or [])."""
+        self.ensure_one()
+        try:
+            ids = json.loads(self.context_selected_ids or "[]")
+            return [int(i) for i in ids] if isinstance(ids, list) else []
+        except (ValueError, TypeError):
+            return []
+
+    def _context_groupby(self):
+        """The group-by field names stored with this conversation (or [])."""
+        self.ensure_one()
+        try:
+            gb = json.loads(self.context_groupby or "[]")
+            return [str(g) for g in gb] if isinstance(gb, list) else []
+        except (ValueError, TypeError):
+            return []
 
     def _compose_prompt(self, body, paths):
         """Compose the prompt text: the user's body plus, when relevant, a
@@ -584,7 +667,8 @@ class AiAssistantSession(models.Model):
             self.name = (title[:60] + ("…" if len(title) > 60 else "")) or self.name
 
         is_first = self.turn_count == 0
-        identity = self.user_id._ai_identity_prompt(set(self._effective_tools()))
+        identity = self.user_id._ai_identity_prompt(
+            set(self._effective_tools()), skill=self.skill_id)
         prompt = adapter._build_prompt(self, body, paths, is_first, identity)
         if context_prefix:
             # Prepended to the model prompt only (never the stored message body).

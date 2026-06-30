@@ -12,6 +12,7 @@ from odoo.tests.common import TransactionCase, tagged
 from odoo.addons.aidoo.controllers.tools import (
     _validate_select,
     _strip_sql_literals,
+    _sql_table_refs,
 )
 
 
@@ -93,3 +94,94 @@ class TestSqlGuard(TransactionCase):
         self.assertNotIn("drop", stripped.lower())
         self.assertNotIn("delete", stripped.lower())
         self.assertNotIn("update", stripped.lower())
+
+    # --- table-reference extraction (powers the configurable denylist) ------
+    def test_table_refs_simple(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT id FROM account_move"), {"account_move"})
+
+    def test_table_refs_join_and_comma(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM sale_order s "
+                            "JOIN account_move m ON m.id = s.id"),
+            {"sale_order", "account_move"})
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM account_move m, res_partner p"),
+            {"account_move", "res_partner"})
+
+    def test_table_refs_schema_and_quoted(self):
+        self.assertEqual(
+            _sql_table_refs("SELECT * FROM public.account_move"), {"account_move"})
+        self.assertEqual(
+            _sql_table_refs('SELECT * FROM "account_move"'), {"account_move"})
+
+    def test_table_refs_ignores_columns(self):
+        # account_id is a column, not a table — must NOT be reported.
+        refs = _sql_table_refs("SELECT account_id, amount FROM sale_order")
+        self.assertEqual(refs, {"sale_order"})
+
+    def test_table_refs_subquery_and_cte(self):
+        self.assertIn(
+            "account_move",
+            _sql_table_refs("SELECT * FROM (SELECT id FROM account_move) x"))
+        self.assertIn(
+            "account_move",
+            _sql_table_refs("WITH t AS (SELECT id FROM account_move) "
+                            "SELECT * FROM t"))
+
+    # --- per-user SQL access (analyst denylist + non-analyst allowlist) -----
+    def _exec_as(self, user):
+        return self.env["aidoo.tool.exec"].with_user(user)
+
+    def _mk_user(self, login, analyst=False, allowlist=None):
+        groups = [self.env.ref("base.group_user").id,
+                  self.env.ref("aidoo.group_ai_user").id]
+        if analyst:
+            groups.append(self.env.ref("aidoo.group_ai_sql_analyst").id)
+        u = self.env["res.users"].create({
+            "name": login, "login": login,
+            "groups_id": [(6, 0, groups)],
+        })
+        if allowlist is not None:
+            u.aidoo_sql_table_allowlist = allowlist
+        return u
+
+    def test_analyst_blocked_by_global_denylist(self):
+        from odoo.exceptions import AccessError
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.sql_table_denylist", "account_*, hr_*")
+        analyst = self._mk_user("aidoo_sql_analyst1", analyst=True)
+        ex = self._exec_as(analyst)
+        with self.assertRaises(AccessError):
+            ex._check_sql_access("SELECT id FROM account_move")
+        with self.assertRaises(AccessError):       # quoted can't slip past
+            ex._check_sql_access('SELECT id FROM "account_move_line"')
+        # Non-denied table is fine, even with a column sharing the prefix.
+        ex._check_sql_access("SELECT account_id FROM sale_order")
+
+    def test_non_analyst_without_allowlist_is_denied(self):
+        from odoo.exceptions import AccessError
+        user = self._mk_user("aidoo_sql_none")
+        with self.assertRaises(AccessError):
+            self._exec_as(user)._check_sql_access("SELECT id FROM sale_order")
+
+    def test_non_analyst_allowlist_scopes_access(self):
+        from odoo.exceptions import AccessError
+        user = self._mk_user("aidoo_sql_acct", allowlist="account_*")
+        ex = self._exec_as(user)
+        # Allowed: a table matching the per-user allowlist.
+        ex._check_sql_access("SELECT id FROM account_move")
+        ex._check_sql_access('SELECT id FROM "account_move_line" l')
+        # Denied: a table outside the allowlist.
+        with self.assertRaises(AccessError):
+            ex._check_sql_access("SELECT id FROM sale_order")
+
+    def test_sql_disabled_blocks_everyone(self):
+        from odoo.exceptions import AccessError
+        self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "False")
+        try:
+            analyst = self._mk_user("aidoo_sql_analyst2", analyst=True)
+            with self.assertRaises(AccessError):
+                self._exec_as(analyst)._check_sql_access("SELECT id FROM res_users")
+        finally:
+            self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "True")

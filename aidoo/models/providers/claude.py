@@ -53,6 +53,7 @@ class AidooProviderClaude(AidooProvider):
     _provider_code = "claude"
     _provider_label = "Claude"
     _accent_color = "#714b67"
+    _provider_icon = "/aidoo/static/src/svg/claude-color.svg"
     _config_dir_name = ".claude"
     _default_cli_glob = DEFAULT_CLI_GLOB
     _default_model = "claude-sonnet-4-5"

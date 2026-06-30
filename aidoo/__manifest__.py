@@ -34,7 +34,7 @@ gemini / grok).
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.2.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},
@@ -47,6 +47,7 @@ gemini / grok).
         'views/res_users_views.xml',
         'views/aidoo_log_views.xml',
         'views/aidoo_scheduled_views.xml',
+        'views/aidoo_skill_views.xml',
     ],
     'assets': {
         'web.assets_backend': [
@@ -62,6 +63,8 @@ gemini / grok).
             'aidoo/static/src/components/message_list.xml',
             'aidoo/static/src/components/composer.js',
             'aidoo/static/src/components/composer.xml',
+            'aidoo/static/src/components/skill_picker_dialog.js',
+            'aidoo/static/src/components/skill_picker_dialog.xml',
             'aidoo/static/src/chat_action.js',
             'aidoo/static/src/chat_action.xml',
             'aidoo/static/src/cog_menu_item.js',

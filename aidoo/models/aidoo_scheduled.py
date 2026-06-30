@@ -39,6 +39,12 @@ class AidooScheduled(models.Model):
         PROVIDERS, string="AI Provider", required=True,
         default=lambda self: self.env["aidoo.session"]._default_provider())
     prompt = fields.Text(required=True)
+    skill_id = fields.Many2one(
+        "aidoo.skill", string="Skill", ondelete="set null",
+        help="Optional reusable instruction preset applied to every run.")
+    skill_preview = fields.Text(
+        related="skill_id.instructions", string="Skill Instructions",
+        readonly=True)
 
     interval_number = fields.Integer(default=1, required=True)
     interval_type = fields.Selection(
@@ -78,6 +84,7 @@ class AidooScheduled(models.Model):
         "aidoo.session", "scheduled_id", string="Runs", readonly=True)
     run_count = fields.Integer(compute="_compute_run_count")
 
+    @api.depends("session_ids")
     def _compute_run_count(self):
         for rec in self:
             rec.run_count = len(rec.session_ids)
@@ -188,7 +195,10 @@ class AidooScheduled(models.Model):
         # the turn is treated as the first one — no prior-run transcript or
         # replayed history reaches the model. Any context the agent is configured
         # to carry is fed in below as a bounded, non-persisted prompt prefix.
-        session.write({"cli_session_id": str(uuid.uuid4()), "turn_count": 0})
+        # Keep the run session's skill in sync with the agent so the standard
+        # identity injection applies the agent's instruction preset every run.
+        session.write({"cli_session_id": str(uuid.uuid4()), "turn_count": 0,
+                       "skill_id": self.skill_id.id or False})
         session.send_message(self.prompt, context_prefix=run_context)
         self.write({"last_run": now, "next_run": now + self._interval_delta()})
         return session

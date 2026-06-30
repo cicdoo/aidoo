@@ -10,8 +10,9 @@ assistant's system prompt. Everything provider-specific (credential storage,
 login flow, is-authenticated probe) is delegated to the provider adapter
 (``aidoo.provider.<code>``)."""
 import logging
+import re
 
-from odoo import fields, models, _
+from odoo import fields, models
 from odoo.tools import str2bool
 
 from .aidoo_session import (
@@ -37,6 +38,16 @@ class ResUsers(models.Model):
         help="When zero-trust is active, only read-only tools are available to "
              "this user — write tools are stripped regardless of the selection "
              "above. 'Inherit' follows the global default in Settings.")
+    # Per-user SQL table allowlist. Lets a user who is NOT in the AI SQL Analyst
+    # group run sql_select on a bounded set of tables (e.g. accounting), without
+    # granting them full-database SQL read. Empty + not an analyst = no SQL.
+    aidoo_sql_table_allowlist = fields.Char(
+        string="SQL Tables Allowed",
+        help="Comma/space-separated table-name patterns (fnmatch globs, e.g. "
+             "account_*, sale_order*) this user may read with the SQL tool even "
+             "when they are NOT in the AI SQL Analyst group. Leave empty to give "
+             "them no SQL access (the default). Members of AI SQL Analyst can read "
+             "everything except the global SQL denylist and ignore this field.")
     # Optional per-user Google Cloud project id (exported as GOOGLE_CLOUD_PROJECT
     # by the Gemini adapter). Needed by some account types.
     aidoo_cloud_project = fields.Char(
@@ -93,6 +104,12 @@ class ResUsers(models.Model):
             names = {n for n in names if n in READONLY_TOOL_SET}
         return names
 
+    def _ai_sql_allow_patterns(self):
+        """Parsed per-user SQL table allowlist (fnmatch globs, lowercased)."""
+        self.ensure_one()
+        raw = self.aidoo_sql_table_allowlist or ""
+        return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
+
     def _ai_account_email(self):
         """The email the assistant should treat as the user's."""
         self.ensure_one()
@@ -101,13 +118,17 @@ class ResUsers(models.Model):
     # ------------------------------------------------------------------
     # Identity / role context injected into the assistant's system prompt
     # ------------------------------------------------------------------
-    def _ai_identity_prompt(self, effective_tools=None):
+    def _ai_identity_prompt(self, effective_tools=None, skill=None):
         """A concise, authoritative text block telling the model WHO the Odoo
         user is and what roles/permissions they hold.
 
         Carries no secrets — only identity, company, locale, privilege flags,
         application roles and the AI tool grant — so the model acts for, and
-        within the rights of, this Odoo user."""
+        within the rights of, this Odoo user.
+
+        ``skill`` is an optional ``aidoo.skill`` record whose instructions are
+        appended as a clearly delimited block, so an attached skill rides this
+        same per-turn identity payload into every provider."""
         self.ensure_one()
         if effective_tools is None:
             effective_tools = self._ai_effective_tools()
@@ -164,6 +185,14 @@ class ResUsers(models.Model):
                 "Web access: you may use web fetch/search to retrieve and search "
                 "public web content.")
         lines.append("--- END ODOO USER CONTEXT ---")
+
+        # Attached skill: a reusable instruction preset the model must follow.
+        if skill and skill.instructions:
+            lines.append("")
+            lines.append("--- AI SKILL: %s (follow these instructions) ---"
+                         % (skill.name or ""))
+            lines.append(skill.instructions)
+            lines.append("--- END AI SKILL ---")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

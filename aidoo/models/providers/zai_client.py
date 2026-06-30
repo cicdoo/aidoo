@@ -95,7 +95,7 @@ class ZaiClient:
     _MAX_NET_RETRIES = 2        # transient network blips only
 
     def __init__(self, api_key, base_url=ZAI_CODING_BASE, timeout=120,
-                 on_retry=None, rpm=0):
+                 on_retry=None, rpm=0, deadline=None):
         self._api_key = (api_key or "").strip()
         self._base = (base_url or ZAI_CODING_BASE).rstrip("/")
         self._timeout = timeout
@@ -103,6 +103,10 @@ class ZaiClient:
         # each backoff wait, so the caller can surface a "retrying in Ns" notice.
         self._on_retry = on_retry
         self._rpm = int(rpm or 0)
+        # Optional wall-clock deadline (epoch seconds, as from ``time.time()``):
+        # the caller's turn timeout. We refuse to start a backoff wait that would
+        # run past it, so retries can never block the run beyond its deadline.
+        self._deadline = deadline
         # Quota key for the proactive limiter: scope to this key, not global, so
         # distinct keys don't starve each other. Hash to keep the secret out of
         # any in-memory map key that might be logged.
@@ -135,24 +139,34 @@ class ZaiClient:
                     pass
                 if e.code in (429, 503) and attempt < self._MAX_ATTEMPTS - 1:
                     delay = self._retry_delay(e.headers, body, attempt)
-                    self._notify_retry(attempt + 1, delay, e.code)
-                    time.sleep(delay)
-                    attempt += 1
-                    continue
+                    if self._can_wait(delay):
+                        self._notify_retry(attempt + 1, delay, e.code)
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
                 raise ZaiError(
                     "HTTP %s for %s: %s" % (e.code, url, body), status=e.code)
             except (urllib.error.URLError, OSError) as e:
                 if attempt < self._MAX_NET_RETRIES:
                     delay = self._backoff(attempt)
-                    self._notify_retry(attempt + 1, delay, "network")
-                    time.sleep(delay)
-                    attempt += 1
-                    continue
+                    if self._can_wait(delay):
+                        self._notify_retry(attempt + 1, delay, "network")
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
                 raise ZaiError("Network error for %s: %s" % (url, e))
             if stream:
                 return resp
             with resp:
                 return resp.read().decode("utf-8", "replace")
+
+    def _can_wait(self, delay):
+        """True if a backoff of ``delay`` seconds finishes before the caller's
+        turn deadline (if one was supplied). Keeps total retry time bounded so a
+        long server backoff can never overrun the run's wall-clock budget."""
+        if not self._deadline:
+            return True
+        return (time.time() + delay) < self._deadline
 
     def _notify_retry(self, attempt, delay, reason):
         if self._on_retry:

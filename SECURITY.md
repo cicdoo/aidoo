@@ -38,31 +38,37 @@ are in scope for security reports include:
   agent loop inside Odoo and execute tools by calling `aidoo.tool.exec` directly
   (no CLI subprocess, no loopback HTTP, no MCP bridge token). They still run as the
   acting user (`su=False`) with the same gating + audit; the model's built-in
-  surface is limited to the declared Odoo tools (no shell/file/web).
-- **Tool arguments are decoded before the guards** — models that cannot type a
-  freeform array/object (e.g. Gemini flash) send `domain` / `*args` / sql `params`
-  as a JSON string; `aidoo.tool.exec._coerce_json_args` parses these back into
-  structures **before** `_guard()` and the per-tool handler run, so the SQL
-  validator, ORM access checks and record rules all apply to the decoded values
-  exactly as they do to native array arguments — string-encoding an argument does
-  not bypass any gate.
+  surface is limited to the declared Odoo tools (no shell/file/web). The Z.AI
+  provider only advertises the user's granted Odoo tools as OpenAI function specs;
+  the executor re-checks the grant authoritatively at call time, so a model that
+  fabricates a tool name or arguments still cannot exceed the user's permissions.
 - **Read-only SQL** — `sql_select` is validated (SELECT/WITH only, no stacked
   statements, no row locks, no dangerous functions) *and* executed under
-  `SET TRANSACTION READ ONLY` with a statement timeout.
+  `SET TRANSACTION READ ONLY` with a statement timeout. It is gated to the
+  *AI SQL Analyst* group. Note that **raw SQL bypasses ORM record rules and model
+  ACLs** — that group is effectively an instance-wide *read* grant, not a
+  per-model one. To keep sensitive tables out of reach even for its members, set
+  an **SQL table denylist** (Settings → *Tools & Security*, or the
+  `aidoo.sql_table_denylist` parameter): fnmatch patterns (e.g. `account_*, hr_*,
+  *_payslip`) matched against the real table references parsed from each query's
+  `FROM`/`JOIN` clauses (schema-qualified and quoted names included), so a
+  denied-table read is refused before execution. SQL access is resolved
+  per user in `aidoo.tool.exec._check_sql_access`: AI SQL Analyst members may read
+  everything except that denylist; **every other user is default-deny**, unless a
+  manager sets a **per-user table allowlist** (`res.users.aidoo_sql_table_allowlist`)
+  — then they may read *only* tables matching it (e.g. grant `account_*` to one
+  user without the full-database analyst role). The global `aidoo.sql_enabled`
+  toggle disables the SQL tool for everyone.
 - **Capability tokens** — the MCP bridge holds only a short-lived, session-scoped
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
-- **Per-user credential isolation** — OAuth credentials (and a provider API key,
-  e.g. the Z.AI/GLM key under `.zai`) are stored per user with mode `0600` and
-  never exposed on a record; an optional shared fallback key
-  (`aidoo.zai.api_key`) is read only when a user has set none. The Gemini Cloud
-  project billed for
-  a user's requests is likewise resolved per user (`aidoo_cloud_project`, then the
-  instance-wide `cloud_project` fallback) rather than from the project Code Assist
-  auto-provisions and caches on disk — so a configured, licensed project always
-  takes precedence and one user's requests are never silently attributed to an
-  auto-provisioned managed project.
+- **Per-user credential isolation** — OAuth credentials and per-user API keys
+  (e.g. a user's Z.AI key under `.zai/api_key`) are stored per user with mode
+  `0600` and never exposed on a record. The optional *shared* fallback keys
+  (`aidoo.<provider>.api_key`, including `aidoo.zai.api_key`) live in
+  `ir.config_parameter` and are readable by system-settings administrators —
+  prefer per-user keys, and treat a shared key as an instance-wide secret.
 - **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
   ships built-in web tools (read_url_content / search_web / browser) that its
   permission engine **cannot deny** — so it has ungated internet access, a
@@ -90,14 +96,33 @@ are in scope for security reports include:
   model the user cannot read is silently dropped, so context seeding never
   discloses data the user could not already see.
 - **Conversation management is owner-scoped** — the favorite (`/aidoo/favorite`),
-  discard (`/aidoo/discard`) and listing routes resolve the session through the
-  same ownership check as the rest of the chat API (`_session()` rejects a session
-  the acting user does not own, on top of the `aidoo.session` record rule). The
+  discard (`/aidoo/discard`), delete (`/aidoo/delete`), messages (`/aidoo/messages`)
+  and listing routes resolve the session through the same ownership check as the
+  rest of the chat API (`_session()` rejects a session the acting user does not own,
+  on top of the `aidoo.session` record rule). Deletion additionally refuses while a
+  run is in flight and only unlinks the caller's own session (its messages cascade);
+  it cannot remove another user's conversation. History paging does not widen this: the
+  `/aidoo/messages` `limit`/`before_id` arguments only page within the *already
+  authorized* session's own messages — `before_id` is cast to `int` and used as a
+  `<` cursor in a domain scoped to that session — so it discloses nothing the
+  caller could not already read, and is purely a performance/UX bound. The
   empty-conversation cleanup (`aidoo.session._prune_empty()`) only ever unlinks the
   acting user's own message-less, non-running sessions and explicitly skips
   Discuss- and scheduled-agent-linked sessions; `/aidoo/discard` is additionally
   guarded server-side to delete only when the session has no messages, so a real
   conversation — or another user's — can never be removed through these endpoints.
+- **AI skills are instructions, not privileges** — a skill (`aidoo.skill`) is
+  user-authored prompt text injected into the per-turn identity block. It can shape
+  *how* the assistant answers but cannot widen *what* it may do: the tool grant,
+  model denylist, read-only SQL and `su=False` execution in `aidoo.tool.exec` are
+  unchanged and authoritative, so a skill can never grant a tool or exceed the
+  acting user's ACLs. Skills are owner-scoped — record rules let a user read their
+  own plus any `is_shared` skill but write only their own, and `is_shared`
+  (publishing to all users) is gated to *AI Assistant Managers* both by rule and by
+  a guard on `create`/`write`. The `/aidoo/new` and `/aidoo/skill` routes attach a
+  skill only after re-resolving it through the caller's own read rights (a private
+  skill of another user is simply not found), and a scheduled agent's skill is
+  applied as the agent's own run-as user.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own

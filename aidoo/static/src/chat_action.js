@@ -7,10 +7,16 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 import { browser } from "@web/core/browser/browser";
+import { _t } from "@web/core/l10n/translation";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { AiMessageList } from "./components/message_list";
 import { AiComposer } from "./components/composer";
 import { ReportFrame } from "./components/report_frame";
 import { extractHtmlBlocks } from "./artifacts";
+
+// Load the conversation in newest-first pages; older messages stream in on
+// scroll-up. Keep in sync with AIDOO_MSG_PAGE on the server.
+const MESSAGE_PAGE = 30;
 
 export class AiChatAction extends Component {
     static template = "aidoo.ChatAction";
@@ -20,15 +26,20 @@ export class AiChatAction extends Component {
     setup() {
         this.aiBus = useService("aidoo");
         this.notification = useService("notification");
+        this.dialog = useService("dialog");
         this.state = useState({
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
+            skills: [],             // [{id, name, description}] the user may use
+            currentSkillId: false,  // skill on the open conversation
             sessions: [],
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
+            sidebarOpen: false,    // mobile: off-canvas conversation drawer open?
             currentId: null,
             currentProvider: "claude",
             messages: [],
+            hasMore: false,         // older messages exist above the loaded window
             running: false,
             notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
@@ -58,6 +69,7 @@ export class AiChatAction extends Component {
             const info = await rpc("/aidoo/providers");
             this.state.providers = info.providers;
             this.state.selectedProvider = info.default;
+            this.state.skills = info.skills || [];
             await this._initChat();
             this.state.ready = true;
         });
@@ -79,6 +91,11 @@ export class AiChatAction extends Component {
 
     get currentProvider() {
         return this._provider(this.state.currentProvider);
+    }
+
+    get currentSessionName() {
+        const s = this.state.sessions.find((x) => x.id === this.state.currentId);
+        return s ? s.name : "";
     }
 
     get isAuthed() {
@@ -274,6 +291,41 @@ export class AiChatAction extends Component {
         });
     }
 
+    // Delete a whole conversation (and its messages) after confirming.
+    _deleteSession(session) {
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Delete conversation"),
+            body: _t(
+                'Delete "%s" and all of its messages? This cannot be undone.',
+                session.name || _t("this conversation")),
+            confirmLabel: _t("Delete"),
+            confirm: async () => {
+                const res = await rpc("/aidoo/delete", { session_id: session.id });
+                if (!res.deleted) {
+                    this.notification.add(
+                        _t("Can't delete a conversation while it is still running."),
+                        { type: "warning" });
+                    return;
+                }
+                this._removeSessionFromList(session.id);
+            },
+            cancel: () => {},
+        });
+    }
+
+    _removeSessionFromList(id) {
+        this.state.sessions = this.state.sessions.filter((s) => s.id !== id);
+        if (this.state.currentId === id) {
+            this.aiBus.unregister(id);
+            this.state.currentId = null;
+            if (this.state.sessions.length) {
+                this._openSession(this.state.sessions[0].id);
+            } else {
+                this._newSession();
+            }
+        }
+    }
+
     async _newSession(context = null) {
         // Also used as a click handler (receives the event) — only a real
         // context object carries context_model.
@@ -286,21 +338,86 @@ export class AiChatAction extends Component {
         await this._openSession(s.id);
     }
 
+    // ------------------------------------------------------------------
+    // Sidebar (collapsible on mobile)
+    // ------------------------------------------------------------------
+    toggleSidebar() {
+        this.state.sidebarOpen = !this.state.sidebarOpen;
+    }
+
     async _openSession(id) {
+        // Opening a conversation on mobile returns focus to the chat surface.
+        this.state.sidebarOpen = false;
         if (this.state.currentId && this.state.currentId !== id) {
             this.aiBus.unregister(this.state.currentId);
         }
         this._resetAuthForms();
         this.state.currentId = id;
         this.aiBus.register(id, (p) => this._onBusEvent(p));
-        const data = await rpc("/aidoo/messages", { session_id: id });
+        const data = await rpc("/aidoo/messages", {
+            session_id: id,
+            limit: MESSAGE_PAGE,
+        });
         this.state.currentProvider = data.provider;
         this.state.contextLabel = data.context_label || "";
+        this.state.currentSkillId = data.skill_id || false;
         this.state.messages = data.messages;
+        this.state.hasMore = !!data.has_more;
         this.state.running = data.state === "running";
         this.state.artifact = null;
         this.state.artifactOpen = false;
         this._captureLatestArtifact();
+    }
+
+    // Attach (or clear) the skill on the open conversation — applies from the
+    // next turn. Called by the composer's skill picker with the chosen id.
+    async setSkill(skillId) {
+        const id = skillId || false;
+        this.state.currentSkillId = id;
+        if (this.state.currentId) {
+            await rpc("/aidoo/skill", {
+                session_id: this.state.currentId,
+                skill_id: id,
+            });
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Message paging (load older on scroll-up)
+    // ------------------------------------------------------------------
+    // The smallest real (numeric, server-assigned) message id currently loaded.
+    // Optimistic placeholders use string ids ("tmp-…"/"err-…") and are skipped.
+    _oldestLoadedId() {
+        let oldest = null;
+        for (const m of this.state.messages) {
+            if (typeof m.id === "number" && (oldest === null || m.id < oldest)) {
+                oldest = m.id;
+            }
+        }
+        return oldest;
+    }
+
+    async loadMore() {
+        if (this._loadingMore || !this.state.hasMore || !this.state.currentId) {
+            return;
+        }
+        const before = this._oldestLoadedId();
+        if (!before) {
+            return;
+        }
+        this._loadingMore = true;
+        try {
+            const data = await rpc("/aidoo/messages", {
+                session_id: this.state.currentId,
+                limit: MESSAGE_PAGE,
+                before_id: before,
+            });
+            // Prepend the older page above the current window.
+            this.state.messages.unshift(...data.messages);
+            this.state.hasMore = !!data.has_more;
+        } finally {
+            this._loadingMore = false;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -401,10 +518,15 @@ export class AiChatAction extends Component {
 
     async _reload() {
         if (!this.state.currentId) return;
+        // Refresh the currently-loaded window (keep however much the user has
+        // paged in), not the whole history.
+        const keep = Math.max(MESSAGE_PAGE, this.state.messages.length);
         const data = await rpc("/aidoo/messages", {
             session_id: this.state.currentId,
+            limit: keep,
         });
         this.state.messages = data.messages;
+        this.state.hasMore = !!data.has_more;
     }
 
     async onSend(text, files = []) {

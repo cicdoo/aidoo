@@ -6,9 +6,22 @@
 
     <t t-name="aidoo.ChatAction">
         <div t-if="state.ready" class="o_ai_chat d-flex h-100">
-            <!-- Sidebar: provider picker + conversation list -->
-            <div class="o_ai_sidebar d-flex flex-column border-end">
+            <!-- Mobile-only backdrop: tap outside the drawer to close it. -->
+            <div t-if="state.sidebarOpen" class="o_ai_sidebar_backdrop d-md-none"
+                 t-on-click="() => state.sidebarOpen = false"/>
+            <!-- Sidebar: provider picker + conversation list. On mobile it is an
+                 off-canvas drawer toggled by state.sidebarOpen. -->
+            <div t-attf-class="o_ai_sidebar d-flex flex-column border-end {{ state.sidebarOpen ? 'o_ai_sidebar--open' : '' }}">
                 <div class="p-2 border-bottom">
+                    <!-- Mobile-only drawer header with a close control. -->
+                    <div class="o_ai_sidebar_close d-md-none d-flex align-items-center mb-2">
+                        <span class="fw-bold">Conversations</span>
+                        <button class="btn btn-sm btn-link text-decoration-none ms-auto p-0"
+                                title="Close" aria-label="Close"
+                                t-on-click="() => state.sidebarOpen = false">
+                            <i class="fa fa-times"/>
+                        </button>
+                    </div>
                     <select class="form-select form-select-sm mb-2"
                             t-model="state.selectedProvider">
                         <t t-foreach="state.providers" t-as="p" t-key="p.code">
@@ -34,13 +47,20 @@
                     <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
                         <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
-                            <i class="fa fa-comment-o me-1"/>
+                            <img t-if="this._provider(s.provider).icon"
+                                 t-att-src="this._provider(s.provider).icon"
+                                 t-att-alt="this._provider(s.provider).label"
+                                 t-att-title="this._provider(s.provider).label"
+                                 class="o_ai_session_icon me-2"/>
+                            <i t-else="" class="fa fa-comment-o me-2 text-muted"
+                               t-att-title="this._provider(s.provider).label"/>
                             <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
-                            <span class="badge bg-secondary ms-1 text-uppercase"
-                                  style="font-size:0.6rem;" t-esc="s.provider"/>
                             <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
                                title="Favorite"
                                t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
+                            <i class="fa fa-trash-o o_ai_session_del ms-1"
+                               title="Delete conversation"
+                               t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
                         </div>
                     </t>
                 </div>
@@ -48,6 +68,17 @@
 
             <!-- Main: auth gate (per provider) OR messages + composer -->
             <div class="o_ai_main d-flex flex-column flex-grow-1">
+
+                <!-- Mobile-only top bar: opens the conversation drawer. -->
+                <div class="o_ai_mobile_bar d-md-none d-flex align-items-center border-bottom px-2 py-1">
+                    <button class="btn btn-sm btn-link text-decoration-none px-1"
+                            title="Conversations" aria-label="Conversations"
+                            t-on-click="toggleSidebar">
+                        <i class="fa fa-bars"/>
+                    </button>
+                    <span class="o_ai_mobile_title text-truncate ms-1 fw-bold"
+                          t-esc="currentSessionName"/>
+                </div>
 
                 <!-- Auth gate: shown until the current conversation's provider is connected -->
                 <div t-if="!isAuthed"
@@ -149,6 +180,7 @@
                         <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
                     </div>
                     <AiMessageList messages="state.messages" running="state.running"
+                                   hasMore="state.hasMore" onLoadMore.bind="loadMore"
                                    onOpenArtifact.bind="openArtifact"/>
                     <div t-if="state.running" class="px-2 pb-1">
                         <div t-if="state.notice" class="small text-muted fst-italic mb-1">
@@ -159,7 +191,9 @@
                         </button>
                     </div>
                     <AiComposer onSend.bind="onSend" disabled="state.running"
-                                sessionId="state.currentId"/>
+                                sessionId="state.currentId"
+                                skills="state.skills" skillId="state.currentSkillId"
+                                onSelectSkill.bind="setSkill"/>
                 </t>
             </div>
 

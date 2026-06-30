@@ -20,6 +20,11 @@
 .o_ai_chat {
     background-color: $o-view-background-color;
     color: $o-main-text-color;
+    // Positioning context for the off-canvas sidebar drawer on mobile.
+    position: relative;
+
+    // Mobile-only chrome (hamburger bar, drawer close header, backdrop) is
+    // hidden on desktop via Bootstrap's d-md-none; nothing to do here.
 
     .o_ai_sidebar {
         width: 260px;
@@ -68,6 +73,30 @@
                 }
             }
             &:hover .o_ai_session_star {
+                opacity: 1;
+            }
+
+            // Provider logo (SVG) shown at the start of each conversation row.
+            img.o_ai_session_icon {
+                width: 18px;
+                height: 18px;
+                object-fit: contain;
+                flex: 0 0 auto;
+            }
+
+            // Delete control: muted, revealed on hover, red on hover.
+            .o_ai_session_del {
+                flex: 0 0 auto;
+                padding: 0 2px;
+                cursor: pointer;
+                color: $o-gray-500;
+                opacity: 0;
+
+                &:hover {
+                    color: $o-danger;
+                }
+            }
+            &:hover .o_ai_session_del {
                 opacity: 1;
             }
         }
@@ -275,6 +304,50 @@
             min-height: 160px;
         }
     }
+
+    // The backdrop and mobile bar only exist in the DOM on small screens.
+    .o_ai_sidebar_backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 1039;
+        background-color: rgba(0, 0, 0, 0.4);
+    }
+}
+
+// --- Mobile: collapse the conversation list into an off-canvas drawer -----
+@include media-breakpoint-down(md) {
+    .o_ai_chat {
+        .o_ai_sidebar {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 1040;
+            width: 80%;
+            max-width: 300px;
+            transform: translateX(-100%);
+            transition: transform 0.2s ease-in-out;
+            box-shadow: 0 0 16px rgba(0, 0, 0, 0.2);
+
+            &.o_ai_sidebar--open {
+                transform: translateX(0);
+            }
+        }
+
+        // The artifact preview panel can't share the narrow viewport with the
+        // chat; hide it on mobile (the conversation stays usable).
+        .o_ai_artifact {
+            display: none !important;
+        }
+    }
+}
+
+// On desktop the mobile drawer chrome is never shown (defensive: also keep the
+// sidebar in normal flow even if a stale --open class lingers from a resize).
+@include media-breakpoint-up(md) {
+    .o_ai_chat .o_ai_sidebar.o_ai_sidebar--open {
+        transform: none;
+    }
 }
 
 // --- Floating "Ask Aidoo" companion (form / list views) ------------------
@@ -324,4 +397,9 @@
 
     // Reuse the chat sub-components inside the compact panel.
     .o_ai_message_list { min-height: 0; flex: 1 1 auto; }
+}
+
+// Skill picker button in the composer: keep the selected-skill label compact.
+.o_ai_skill_btn_label {
+    max-width: 140px;
 }

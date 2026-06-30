@@ -31,6 +31,16 @@
                         t-on-click="pickFiles">
                     <i t-attf-class="fa {{ state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip' }}"/>
                 </button>
+                <!-- Skill picker: opens a searchable dialog. The chosen skill's
+                     instructions are followed every turn in this chat. -->
+                <button class="btn btn-light o_ai_skill_btn d-flex align-items-center"
+                        t-att-title="currentSkillName ? ('Skill: ' + currentSkillName) : 'Pick an instruction skill'"
+                        t-on-click="openSkillPicker">
+                    <i class="fa fa-magic"/>
+                    <span t-if="currentSkillName"
+                          class="ms-1 d-none d-md-inline text-truncate o_ai_skill_btn_label"
+                          t-esc="currentSkillName"/>
+                </button>
                 <textarea t-ref="input"
                           class="form-control o_ai_composer_input"
                           rows="1"

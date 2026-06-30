@@ -29,6 +29,7 @@ import time
 
 from odoo import models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tools import str2bool
 
 _logger = logging.getLogger(__name__)
 
@@ -86,6 +87,74 @@ def _validate_select(query):
     if _FOR_LOCK.search(bare):
         raise ValidationError("Row-locking clauses are not allowed.")
     return True
+
+
+# Clause keywords that end a FROM item list (so we stop collecting table names).
+_SQL_FROM_STOP = {
+    "where", "group", "having", "order", "limit", "offset", "union", "intersect",
+    "except", "window", "fetch", "for", "on", "using", "join", "inner", "left",
+    "right", "full", "cross", "natural", "lateral", "returning",
+}
+_SQL_IDENT_RE = re.compile(r'^("[^"]*"|[A-Za-z_][A-Za-z0-9_$]*)$')
+
+
+def _sql_strip_comments_strings(sql):
+    """Like _strip_sql_literals but KEEPS identifiers (quoted or not) so we can
+    still see table names — used only by the table denylist."""
+    sql = re.sub(r"--[^\n]*", " ", sql)
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    sql = re.sub(r"\$(\w*)\$.*?\$\1\$", " ", sql, flags=re.DOTALL)
+    sql = re.sub(r"'(?:[^']|'')*'", " ", sql)  # string literals only
+    return sql
+
+
+def _sql_table_refs(query):
+    """Best-effort set of real table names referenced after FROM/JOIN, lowercased
+    with schema and quotes stripped. Only table-position identifiers are returned,
+    so a column named like a denied table (e.g. account_id) is NOT flagged."""
+    bare = _sql_strip_comments_strings(query)
+    tokens = re.findall(r'"[^"]*"|[A-Za-z_][A-Za-z0-9_$]*|[(),.]', bare)
+    unq = lambda t: t[1:-1] if t.startswith('"') else t
+    refs, i, n = set(), 0, len(tokens)
+    while i < n:
+        low = tokens[i].lower()
+        if low in ("from", "join"):
+            after_join = low == "join"
+            i += 1
+            expect = True
+            while i < n:
+                tok = tokens[i]
+                tl = tok.lower()
+                if expect:
+                    if tl in ("only", "lateral"):
+                        i += 1
+                        continue
+                    if tok == "(":          # subquery — its inner FROM is scanned later
+                        break
+                    if _SQL_IDENT_RE.match(tok):
+                        name = unq(tok)
+                        if (i + 2 < n and tokens[i + 1] == "."
+                                and _SQL_IDENT_RE.match(tokens[i + 2])):
+                            name = unq(tokens[i + 2])  # schema.table -> table
+                            i += 2
+                        refs.add(name.lower())
+                        expect = False
+                        i += 1
+                        if after_join:       # a JOIN names exactly one table
+                            break
+                        continue
+                    break
+                else:
+                    if tok == ",":
+                        expect = True
+                        i += 1
+                        continue
+                    if tl in _SQL_FROM_STOP or tok == ")":
+                        break
+                    i += 1                   # alias / AS / etc.
+            continue
+        i += 1
+    return refs
 
 
 class AidooToolExec(models.AbstractModel):
@@ -162,6 +231,50 @@ class AidooToolExec(models.AbstractModel):
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
             raise ValidationError(
                 "Method '%s' is not in the AI action allowlist." % method)
+
+    def _sql_table_denylist(self):
+        """Admin-configured fnmatch patterns for tables the SQL tool may not read."""
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "aidoo.sql_table_denylist", "") or ""
+        return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
+
+    def _check_sql_access(self, query):
+        """Authorize a validated SELECT against the user's SQL access scope.
+
+        - AI SQL Analyst members may read everything EXCEPT the global table
+          denylist (raw SQL bypasses record rules, so the denylist is the lever
+          to fence off sensitive tables for them).
+        - Other users get NO SQL access by default, unless they have a per-user
+          table allowlist — then they may read ONLY tables matching it. This lets
+          you grant, say, accounting reads to one user without the full-database
+          AI SQL Analyst role.
+        """
+        if not str2bool(self.env["ir.config_parameter"].sudo().get_param(
+                "aidoo.sql_enabled", "True"), True):
+            raise AccessError("SQL reporting is disabled on this instance.")
+        user = self.env.user
+        tables = _sql_table_refs(query)
+        if user.has_group("aidoo.group_ai_sql_analyst"):
+            denied = sorted({t for t in tables
+                             for p in self._sql_table_denylist()
+                             if fnmatch.fnmatchcase(t, p)})
+            if denied:
+                raise AccessError(
+                    "SQL reporting is not allowed on: %s (blocked by the AI SQL "
+                    "table denylist)." % ", ".join(denied))
+            return
+        # Not an analyst: default-deny, gated by the per-user allowlist.
+        allow = user._ai_sql_allow_patterns()
+        if not allow:
+            raise AccessError(
+                "You do not have SQL reporting access. Ask an administrator to "
+                "add you to the AI SQL Analyst group or grant specific tables.")
+        not_allowed = sorted({t for t in tables
+                              if not any(fnmatch.fnmatchcase(t, p) for p in allow)})
+        if not_allowed:
+            raise AccessError(
+                "SQL access to %s is not in your allowed tables." %
+                ", ".join(not_allowed))
 
     def _resolve_server_action(self, action):
         env = self.env
@@ -322,9 +435,8 @@ class AidooToolExec(models.AbstractModel):
 
     def _t_sql_select(self, session, query=None, params=None, max_rows=1000, **kw):
         self._check_tool(session, "sql_select")
-        if not self.env.user.has_group("aidoo.group_ai_sql_analyst"):
-            raise AccessError("You are not a member of the AI SQL Analyst group.")
         _validate_select(query)
+        self._check_sql_access(query)
         cap = min(int(max_rows or 1000), SQL_MAX_ROWS)
         try:
             timeout_ms = max(1000, int(self.env["ir.config_parameter"].sudo()

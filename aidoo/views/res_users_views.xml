@@ -32,6 +32,8 @@
                                widget="many2many_tags"
                                placeholder="Empty = all read-only tools"/>
                         <field name="aidoo_zero_trust_mode"/>
+                        <field name="aidoo_sql_table_allowlist"
+                               placeholder="e.g. account_*, sale_order* — empty = no SQL unless AI SQL Analyst"/>
                     </group>
                 </page>
             </xpath>

@@ -25,6 +25,7 @@ identity appended to the prompt) so each adapter overrides as little as possible
 """
 import logging
 import os
+import threading
 
 from odoo import models, _
 from odoo.exceptions import UserError
@@ -34,21 +35,26 @@ _logger = logging.getLogger(__name__)
 # The Odoo tool input schemas live in the (standalone, credential-free) MCP
 # bridge script. Lazy-load them once and reuse across the native adapters so the
 # tool/function declarations they advertise stay single-sourced with what the
-# CLI bridge exposes.
+# CLI bridge exposes. The lock makes the first concurrent load atomic so two
+# worker threads can't exec the bridge module twice and race on the cache.
 _BRIDGE_TOOLS = None
+_BRIDGE_TOOLS_LOCK = threading.Lock()
 
 
 def _bridge_tool_schemas():
     global _BRIDGE_TOOLS
     if _BRIDGE_TOOLS is None:
-        import importlib.util
-        path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "bridge", "mcp_server.py")
-        spec = importlib.util.spec_from_file_location("aidoo_bridge_mcp", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _BRIDGE_TOOLS = list(getattr(mod, "TOOLS", []))
+        with _BRIDGE_TOOLS_LOCK:
+            if _BRIDGE_TOOLS is None:
+                import importlib.util
+                path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    "bridge", "mcp_server.py")
+                spec = importlib.util.spec_from_file_location(
+                    "aidoo_bridge_mcp", path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _BRIDGE_TOOLS = list(getattr(mod, "TOOLS", []))
     return _BRIDGE_TOOLS
 
 
@@ -107,6 +113,7 @@ class AidooProvider(models.AbstractModel):
     _provider_code = ""           # e.g. "claude"
     _provider_label = ""          # e.g. "Claude"
     _accent_color = "#714b67"     # chart/report accent in the UI
+    _provider_icon = ""           # provider logo URL (under static/), shown in the chat list
     _config_dir_name = ".aidoo"   # per-user CLI config dir under HOME
     _default_cli_glob = ""        # where to find the CLI binary
     _default_model = ""           # default --model (empty = account default)
@@ -144,6 +151,7 @@ class AidooProvider(models.AbstractModel):
             "code": self._provider_code,
             "label": self._provider_label,
             "accent": self._accent_color,
+            "icon": self._provider_icon,
             "auth_mode": self._auth_ui_mode,
             "auth_key": self._auth_key_supported,
             "auth_import_placeholder": self._auth_import_placeholder,

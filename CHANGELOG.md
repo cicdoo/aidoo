@@ -8,6 +8,52 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Floating companion is fully view-context aware** — the "Ask Aidoo" companion now seeds a conversation with what the user is actually looking at across **all** multi-record views (list, kanban, pivot, graph, calendar), not just list/form: the **selected records** (ticked rows), the active **filters**, **group-by** and **domain**. Captured via shared view-controller patches reading `env.searchModel` (domain/groupBy/facets) and `model.root.selection` (`static/src/view_patches.js`), forwarded by `floating_button.js` to `/aidoo/new` (new params: `context_view_type` / `context_groupby` / `context_filters` / `context_selected_ids`) and described to the model in `aidoo.session._context_note()`. Records are still re-read under the user's own rights at tool time. The companion now also appears on kanban/pivot/graph/calendar (was form/list only).
+- **Per-user SQL access (allowlist) + working SQL toggle** — SQL access is now
+  resolved per user in `aidoo.tool.exec._check_sql_access`. AI SQL Analyst members
+  still read everything except the global denylist; every other user is
+  **default-deny** unless a manager grants them a per-user table allowlist
+  (`res.users.aidoo_sql_table_allowlist`, fnmatch globs e.g. `account_*`) — they
+  may then read only those tables. This lets you give one user accounting reads
+  without the full-database analyst role. The global `aidoo.sql_enabled` setting
+  (previously defined but unenforced) now actually disables the SQL tool.
+- **Configurable SQL table denylist** — a new `aidoo.sql_table_denylist` setting (Settings -> Tools & Security) lets admins block the read-only `sql_select` tool from reading sensitive tables (fnmatch globs, e.g. `account_*, hr_*`). Because raw SQL bypasses ORM record rules, this keeps tables like invoices/payroll out of reach even for AI SQL Analyst members. Enforced in `aidoo.tool.exec` by parsing the real FROM/JOIN table references (schema-qualified and quoted names included) before execution. Documented in SECURITY.md.
+
+### Changed
+- **Provider icon in the chat list** — each conversation in the sidebar now shows
+  its provider's icon (tinted with the provider accent, provider name on hover)
+  instead of a generic comment icon, and the uppercase provider text badge is
+  removed. Each adapter declares a `_provider_icon` (Font Awesome) exposed via the
+  provider descriptor (`models/providers/*.py`, `static/src/chat_action.xml`).
+
+### Added
+- **Delete a conversation** — a trash control on each conversation in the chat
+  sidebar (`static/src/chat_action.js`/`.xml`) deletes the whole chat and its
+  messages after a confirmation dialog, via a new owner-scoped `/aidoo/delete`
+  route. It refuses while a run is in flight, and (like the other chat routes)
+  only ever touches the caller's own sessions; the messages cascade with the
+  session. Previously only empty conversations could be removed (`/aidoo/discard`).
+
+### Changed
+- **Chat history loads incrementally** — the conversation view no longer fetches
+  every message up front. `aidoo.session._messages_page(limit, before_id)` and
+  the `/aidoo/messages` route now return a newest-anchored page (default 30); the
+  OWL client (`static/src/chat_action.js`, `components/message_list.*`) loads the
+  most recent page first and fetches older messages on scroll-up — preserving the
+  viewport so content doesn't jump — with a "Load earlier messages" button as a
+  fallback when the page doesn't overflow. The floating companion keeps the
+  unlimited legacy behavior (no `limit` passed). Keeps long conversations fast to
+  open and light on the bus/DB.
+### Added
+- **Collapsible conversation list on mobile** — the chat sidebar (provider
+  picker + conversation history) now collapses into an off-canvas drawer on
+  small screens (`< md`). A hamburger button in a new mobile top bar
+  (`static/src/chat_action.xml`/`.js`, `scss/aidoo.scss`) opens it; a backdrop
+  tap or selecting a conversation closes it, returning focus to the chat. On
+  desktop the sidebar is unchanged (always visible). The artifact preview panel
+  is hidden on mobile so the conversation stays usable on a narrow viewport.
+
+### Added
 - **Per-run context for scheduled agents** — a scheduled agent
   (`aidoo.scheduled`) can now carry context from its previous runs into each new
   run, configurable per agent (`context_mode`: none / last N messages / last N

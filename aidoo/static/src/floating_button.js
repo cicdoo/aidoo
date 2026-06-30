@@ -70,8 +70,24 @@ export class FloatingAidoo extends Component {
         const p = { context_model: c.resModel };
         if (c.viewType === "form" && c.resId) {
             p.context_res_id = c.resId;
-        } else if (c.viewType === "list" && c.domain) {
+            return p;
+        }
+        // Any multi-record view: forward the active filters/grouping/domain and
+        // the user's record selection.
+        p.context_view_type = c.viewType;
+        if (c.domain && c.domain.length) {
             p.context_domain = JSON.stringify(c.domain);
+        }
+        if (c.groupby && c.groupby.length) {
+            p.context_groupby = JSON.stringify(c.groupby);
+        }
+        if (c.filters) {
+            p.context_filters = c.filters;
+        }
+        // Explicit selection only — when "select all" is on, the domain already
+        // represents the set, so we don't ship thousands of ids.
+        if (c.selectedIds && c.selectedIds.length && !c.selectAll) {
+            p.context_selected_ids = JSON.stringify(c.selectedIds.slice(0, 200));
         }
         return p;
     }
