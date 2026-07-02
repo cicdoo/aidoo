@@ -7,6 +7,13 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Fixed
+- **@mentioning a persona no longer leaves the sender's message greyed out with an
+  error** — persona service users are portal (email-only) accounts with a bot
+  address, so Odoo tried to email them on a mention and failed. `discuss.channel`
+  now excludes persona bots from notification recipients (`_notify_get_recipients`);
+  the persona still receives the message through `_maybe_handle_discuss`.
+
 ### Added
 - **AI Personas — named Discuss bots** — admins (AI Assistant Managers) can create
   multiple named personas (`aidoo.persona`, new **Aidoo -> Personas** menu), each
