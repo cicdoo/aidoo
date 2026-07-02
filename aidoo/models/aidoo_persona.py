@@ -144,22 +144,40 @@ class AidooPersona(models.Model):
 
     @api.model
     def _provision_bot_user(self, name, partner=None):
-        """Create the dedicated non-login service user for a persona.
+        """Create the dedicated non-login **portal** service user for a persona.
 
-        When ``partner`` is given, the user adopts that existing partner (used by
-        the default persona to keep the historical ``@aidoo`` identity)."""
-        # No ``password`` key: a user created without one cannot log in, and
-        # passing password=False would trip res.users' password-hash inverse.
+        It is a portal (share) user, not internal: it never logs in and never acts
+        (tools run as the invoking user), so it consumes no internal seat and only
+        holds provider credentials + the Discuss identity. When ``partner`` is
+        given, the user adopts that existing partner (used by the default persona
+        to keep the historical ``@aidoo`` identity)."""
+        # Assign only the portal group so ``share`` computes to True; omit
+        # ``password`` (a user without one cannot log in, and password=False would
+        # trip res.users' password-hash inverse). Portal users must notify by
+        # email (mail DB constraint).
         vals = {
             "name": name or _("Persona"),
             "login": self._unique_login(name),
             "active": True,
-            "share": False,
+            "group_ids": [(6, 0, self.env.ref("base.group_portal").ids)],
+            "notification_type": "email",
         }
         if partner:
             vals["partner_id"] = partner.id
         return self.env["res.users"].sudo().with_context(
             no_reset_password=True).create(vals)
+
+    @api.model
+    def _demote_bot_users_to_portal(self):
+        """Convert any persona service user still carrying the internal-user group
+        into a portal user. Idempotent; run from the post-init hook so existing
+        installs (whose bot users were created as internal) are migrated."""
+        portal = self.env.ref("base.group_portal")
+        internal = self.env.ref("base.group_user")
+        bots = self.sudo().search([]).bot_user_id.filtered(
+            lambda u: u.has_group("base.group_user"))
+        if bots:
+            bots.sudo().write({"group_ids": [(3, internal.id), (4, portal.id)]})
 
     def _check_manager(self):
         if not (self.env.su or self.env.user.has_group("aidoo.group_ai_manager")):

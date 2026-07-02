@@ -14,9 +14,10 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   personality/system prompt and a bundle of `skill_ids`. Users invoke a persona in
   Discuss by `@mention` (e.g. `@SalesBot`) — it auto-joins the channel on first
   mention, answers every message in a 1:1 DM, and shows a live **"typing…"**
-  indicator while it works. Each persona owns a dedicated, login-less service
-  `res.users` (`bot_user_id`) that holds its provider credentials on disk and its
-  Discuss identity; connect/disconnect the account from the persona form (reusing
+  indicator while it works. Each persona owns a dedicated, login-less **portal**
+  service `res.users` (`bot_user_id`, `share=True`, so it consumes no internal seat
+  and never acts) that holds its provider credentials on disk and its Discuss
+  identity; connect/disconnect the account from the persona form (reusing
   the provider `_auth_*` flows). Credentials load under the persona's account while
   every ORM/SQL tool still runs as the **invoking user** with their own ACLs — see
   the credential-user vs acting-user split in `aidoo.session._credential_user()`.

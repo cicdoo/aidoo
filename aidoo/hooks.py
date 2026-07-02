@@ -7,5 +7,7 @@
 
 def post_init_hook(env):
     """Seed the built-in default persona (adopts the legacy @aidoo identity) so
-    ``@aidoo`` works immediately after install/upgrade."""
+    ``@aidoo`` works immediately after install/upgrade, and make sure every
+    persona service account is a portal (not internal) user."""
     env["aidoo.persona"]._ensure_default_persona()
+    env["aidoo.persona"]._demote_bot_users_to_portal()
