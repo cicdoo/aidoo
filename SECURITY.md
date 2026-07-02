@@ -125,8 +125,10 @@ are in scope for security reports include:
   applied as the agent's own run-as user.
 - **Personas own an account, not privileges** — a persona (`aidoo.persona`) carries
   its own AI *provider* credentials but never its own *data* rights. It splits the
-  session into a **credential user** (a dedicated, login-less service `res.users`
-  that only holds the provider account on disk and the Discuss identity) and the
+  session into a **credential user** (a dedicated, login-less **portal** service
+  `res.users` — `share=True`, only `base.group_portal`, so it holds no internal
+  privileges and consumes no internal seat; it only carries the provider account on
+  disk and the Discuss identity) and the
   **acting user** (the human who @mentioned it): `aidoo.session._credential_user()`
   chooses whose credentials load, while the background worker always runs with
   `ctx["uid"]` set to the invoking user, so every tool goes through `aidoo.tool.exec`
