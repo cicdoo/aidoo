@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo noupdate="1">
+
+    <!-- Discuss bot partner. Stable record so it exists before any Discuss usage
+         and is selectable in "Add members" / @mention autocomplete. The lazy
+         aidoo.session._aidoo_bot_partner() resolves this same xmlid first. -->
+    <record id="partner_aidoo_bot" model="res.partner">
+        <field name="name">Aidoo</field>
+        <field name="email">aidoo@example.com</field>
+    </record>
+
+</odoo>

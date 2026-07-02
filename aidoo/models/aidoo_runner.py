@@ -55,14 +55,17 @@ class AiAssistantRunner(models.AbstractModel):
         routing_sid = "" if native else session._mint_routing_sid(target_db)
         bridge_script = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "bridge", "mcp_server.py")
-        oauth_env = {} if native else adapter._oauth_env(session.user_id)
-        # Align the CLI's stored account identity with this Odoo user (Claude).
+        # Credentials load under the credential user (the persona's dedicated
+        # service account when persona-driven, else the invoking user). Tools
+        # still run as session.user_id — see ctx["uid"] below.
+        cred_user = session._credential_user()
+        oauth_env = {} if native else adapter._oauth_env(cred_user)
+        # Align the CLI's stored account identity with the credential user (Claude).
         if not native:
-            adapter._sync_cli_account(session.user_id)
+            adapter._sync_cli_account(cred_user)
         allowed_tools = sorted(session._effective_tools())
         excluded_models = sorted(session._ai_excluded_models())
-        identity = session.user_id._ai_identity_prompt(
-            set(allowed_tools), skill=session.skill_id)
+        identity = session._run_identity(set(allowed_tools))
 
         # ``is_first`` is turn-based (passed by send_message). Each adapter decides
         # internally how to honor resume vs. start fresh (Claude checks its
@@ -151,6 +154,9 @@ class AiAssistantRunner(models.AbstractModel):
         env.cr.commit()
 
         deadline = time.time() + ctx["timeout_s"]
+        # Keep the Discuss "typing…" indicator alive across long runs (clients
+        # clear it after 60s without a refresh).
+        next_typing = time.time() + 40
         msg_map = {}          # cli message id -> aidoo.message record id
         state = {}            # adapter scratchpad for stream parsing
         produced_text = {"any": False}
@@ -188,6 +194,10 @@ class AiAssistantRunner(models.AbstractModel):
             stderr_reader.start()
         try:
             while True:
+                if session.discuss_channel_id and time.time() > next_typing:
+                    session._discuss_set_typing(True)
+                    next_typing = time.time() + 40
+                    env.cr.commit()
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     proc.kill()
@@ -278,12 +288,17 @@ class AiAssistantRunner(models.AbstractModel):
         # they drive) can cap their own retry/backoff budget instead of blocking
         # past the turn timeout inside a single op.
         ctx["deadline"] = deadline
+        next_typing = time.time() + 40  # refresh the Discuss "typing…" indicator
         msg_map = {}
         produced_text = {"any": False}
         try:
             for op in adapter._run_stream(env, session, ctx):
                 if time.time() > deadline:
                     raise TimeoutError("Run exceeded timeout")
+                if session.discuss_channel_id and time.time() > next_typing:
+                    session._discuss_set_typing(True)
+                    next_typing = time.time() + 40
+                    env.cr.commit()
                 if op:
                     self._apply_op(env, session, op, msg_map, produced_text)
                     env.cr.commit()

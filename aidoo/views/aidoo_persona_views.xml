@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+
+    <record id="view_aidoo_persona_list" model="ir.ui.view">
+        <field name="name">aidoo.persona.list</field>
+        <field name="model">aidoo.persona</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="provider"/>
+                <field name="model"/>
+                <field name="authenticated" widget="boolean_toggle" readonly="1"/>
+                <field name="is_default"/>
+                <field name="active" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_aidoo_persona_form" model="ir.ui.view">
+        <field name="name">aidoo.persona.form</field>
+        <field name="model">aidoo.persona</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <widget name="web_ribbon" title="Default"
+                            invisible="not is_default"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="e.g. SalesBot"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="provider"/>
+                            <field name="model"
+                                   placeholder="Provider default"/>
+                            <field name="skill_ids" widget="many2many_tags"/>
+                        </group>
+                        <group>
+                            <field name="authenticated" widget="boolean_toggle"
+                                   readonly="1"/>
+                            <field name="bot_user_id" readonly="1"
+                                   invisible="not bot_user_id"/>
+                            <field name="is_default" readonly="1"
+                                   invisible="not is_default"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <separator string="Personality / System Prompt"/>
+                    <field name="instructions" nolabel="1"
+                           placeholder="Describe who this persona is and how it should behave, e.g. 'You are SalesBot, a concise assistant for the sales team. Prefer markdown tables.'"/>
+
+                    <separator string="Provider Account"/>
+                    <div class="text-muted mb-2">
+                        Connect this persona's own AI provider account. The method
+                        depends on the provider: API-key or credential import for
+                        Z.AI / Gemini / Grok; OAuth login for Claude / Codex.
+                    </div>
+                    <group>
+                        <group string="API key / credentials">
+                            <field name="api_key_input" password="True"
+                                   placeholder="Paste API key"/>
+                            <button name="action_auth_set_key" type="object"
+                                    string="Connect with API key"
+                                    class="btn-primary"/>
+                            <field name="creds_input"
+                                   placeholder="Paste credentials JSON"/>
+                            <button name="action_auth_import" type="object"
+                                    string="Import credentials"/>
+                        </group>
+                        <group string="OAuth login">
+                            <button name="action_auth_start" type="object"
+                                    string="Start login"/>
+                            <field name="auth_hint" readonly="1"/>
+                            <field name="code_input"
+                                   placeholder="Paste login code"/>
+                            <button name="action_auth_complete" type="object"
+                                    string="Complete login" class="btn-primary"/>
+                        </group>
+                    </group>
+                    <div>
+                        <button name="action_auth_logout" type="object"
+                                string="Disconnect account" class="btn-secondary"
+                                confirm="Disconnect this persona's provider account?"/>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_aidoo_persona_kanban" model="ir.ui.view">
+        <field name="name">aidoo.persona.kanban</field>
+        <field name="model">aidoo.persona</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="provider"/>
+                <field name="authenticated"/>
+                <field name="is_default"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <a type="open">
+                                <field name="name" class="fw-bold fs-5"/>
+                            </a>
+                            <span t-if="record.is_default.raw_value"
+                                  class="badge text-bg-primary">Default</span>
+                        </div>
+                        <div class="small text-muted mt-1">
+                            <i class="fa fa-microchip me-1"/><field name="provider"/>
+                        </div>
+                        <div class="mt-2">
+                            <span t-if="record.authenticated.raw_value"
+                                  class="badge text-bg-success">Connected</span>
+                            <span t-else=""
+                                  class="badge text-bg-warning">Not connected</span>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_aidoo_persona_search" model="ir.ui.view">
+        <field name="name">aidoo.persona.search</field>
+        <field name="model">aidoo.persona</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="provider"/>
+                <filter name="archived" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_provider" string="Provider"
+                            context="{'group_by': 'provider'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_aidoo_persona" model="ir.actions.act_window">
+        <field name="name">Personas</field>
+        <field name="res_model">aidoo.persona</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create an AI persona</p>
+            <p>A persona is a named AI bot with its own provider account and skills.
+               Mention it in Discuss (e.g. @SalesBot) to chat with it.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_ai_personas" name="Personas"
+              parent="menu_ai_root" action="action_aidoo_persona"
+              sequence="12" groups="group_ai_manager"/>
+
+</odoo>

@@ -123,6 +123,24 @@ are in scope for security reports include:
   skill only after re-resolving it through the caller's own read rights (a private
   skill of another user is simply not found), and a scheduled agent's skill is
   applied as the agent's own run-as user.
+- **Personas own an account, not privileges** — a persona (`aidoo.persona`) carries
+  its own AI *provider* credentials but never its own *data* rights. It splits the
+  session into a **credential user** (a dedicated, login-less service `res.users`
+  that only holds the provider account on disk and the Discuss identity) and the
+  **acting user** (the human who @mentioned it): `aidoo.session._credential_user()`
+  chooses whose credentials load, while the background worker always runs with
+  `ctx["uid"]` set to the invoking user, so every tool goes through `aidoo.tool.exec`
+  as that user (`su=False`) under their ACLs, record rules, tool grant, model
+  denylist and audit log. A persona therefore cannot escalate: a low-privilege user
+  mentioning a powerful persona still reaches only their own data, and the persona's
+  `instructions`/`skill_ids` are prompt text (like skills) that cannot grant a tool.
+  The persona's service user never logs in and is not used as an acting identity.
+  Creating/editing personas — and connecting their provider accounts — is gated to
+  *AI Assistant Managers* (ir.model.access + record rules); other AI users may only
+  read active personas to resolve a mention. Credentials are written to the service
+  user's per-user, per-provider config dir exactly like a human's (0700/0600), never
+  stored in the database; the transient connect-form inputs (API key / paste creds /
+  login code) are cleared immediately after use.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own
