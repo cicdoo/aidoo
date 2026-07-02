@@ -27,3 +27,17 @@ class DiscussChannel(models.Model):
             # Never let assistant handling break a normal message post.
             _logger.exception("aidoo: discuss bot handling failed")
         return res
+
+    def _notify_get_recipients(self, message, msg_vals=False, **kwargs):
+        """Never notify persona bots. Their service users are portal (email-only)
+        with no real inbox, so @mentioning one would try to email a bot address
+        and fail — leaving the sender's message greyed out with an error. Personas
+        pick up the message through ``_maybe_handle_discuss`` instead, so they need
+        no mail notification at all."""
+        recipients = super()._notify_get_recipients(message, msg_vals=msg_vals, **kwargs)
+        if not recipients:
+            return recipients
+        bot_ids = set(self.env["aidoo.persona"].sudo().search([]).partner_id.ids)
+        if not bot_ids:
+            return recipients
+        return [r for r in recipients if r.get("id") not in bot_ids]
