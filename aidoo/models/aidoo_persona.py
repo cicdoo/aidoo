@@ -286,10 +286,22 @@ class AidooPersona(models.Model):
     @api.model
     def _ensure_default_persona(self):
         """Return the built-in Aidoo persona, creating it (and adopting the
-        historical ``partner_aidoo_bot`` identity) on first use."""
-        persona = self.env.ref("aidoo.persona_default", raise_if_not_found=False)
-        if persona:
-            return persona
+        historical ``partner_aidoo_bot`` identity) on first use.
+
+        Called from the post-init hook (install/upgrade), never from a hot path.
+        Resolves the xmlid via a direct ``ir.model.data`` search rather than
+        ``env.ref``: a raw ``ir.model.data`` create does not invalidate the ormcache
+        behind ``env.ref``, so ``env.ref`` could keep reporting the record missing
+        and trigger a duplicate-xmlid insert. ``_update_xmlids`` registers the xmlid
+        cache-safely."""
+        IMD = self.env["ir.model.data"].sudo()
+        data = IMD.search(
+            [("module", "=", "aidoo"), ("name", "=", "persona_default")], limit=1)
+        if data:
+            persona = self.sudo().browse(data.res_id).exists()
+            if persona:
+                return persona
+            data.unlink()  # dangling xmlid (record was deleted) — recreate below
         Session = self.env["aidoo.session"].sudo()
         partner = Session._aidoo_bot_partner()
         # Reuse (or adopt) a service user bound to the legacy bot partner so
@@ -304,17 +316,16 @@ class AidooPersona(models.Model):
             "provider": Session._default_provider(),
             "bot_user_id": bot_user.id,
         })
-        self.env["ir.model.data"].sudo().create({
-            "name": "persona_default",
-            "module": "aidoo",
-            "model": "aidoo.persona",
-            "res_id": persona.id,
+        IMD._update_xmlids([{
+            "xml_id": "aidoo.persona_default",
+            "record": persona,
             "noupdate": True,
-        })
+        }])
         return persona
 
     @api.model
     def _active_personas(self):
-        """All active personas that have a Discuss partner, default first."""
-        self._ensure_default_persona()
+        """All active personas that have a Discuss partner. Read-only: the default
+        persona is seeded by the post-init hook, never created here (this runs on
+        every inbound Discuss message)."""
         return self.sudo().search([("partner_id", "!=", False)])

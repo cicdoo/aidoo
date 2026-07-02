@@ -8,6 +8,14 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Fixed
+- **Posting in a Discuss channel could crash with a duplicate `persona_default`
+  xmlid** — the default persona was (re)seeded lazily on every inbound message via
+  `env.ref`, whose ormcache a raw `ir.model.data` create never invalidated, so it
+  kept missing and retried the insert (`UniqueViolation`), aborting the whole
+  `message_post` transaction. The default persona is now seeded only by the
+  post-init hook; `_ensure_default_persona` resolves the xmlid via a direct
+  `ir.model.data` lookup and registers it cache-safely with `_update_xmlids`, and
+  `_active_personas` is read-only (no creation on the hot path).
 - **@mentioning a persona no longer leaves the sender's message greyed out with an
   error** — persona service users are portal (email-only) accounts with a bot
   address, so Odoo tried to email them on a mention and failed. `discuss.channel`
