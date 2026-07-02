@@ -174,6 +174,13 @@ class AiAssistantSession(models.Model):
         "discuss.channel", string="Discuss Channel", ondelete="cascade",
         copy=False, index=True)
 
+    # Set when this conversation is driven by an AI persona. The persona supplies
+    # the provider account + personality/skills; tools still run as ``user_id``
+    # (the invoking human). See ``_credential_user`` / ``_run_identity``.
+    persona_id = fields.Many2one(
+        "aidoo.persona", string="Persona", ondelete="set null",
+        copy=False, index=True)
+
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
 
@@ -254,6 +261,45 @@ class AiAssistantSession(models.Model):
     def _adapter(self):
         self.ensure_one()
         return self.env["aidoo.provider.%s" % self.provider]
+
+    def _credential_user(self):
+        """The user whose on-disk provider credentials this session runs under.
+
+        For a persona-driven session that is the persona's dedicated service
+        account (so it uses the persona's own AI provider account); otherwise the
+        invoking user. Tool execution still runs as ``user_id`` — this only
+        governs which provider credentials are loaded."""
+        self.ensure_one()
+        if self.persona_id:
+            return self.persona_id.bot_user_id
+        return self.user_id
+
+    def _run_identity(self, tools):
+        """The identity block injected into the prompt for a run.
+
+        Always describes the *invoking* user (``user_id``) so the model acts
+        within that user's Odoo rights. When a persona drives the session, its
+        personality and skills are appended so the model adopts the persona while
+        still being bound by the caller's permissions."""
+        self.ensure_one()
+        identity = self.user_id._ai_identity_prompt(tools, skill=self.skill_id)
+        # Persona text is admin-curated (not secret); read it sudo so an invoking
+        # user without record-rule access to a bundled skill still gets it.
+        persona = self.persona_id.sudo()
+        if not persona:
+            return identity
+        blocks = [identity, ""]
+        blocks.append("--- AI PERSONA: %s (this is who you are) ---"
+                      % (persona.name or ""))
+        if persona.instructions:
+            blocks.append(persona.instructions)
+        for skill in persona.skill_ids:
+            if skill.instructions:
+                blocks.append("")
+                blocks.append("[Skill: %s]" % (skill.name or ""))
+                blocks.append(skill.instructions)
+        blocks.append("--- END AI PERSONA ---")
+        return "\n".join(blocks)
 
     @api.model
     def _cron_reap_stale(self):
@@ -647,7 +693,13 @@ class AiAssistantSession(models.Model):
                     "in progress). Please wait a moment and send your message again.",
                     active=active, max=max_runs))
         adapter = self._adapter()
-        if not adapter._is_authenticated(self.user_id.sudo()):
+        if not adapter._is_authenticated(self._credential_user().sudo()):
+            if self.persona_id:
+                raise UserError(_(
+                    "The persona '%(persona)s' has no connected %(provider)s "
+                    "account. Ask an administrator to connect it.",
+                    persona=self.persona_id.name,
+                    provider=adapter._provider_label))
             raise UserError(_(
                 "You need to connect your %s account before chatting.")
                 % adapter._provider_label)
@@ -667,8 +719,10 @@ class AiAssistantSession(models.Model):
             self.name = (title[:60] + ("…" if len(title) > 60 else "")) or self.name
 
         is_first = self.turn_count == 0
-        identity = self.user_id._ai_identity_prompt(
-            set(self._effective_tools()), skill=self.skill_id)
+        # Persona-aware identity so history-fold providers (which embed identity
+        # in the prompt here) also adopt the persona; Claude/zai read the same
+        # block from ctx["identity"] in the runner.
+        identity = self._run_identity(set(self._effective_tools()))
         prompt = adapter._build_prompt(self, body, paths, is_first, identity)
         if context_prefix:
             # Prepended to the model prompt only (never the stored message body).
@@ -732,11 +786,19 @@ class AiAssistantSession(models.Model):
         })
         return partner
 
+    def _bot_partner(self):
+        """The partner this session posts replies as: the persona's identity when
+        persona-driven, else the legacy default Aidoo bot."""
+        self.ensure_one()
+        if self.persona_id and self.persona_id.partner_id:
+            return self.persona_id.partner_id
+        return self._aidoo_bot_partner()
+
     def _post_bot_message(self, body):
         """Post ``body`` (plain text) into this session's Discuss channel as the
-        Aidoo bot. message_post fires the bus notification on its own."""
+        persona (or Aidoo bot). message_post fires the bus notification on its own."""
         self.ensure_one()
-        bot = self._aidoo_bot_partner()
+        bot = self._bot_partner()
         if not bot or not self.discuss_channel_id:
             return
         self.discuss_channel_id.sudo().message_post(
@@ -747,60 +809,160 @@ class AiAssistantSession(models.Model):
             silent=True,
         )
 
+    def _discuss_set_typing(self, is_typing):
+        """Show/clear the persona's "is typing…" indicator in its Discuss channel
+        so users get live feedback while the turn runs in the background. No-op for
+        non-Discuss sessions; never raises (best-effort UI feedback)."""
+        self.ensure_one()
+        if not self.discuss_channel_id:
+            return
+        bot = self._bot_partner()
+        if not bot:
+            return
+        try:
+            member = self.env["discuss.channel.member"].sudo().search([
+                ("channel_id", "=", self.discuss_channel_id.id),
+                ("partner_id", "=", bot.id),
+            ], limit=1)
+            if member:
+                member._notify_typing(bool(is_typing))
+        except Exception:  # noqa: BLE001
+            _logger.exception("aidoo: typing indicator failed")
+
     def _deliver_discuss(self, ok):
         self.ensure_one()
+        self._discuss_set_typing(False)  # stop the typing indicator
         body = self._last_assistant_text()
         if not body:
             body = self.last_error if not ok else _("(no response)")
         self._post_bot_message(body)
 
+    @staticmethod
+    def _normalize_partner_ids(vals):
+        """Return a set of partner ids from a ``partner_ids`` value that may be a
+        plain list of ids or a list of ORM command tuples ``(cmd, id, ...)``."""
+        ids = set()
+        for v in vals or []:
+            if isinstance(v, (list, tuple)):
+                if len(v) >= 2 and isinstance(v[1], int):
+                    ids.add(v[1])
+            elif isinstance(v, int):
+                ids.add(v)
+        return ids
+
+    def _persona_mention_names(self, persona):
+        """The @handles that address ``persona``: its name, its partner name, and
+        the legacy ``aidoo`` handle for the default persona."""
+        names = []
+        if persona.name:
+            names.append(persona.name)
+        pname = persona.partner_id.name
+        if pname and pname not in names:
+            names.append(pname)
+        if persona.is_default and "aidoo" not in [n.lower() for n in names]:
+            names.append("aidoo")
+        return names
+
+    def _discuss_body_mentions(self, body_html, names):
+        """True when the raw message body textually contains ``@<name>`` for any
+        of ``names``. Covers the auto-join path, where the persona is not yet a
+        channel member so Odoo never resolved the mention into ``partner_ids``."""
+        text = html2plaintext(body_html or "").lower()
+        if not text:
+            return False
+        return any(("@" + n).lower() in text for n in names if n)
+
+    def _strip_mentions(self, text, names):
+        """Remove ``@<name>`` handles so the model receives a clean prompt."""
+        for name in names:
+            if name:
+                text = re.sub(r"@%s\b" % re.escape(name), "", text,
+                              flags=re.IGNORECASE)
+        return text.strip()
+
     @api.model
     def _maybe_handle_discuss(self, channel, msg_values):
-        """React to a human message in a channel the Aidoo bot belongs to.
+        """React to a human message in a Discuss channel by routing it to the
+        addressed persona.
 
-        Launches a turn as the message author and lets ``_deliver_discuss`` post
-        the answer back when it finishes. Bails (the loop guard) on the bot's own
-        messages and on anything that isn't a human comment."""
+        A 1:1 DM with a persona answers every message; a group/public channel
+        triggers only when a persona is @mentioned (resolved chip or literal
+        ``@name`` text — the persona auto-joins on first mention). The turn runs
+        as the message author (their Odoo rights) under the persona's provider
+        account; ``_deliver_discuss`` posts the answer back as the persona. Bails
+        (the loop guard) on any persona's own posts and on non-comment messages."""
         msg_values = msg_values or {}
-        bot = self._aidoo_bot_partner()
-        if not bot:
-            return
         if msg_values.get("message_type") != "comment":
             return
         author_id = msg_values.get("author_id")
-        if not author_id or author_id == bot.id:
-            return  # loop guard: never answer our own posts
-        if bot not in channel.channel_partner_ids:
-            return  # the bot is not part of this conversation
+        if not author_id:
+            return
+
+        personas = self.env["aidoo.persona"]._active_personas()
+        persona_partner_ids = set(personas.mapped("partner_id").ids)
+        if not persona_partner_ids or author_id in persona_partner_ids:
+            return  # no personas, or loop guard on a persona's own post
 
         author = self.env["res.partner"].browse(author_id)
         user = author.user_ids[:1]
         if not user or not user.has_group("aidoo.group_ai_user"):
             return  # only internal users granted the assistant
 
-        body_text = html2plaintext(msg_values.get("body") or "").strip()
+        is_dm = channel.channel_type == "chat"
+        member_ids = set(channel.channel_partner_ids.ids)
+        mentioned_ids = self._normalize_partner_ids(msg_values.get("partner_ids"))
+        body_html = msg_values.get("body")
+
+        persona = self.env["aidoo.persona"]
+        if is_dm:
+            # the persona that is a member of this 1:1 channel
+            persona = personas.filtered(
+                lambda p: p.partner_id.id in member_ids)[:1]
+        else:
+            # explicit mention: resolved chip first, then literal @name text
+            for p in personas:
+                if p.partner_id.id in mentioned_ids or self._discuss_body_mentions(
+                        body_html, self._persona_mention_names(p)):
+                    persona = p
+                    break
+        if not persona:
+            return  # no persona addressed
+
+        bot = persona.partner_id
+        if bot.id not in member_ids:
+            channel.sudo().add_members(partner_ids=[bot.id])  # auto-join on mention
+
+        body_text = html2plaintext(body_html or "").strip()
+        body_text = self._strip_mentions(
+            body_text, self._persona_mention_names(persona))
         if not body_text:
             return
 
         session = self.with_user(user).search([
             ("discuss_channel_id", "=", channel.id),
+            ("persona_id", "=", persona.id),
             ("user_id", "=", user.id),
         ], limit=1)
         if not session:
             session = self.with_user(user).create({
                 "user_id": user.id,
-                "provider": self._default_provider(),
+                "persona_id": persona.id,
+                "provider": persona.provider,
                 "discuss_channel_id": channel.id,
-                "name": channel.name or _("Discuss"),
+                "name": "%s · %s" % (persona.name, channel.name or _("Discuss")),
             })
 
         adapter = session._adapter()
-        if not adapter._is_authenticated(user.sudo()):
+        if not adapter._is_authenticated(persona.bot_user_id.sudo()):
             session._post_bot_message(_(
-                "Please connect your %s account in the Aidoo app before chatting "
-                "with me here.") % adapter._provider_label)
+                "This persona isn't connected yet. Ask an administrator to "
+                "connect its %s account.") % adapter._provider_label)
             return
+        prefix = _("The user talking to you is %s.") % (
+            author.name or user.name or "")
+        session._discuss_set_typing(True)  # immediate "typing…" feedback
         try:
-            session.send_message(body_text)
+            session.send_message(body_text, context_prefix=prefix)
         except UserError as e:
+            session._discuss_set_typing(False)
             session._post_bot_message(str(e))

@@ -8,6 +8,21 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **AI Personas — named Discuss bots** — admins (AI Assistant Managers) can create
+  multiple named personas (`aidoo.persona`, new **Aidoo -> Personas** menu), each
+  with its **own dedicated AI provider account**, an optional model override, a
+  personality/system prompt and a bundle of `skill_ids`. Users invoke a persona in
+  Discuss by `@mention` (e.g. `@SalesBot`) — it auto-joins the channel on first
+  mention, answers every message in a 1:1 DM, and shows a live **"typing…"**
+  indicator while it works. Each persona owns a dedicated, login-less service
+  `res.users` (`bot_user_id`) that holds its provider credentials on disk and its
+  Discuss identity; connect/disconnect the account from the persona form (reusing
+  the provider `_auth_*` flows). Credentials load under the persona's account while
+  every ORM/SQL tool still runs as the **invoking user** with their own ACLs — see
+  the credential-user vs acting-user split in `aidoo.session._credential_user()`.
+  The existing `@aidoo` bot is now the built-in **default persona** (adopts the
+  legacy bot partner, so existing DMs/mentions keep working). Documented in
+  SECURITY.md.
 - **Floating companion is fully view-context aware** — the "Ask Aidoo" companion now seeds a conversation with what the user is actually looking at across **all** multi-record views (list, kanban, pivot, graph, calendar), not just list/form: the **selected records** (ticked rows), the active **filters**, **group-by** and **domain**. Captured via shared view-controller patches reading `env.searchModel` (domain/groupBy/facets) and `model.root.selection` (`static/src/view_patches.js`), forwarded by `floating_button.js` to `/aidoo/new` (new params: `context_view_type` / `context_groupby` / `context_filters` / `context_selected_ids`) and described to the model in `aidoo.session._context_note()`. Records are still re-read under the user's own rights at tool time. The companion now also appears on kanban/pivot/graph/calendar (was form/list only).
 - **Per-user SQL access (allowlist) + working SQL toggle** — SQL access is now
   resolved per user in `aidoo.tool.exec._check_sql_access`. AI SQL Analyst members
