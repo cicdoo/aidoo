@@ -13,11 +13,110 @@ import secrets
 import time
 import uuid
 
+from markupsafe import escape
+
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, MissingError, UserError
-from odoo.tools import html2plaintext, plaintext2html
+from odoo.tools import html2plaintext
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Minimal, safe Markdown -> HTML rendering for Discuss replies.
+#
+# The chat UI renders model markdown client-side; a Discuss channel needs HTML,
+# so the assistant's reply (markdown) must be converted before message_post.
+# Everything is HTML-escaped first and only the small set of tags we emit is
+# introduced, so model output can never inject markup. No external dependency.
+# ---------------------------------------------------------------------------
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+_MD_ITALIC = re.compile(
+    r"(?<![\*\w])\*(?!\s)(.+?)(?<!\s)\*(?![\*\w])"
+    r"|(?<![_\w])_(?!\s)(.+?)(?<!\s)_(?![_\w])")
+_MD_INLINE_CODE = re.compile(r"`([^`]+)`")
+_MD_MARKER = re.compile(r"^\x00(\d+)\x00$")
+
+
+def _md_emphasis(s):
+    s = _MD_LINK.sub(
+        lambda m: '<a href="%s" target="_blank" rel="noreferrer noopener">%s</a>'
+        % (m.group(2), m.group(1)), s)
+    s = _MD_BOLD.sub(lambda m: "<strong>%s</strong>" % (m.group(1) or m.group(2)), s)
+    s = _MD_ITALIC.sub(lambda m: "<em>%s</em>" % (m.group(1) or m.group(2)), s)
+    return s
+
+
+def _md_inline(s):
+    parts, last = [], 0
+    for m in _MD_INLINE_CODE.finditer(s):
+        parts.append(_md_emphasis(s[last:m.start()]))
+        parts.append("<code>%s</code>" % m.group(1))
+        last = m.end()
+    parts.append(_md_emphasis(s[last:]))
+    return "".join(parts)
+
+
+def aidoo_md_to_html(text):
+    """Render a subset of Markdown (headings, bold/italic, links, inline and
+    fenced code, ordered/unordered lists) to sanitized HTML for Discuss."""
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    blocks = []
+
+    def _stash(m):
+        blocks.append("<pre><code>%s</code></pre>" % escape(m.group(1)))
+        return "\n\x00%d\x00\n" % (len(blocks) - 1)
+
+    text = re.sub(r"```[ \t]*[\w+.-]*\n(.*?)```", _stash, text, flags=re.DOTALL)
+    esc = str(escape(text))
+
+    out, para, list_stack = [], [], []
+
+    def close_lists():
+        while list_stack:
+            out.append("</%s>" % list_stack.pop())
+
+    def flush_para():
+        if para:
+            out.append("<p>%s</p>" % "<br>".join(_md_inline(x) for x in para))
+            para.clear()
+
+    for line in esc.split("\n"):
+        mk = _MD_MARKER.match(line.strip())
+        if mk:
+            flush_para()
+            close_lists()
+            out.append(blocks[int(mk.group(1))])
+            continue
+        if not line.strip():
+            flush_para()
+            close_lists()
+            continue
+        h = re.match(r"(#{1,6})\s+(.*)$", line)
+        if h:
+            flush_para()
+            close_lists()
+            lvl = min(6, max(3, len(h.group(1)) + 2))  # cap: '# ' -> h3
+            out.append("<h%d>%s</h%d>" % (lvl, _md_inline(h.group(2)), lvl))
+            continue
+        ul = re.match(r"[ \t]*[-*+]\s+(.*)$", line)
+        ol = re.match(r"[ \t]*\d+[.)]\s+(.*)$", line)
+        if ul or ol:
+            flush_para()
+            want = "ul" if ul else "ol"
+            if not list_stack or list_stack[-1] != want:
+                close_lists()
+                out.append("<%s>" % want)
+                list_stack.append(want)
+            out.append("<li>%s</li>" % _md_inline((ul or ol).group(1)))
+            continue
+        close_lists()
+        para.append(line.strip())
+    flush_para()
+    close_lists()
+    return "".join(out) or "<p></p>"
+
 
 # Chat history paging: the OWL client loads the most recent AIDOO_MSG_PAGE
 # messages first and fetches older ones on scroll-up (capped per request).
@@ -288,9 +387,16 @@ class AiAssistantSession(models.Model):
         persona = self.persona_id.sudo()
         if not persona:
             return identity
-        blocks = [identity, ""]
-        blocks.append("--- AI PERSONA: %s (this is who you are) ---"
-                      % (persona.name or ""))
+        # Persona FIRST and marked authoritative so the model adopts its identity,
+        # voice and rules instead of the generic "you are the user's assistant"
+        # framing. The user context that follows is reframed as the interlocutor +
+        # permission scope, not the model's own identity.
+        blocks = [
+            "=== YOUR PERSONA (authoritative — adopt this identity, voice and "
+            "instructions as your own; they take precedence over any generic "
+            "assistant framing) ===",
+            'You are "%s".' % (persona.name or "Aidoo"),
+        ]
         if persona.instructions:
             blocks.append(persona.instructions)
         for skill in persona.skill_ids:
@@ -298,7 +404,13 @@ class AiAssistantSession(models.Model):
                 blocks.append("")
                 blocks.append("[Skill: %s]" % (skill.name or ""))
                 blocks.append(skill.instructions)
-        blocks.append("--- END AI PERSONA ---")
+        blocks.append(
+            "Stay in character as the persona above. The ODOO USER CONTEXT below "
+            "is the person you are assisting and the permission scope for your "
+            "tools — it is NOT your own identity.")
+        blocks.append("=== END PERSONA ===")
+        blocks.append("")
+        blocks.append(identity)
         return "\n".join(blocks)
 
     @api.model
@@ -795,15 +907,16 @@ class AiAssistantSession(models.Model):
         return self._aidoo_bot_partner()
 
     def _post_bot_message(self, body):
-        """Post ``body`` (plain text) into this session's Discuss channel as the
-        persona (or Aidoo bot). message_post fires the bus notification on its own."""
+        """Post ``body`` (Markdown from the model, or a plain system notice) into
+        this session's Discuss channel as the persona (or Aidoo bot), rendered to
+        HTML so it is formatted. message_post fires the bus notification itself."""
         self.ensure_one()
         bot = self._bot_partner()
         if not bot or not self.discuss_channel_id:
             return
         self.discuss_channel_id.sudo().message_post(
             author_id=bot.id,
-            body=plaintext2html(body or ""),
+            body=aidoo_md_to_html(body or ""),
             message_type="comment",
             subtype_xmlid="mail.mt_comment",
             silent=True,

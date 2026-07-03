@@ -149,6 +149,13 @@ are in scope for security reports include:
   scripts never execute and its styles are isolated from the Odoo UI; the parent
   only reads the frame to size it. `allow-scripts` is deliberately never combined
   with `allow-same-origin` (that pairing lets a frame drop its own sandbox).
+- **Discuss replies are escape-first** — a persona's answer (model-authored
+  Markdown) is converted to HTML by `aidoo.session.aidoo_md_to_html` before it is
+  posted to the channel. The whole reply is HTML-escaped first and only a fixed set
+  of formatting tags (`p`, `br`, `strong`, `em`, `code`, `pre`, `h3`–`h6`, `ul`/`ol`/
+  `li`, and `http(s)` `a`) is re-introduced, so nothing the model emits — including a
+  literal `<script>` or an inline event handler — can inject markup into Discuss; it
+  is rendered as text. Odoo's own `message_post` sanitizer applies on top.
 
 If you find a way to (a) escalate beyond the acting user's ACLs, (b) mutate data
 through `sql_select`, (c) forge or replay a bridge token, (d) make the model

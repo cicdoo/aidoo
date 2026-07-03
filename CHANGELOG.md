@@ -8,6 +8,17 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Fixed
+- **Persona replies in Discuss are now formatted** — the assistant's Markdown
+  answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to
+  sanitized HTML (`aidoo.session.aidoo_md_to_html`: headings, bold/italic, links,
+  inline + fenced code, ordered/unordered lists) before posting, escape-first so
+  model output cannot inject markup.
+- **Personas now actually adopt their system prompt** — the persona's
+  `instructions` were appended after (and dominated by) the generic "you are the
+  user's assistant" identity block, so the model largely ignored them. `_run_identity`
+  now leads with the persona identity/instructions marked authoritative and reframes
+  the Odoo user context as the interlocutor + permission scope, not the model's own
+  identity.
 - **Posting in a Discuss channel could crash with a duplicate `persona_default`
   xmlid** — the default persona was (re)seeded lazily on every inbound message via
   `env.ref`, whose ormcache a raw `ir.model.data` create never invalidated, so it
