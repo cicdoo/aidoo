@@ -13,7 +13,7 @@ import secrets
 import time
 import uuid
 
-from markupsafe import escape
+from markupsafe import Markup, escape
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, MissingError, UserError
@@ -37,6 +37,16 @@ _MD_ITALIC = re.compile(
     r"|(?<![_\w])_(?!\s)(.+?)(?<!\s)_(?![_\w])")
 _MD_INLINE_CODE = re.compile(r"`([^`]+)`")
 _MD_MARKER = re.compile(r"^\x00(\d+)\x00$")
+_MD_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$")
+
+
+def _md_row_cells(line):
+    line = line.strip()
+    if line.startswith("|"):
+        line = line[1:]
+    if line.endswith("|"):
+        line = line[:-1]
+    return [c.strip() for c in line.split("|")]
 
 
 def _md_emphasis(s):
@@ -60,7 +70,9 @@ def _md_inline(s):
 
 def aidoo_md_to_html(text):
     """Render a subset of Markdown (headings, bold/italic, links, inline and
-    fenced code, ordered/unordered lists) to sanitized HTML for Discuss."""
+    fenced code, ordered/unordered lists, GFM tables) to sanitized HTML for
+    Discuss. Returns ``Markup`` so ``message_post`` renders it (a plain str would
+    be re-escaped and shown as literal tags)."""
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     blocks = []
 
@@ -82,16 +94,39 @@ def aidoo_md_to_html(text):
             out.append("<p>%s</p>" % "<br>".join(_md_inline(x) for x in para))
             para.clear()
 
-    for line in esc.split("\n"):
-        mk = _MD_MARKER.match(line.strip())
+    lines = esc.split("\n")
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+        mk = _MD_MARKER.match(stripped)
         if mk:
             flush_para()
             close_lists()
             out.append(blocks[int(mk.group(1))])
+            i += 1
             continue
-        if not line.strip():
+        # GFM table: a header row of pipes followed by a |---|---| separator row.
+        if "|" in stripped and i + 1 < n and _MD_TABLE_SEP.match(lines[i + 1]):
             flush_para()
             close_lists()
+            header = _md_row_cells(stripped)
+            out.append("<table><thead><tr>")
+            out.extend("<th>%s</th>" % _md_inline(c) for c in header)
+            out.append("</tr></thead><tbody>")
+            i += 2
+            while i < n and lines[i].strip() and "|" in lines[i]:
+                cells = _md_row_cells(lines[i])
+                cells += [""] * (len(header) - len(cells))
+                out.append("<tr>%s</tr>" % "".join(
+                    "<td>%s</td>" % _md_inline(c) for c in cells[:len(header)]))
+                i += 1
+            out.append("</tbody></table>")
+            continue
+        if not stripped:
+            flush_para()
+            close_lists()
+            i += 1
             continue
         h = re.match(r"(#{1,6})\s+(.*)$", line)
         if h:
@@ -99,6 +134,7 @@ def aidoo_md_to_html(text):
             close_lists()
             lvl = min(6, max(3, len(h.group(1)) + 2))  # cap: '# ' -> h3
             out.append("<h%d>%s</h%d>" % (lvl, _md_inline(h.group(2)), lvl))
+            i += 1
             continue
         ul = re.match(r"[ \t]*[-*+]\s+(.*)$", line)
         ol = re.match(r"[ \t]*\d+[.)]\s+(.*)$", line)
@@ -110,12 +146,14 @@ def aidoo_md_to_html(text):
                 out.append("<%s>" % want)
                 list_stack.append(want)
             out.append("<li>%s</li>" % _md_inline((ul or ol).group(1)))
+            i += 1
             continue
         close_lists()
-        para.append(line.strip())
+        para.append(stripped)
+        i += 1
     flush_para()
     close_lists()
-    return "".join(out) or "<p></p>"
+    return Markup("".join(out) or "<p></p>")
 
 
 # Chat history paging: the OWL client loads the most recent AIDOO_MSG_PAGE

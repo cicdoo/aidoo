@@ -11,8 +11,9 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 - **Persona replies in Discuss are now formatted** — the assistant's Markdown
   answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to
   sanitized HTML (`aidoo.session.aidoo_md_to_html`: headings, bold/italic, links,
-  inline + fenced code, ordered/unordered lists) before posting, escape-first so
-  model output cannot inject markup.
+  inline + fenced code, ordered/unordered lists, **GFM tables**) before posting,
+  escape-first so model output cannot inject markup. The renderer returns `Markup`
+  so `message_post` renders it instead of showing escaped `<p>…` tags as text.
 - **Personas now actually adopt their system prompt** — the persona's
   `instructions` were appended after (and dominated by) the generic "you are the
   user's assistant" identity block, so the model largely ignored them. `_run_identity`
