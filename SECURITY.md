@@ -153,7 +153,8 @@ are in scope for security reports include:
   Markdown) is converted to HTML by `aidoo.session.aidoo_md_to_html` before it is
   posted to the channel. The whole reply is HTML-escaped first and only a fixed set
   of formatting tags (`p`, `br`, `strong`, `em`, `code`, `pre`, `h3`–`h6`, `ul`/`ol`/
-  `li`, and `http(s)` `a`) is re-introduced, so nothing the model emits — including a
+  `li`, `table`/`thead`/`tbody`/`tr`/`th`/`td`, and `http(s)` `a`) is re-introduced —
+  cell and heading text is itself escaped — so nothing the model emits — including a
   literal `<script>` or an inline event handler — can inject markup into Discuss; it
   is rendered as text. Odoo's own `message_post` sanitizer applies on top.
 
