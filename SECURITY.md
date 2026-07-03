@@ -182,7 +182,11 @@ are in scope for security reports include:
   Credentials are written to the service
   user's per-user, per-provider config dir exactly like a human's (0700/0600), never
   stored in the database; the transient connect-form inputs (API key / paste creds /
-  login code) are cleared immediately after use.
+  login code) are cleared immediately after use. Inbound channel messages are
+  flattened to their visible text before reaching the model — anchor tags (including
+  @mention links, whose href is a record URL such as `/odoo/res.partner/1034`) are
+  reduced to their label so a link target is never fed to the model as an implicit
+  instruction.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own
