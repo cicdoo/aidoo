@@ -7,7 +7,50 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Fixed
+- **Persona replies in Discuss are now formatted** — the assistant's Markdown
+  answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to
+  sanitized HTML (`aidoo.session.aidoo_md_to_html`: headings, bold/italic, links,
+  inline + fenced code, ordered/unordered lists, **GFM tables**) before posting,
+  escape-first so model output cannot inject markup. The renderer returns `Markup`
+  so `message_post` renders it instead of showing escaped `<p>…` tags as text.
+- **Personas now actually adopt their system prompt** — the persona's
+  `instructions` were appended after (and dominated by) the generic "you are the
+  user's assistant" identity block, so the model largely ignored them. `_run_identity`
+  now leads with the persona identity/instructions marked authoritative and reframes
+  the Odoo user context as the interlocutor + permission scope, not the model's own
+  identity.
+- **Posting in a Discuss channel could crash with a duplicate `persona_default`
+  xmlid** — the default persona was (re)seeded lazily on every inbound message via
+  `env.ref`, whose ormcache a raw `ir.model.data` create never invalidated, so it
+  kept missing and retried the insert (`UniqueViolation`), aborting the whole
+  `message_post` transaction. The default persona is now seeded only by the
+  post-init hook; `_ensure_default_persona` resolves the xmlid via a direct
+  `ir.model.data` lookup and registers it cache-safely with `_update_xmlids`, and
+  `_active_personas` is read-only (no creation on the hot path).
+- **@mentioning a persona no longer leaves the sender's message greyed out with an
+  error** — persona service users are portal (email-only) accounts with a bot
+  address, so Odoo tried to email them on a mention and failed. `discuss.channel`
+  now excludes persona bots from notification recipients (`_notify_get_recipients`);
+  the persona still receives the message through `_maybe_handle_discuss`.
+
 ### Added
+- **AI Personas — named Discuss bots** — admins (AI Assistant Managers) can create
+  multiple named personas (`aidoo.persona`, new **Aidoo -> Personas** menu), each
+  with its **own dedicated AI provider account**, an optional model override, a
+  personality/system prompt and a bundle of `skill_ids`. Users invoke a persona in
+  Discuss by `@mention` (e.g. `@SalesBot`) — it auto-joins the channel on first
+  mention, answers every message in a 1:1 DM, and shows a live **"typing…"**
+  indicator while it works. Each persona owns a dedicated, login-less **portal**
+  service `res.users` (`bot_user_id`, `share=True`, so it consumes no internal seat
+  and never acts) that holds its provider credentials on disk and its Discuss
+  identity; connect/disconnect the account from the persona form (reusing
+  the provider `_auth_*` flows). Credentials load under the persona's account while
+  every ORM/SQL tool still runs as the **invoking user** with their own ACLs — see
+  the credential-user vs acting-user split in `aidoo.session._credential_user()`.
+  The existing `@aidoo` bot is now the built-in **default persona** (adopts the
+  legacy bot partner, so existing DMs/mentions keep working). Documented in
+  SECURITY.md.
 - **Floating companion is fully view-context aware** — the "Ask Aidoo" companion now seeds a conversation with what the user is actually looking at across **all** multi-record views (list, kanban, pivot, graph, calendar), not just list/form: the **selected records** (ticked rows), the active **filters**, **group-by** and **domain**. Captured via shared view-controller patches reading `env.searchModel` (domain/groupBy/facets) and `model.root.selection` (`static/src/view_patches.js`), forwarded by `floating_button.js` to `/aidoo/new` (new params: `context_view_type` / `context_groupby` / `context_filters` / `context_selected_ids`) and described to the model in `aidoo.session._context_note()`. Records are still re-read under the user's own rights at tool time. The companion now also appears on kanban/pivot/graph/calendar (was form/list only).
 - **Per-user SQL access (allowlist) + working SQL toggle** — SQL access is now
   resolved per user in `aidoo.tool.exec._check_sql_access`. AI SQL Analyst members

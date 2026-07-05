@@ -42,13 +42,16 @@ gemini / grok).
         'security/aidoo_security.xml',
         'security/ir.model.access.csv',
         'data/aidoo_tool_data.xml',
+        'data/aidoo_bot_data.xml',
         'data/aidoo_action.xml',
         'views/res_config_settings_views.xml',
         'views/res_users_views.xml',
         'views/aidoo_log_views.xml',
         'views/aidoo_scheduled_views.xml',
         'views/aidoo_skill_views.xml',
+        'views/aidoo_persona_views.xml',
     ],
+    'post_init_hook': 'post_init_hook',
     'assets': {
         'web.assets_backend': [
             'aidoo/static/src/scss/aidoo.scss',

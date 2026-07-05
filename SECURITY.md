@@ -123,12 +123,40 @@ are in scope for security reports include:
   skill only after re-resolving it through the caller's own read rights (a private
   skill of another user is simply not found), and a scheduled agent's skill is
   applied as the agent's own run-as user.
+- **Personas own an account, not privileges** — a persona (`aidoo.persona`) carries
+  its own AI *provider* credentials but never its own *data* rights. It splits the
+  session into a **credential user** (a dedicated, login-less **portal** service
+  `res.users` — `share=True`, only `base.group_portal`, so it holds no internal
+  privileges and consumes no internal seat; it only carries the provider account on
+  disk and the Discuss identity) and the
+  **acting user** (the human who @mentioned it): `aidoo.session._credential_user()`
+  chooses whose credentials load, while the background worker always runs with
+  `ctx["uid"]` set to the invoking user, so every tool goes through `aidoo.tool.exec`
+  as that user (`su=False`) under their ACLs, record rules, tool grant, model
+  denylist and audit log. A persona therefore cannot escalate: a low-privilege user
+  mentioning a powerful persona still reaches only their own data, and the persona's
+  `instructions`/`skill_ids` are prompt text (like skills) that cannot grant a tool.
+  The persona's service user never logs in and is not used as an acting identity.
+  Creating/editing personas — and connecting their provider accounts — is gated to
+  *AI Assistant Managers* (ir.model.access + record rules); other AI users may only
+  read active personas to resolve a mention. Credentials are written to the service
+  user's per-user, per-provider config dir exactly like a human's (0700/0600), never
+  stored in the database; the transient connect-form inputs (API key / paste creds /
+  login code) are cleared immediately after use.
 - **Sandboxed report/chart rendering** — HTML the model emits (charts, reports,
   and `aidoo.session._post_report` output) is rendered in an
   `<iframe sandbox="allow-same-origin">` **without** `allow-scripts`, so its own
   scripts never execute and its styles are isolated from the Odoo UI; the parent
   only reads the frame to size it. `allow-scripts` is deliberately never combined
   with `allow-same-origin` (that pairing lets a frame drop its own sandbox).
+- **Discuss replies are escape-first** — a persona's answer (model-authored
+  Markdown) is converted to HTML by `aidoo.session.aidoo_md_to_html` before it is
+  posted to the channel. The whole reply is HTML-escaped first and only a fixed set
+  of formatting tags (`p`, `br`, `strong`, `em`, `code`, `pre`, `h3`–`h6`, `ul`/`ol`/
+  `li`, `table`/`thead`/`tbody`/`tr`/`th`/`td`, and `http(s)` `a`) is re-introduced —
+  cell and heading text is itself escaped — so nothing the model emits — including a
+  literal `<script>` or an inline event handler — can inject markup into Discuss; it
+  is rendered as text. Odoo's own `message_post` sanitizer applies on top.
 
 If you find a way to (a) escalate beyond the acting user's ACLs, (b) mutate data
 through `sql_select`, (c) forge or replay a bridge token, (d) make the model

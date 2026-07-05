@@ -92,7 +92,7 @@ class AidooProviderZai(AidooProvider):
     # The native turn: z.ai streaming + in-process tool loop
     # ------------------------------------------------------------------
     def _run_stream(self, env, session, ctx):
-        user = session.user_id.sudo()
+        user = session._credential_user().sudo()
         key = self._api_key(user)
         if not key:
             yield {"op": "error", "text": _(
