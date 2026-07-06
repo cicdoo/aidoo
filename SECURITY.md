@@ -95,6 +95,20 @@ are in scope for security reports include:
   first-turn focus note is resolved under the user's own rights — a record or
   model the user cannot read is silently dropped, so context seeding never
   discloses data the user could not already see.
+- **Generated HTML artifacts are served sandboxed** — assistant-generated HTML
+  is persisted as `ir.attachment` and served only through
+  `GET /aidoo/artifact/<id>`, which refuses anything that is not a
+  session-linked attachment carrying the artifact marker (it is not a generic
+  attachment reader, even with a valid token). Responses are hardened against
+  the untrusted-LLM threat model: `Content-Security-Policy: sandbox;
+  default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
+  gives the document an opaque origin with **no script execution and no network
+  subresources** (no exfiltration channel, no cookie-bearing same-origin
+  requests), plus `X-Content-Type-Options: nosniff`. Access is (a) the session
+  owner, (b) an internal member of the session's Discuss channel, or (c) a
+  bearer of the owner-minted share token (core `ir.attachment` access token,
+  `consteq`-checked; **anyone with the link can view until the owner revokes
+  it** — share/revoke routes are owner-only).
 - **Conversation management is owner-scoped** — the favorite (`/aidoo/favorite`),
   discard (`/aidoo/discard`), delete (`/aidoo/delete`), messages (`/aidoo/messages`)
   and listing routes resolve the session through the same ownership check as the

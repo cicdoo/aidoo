@@ -888,6 +888,7 @@ class AiAssistantSession(models.Model):
         self.ensure_one()
         rec = self.env["aidoo.message"].create({
             "session_id": self.id, "role": "report", "body": html or ""})
+        self.env["aidoo.runner"]._persist_turn_artifacts(self.env, self, rec)
         self.env["aidoo.runner"]._emit_message(self, rec)
         return rec
 
@@ -980,12 +981,35 @@ class AiAssistantSession(models.Model):
         except Exception:  # noqa: BLE001
             _logger.exception("aidoo: typing indicator failed")
 
+    def _artifact_link_lines(self):
+        """Markdown "View:" links for the delivered message's persisted HTML
+        artifacts. Absolute URLs on purpose: ``aidoo_md_to_html`` only links
+        ``https?://`` targets, and Discuss members open them via the
+        channel-membership rule of the /aidoo/artifact route."""
+        self.ensure_one()
+        msgs = self.message_ids.filtered(
+            lambda m: m.role == "assistant" and m.body)
+        if not msgs:
+            return ""
+        descriptors = [d for d in (msgs.sorted("id")[-1].attachments or [])
+                       if d.get("kind") == "artifact"]
+        if not descriptors:
+            return ""
+        base = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        return "\n".join(
+            "View: [%s](%s%s)" % (d.get("name"), base, d.get("url"))
+            for d in descriptors)
+
     def _deliver_discuss(self, ok):
         self.ensure_one()
         self._discuss_set_typing(False)  # stop the typing indicator
         body = self._last_assistant_text()
         if not body:
             body = self.last_error if not ok else _("(no response)")
+        elif ok:
+            links = self._artifact_link_lines()
+            if links:
+                body = "%s\n\n%s" % (body, links)
         self._post_bot_message(body)
 
     @staticmethod

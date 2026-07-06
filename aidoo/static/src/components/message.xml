@@ -60,7 +60,7 @@
                     <t t-foreach="segments" t-as="seg" t-key="seg_index">
                         <button t-if="seg.type === 'html'" type="button"
                                 class="o_ai_artifact_card d-flex align-items-center"
-                                t-on-click="() => this.openArtifact(seg.html)">
+                                t-on-click="() => this.openArtifact(seg)">
                             <i class="fa fa-area-chart me-2"/>
                             <span class="fw-bold me-2">Chart</span>
                             <span class="text-muted small">Click to view</span>
