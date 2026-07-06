@@ -303,6 +303,11 @@
             border: 0;
             min-height: 160px;
         }
+        // Server-served artifacts are opaque-origin (CSP sandbox), so the
+        // content-height read fails — give them the full panel instead.
+        .o_ai_report_frame_src {
+            height: 100%;
+        }
     }
 
     // The backdrop and mobile bar only exist in the DOM on small screens.

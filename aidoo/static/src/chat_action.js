@@ -421,10 +421,19 @@ export class AiChatAction extends Component {
     }
 
     // ------------------------------------------------------------------
-    // Artifact panel
+    // Artifact panel. state.artifact is {html?, url?, attachmentId?,
+    // shared?, shareUrl?}: url/attachmentId when the server persisted the
+    // block as an ir.attachment, html as the srcdoc fallback for
+    // streaming/historical messages.
     // ------------------------------------------------------------------
-    openArtifact(html) {
-        this.state.artifact = html;
+    openArtifact(seg) {
+        this.state.artifact = {
+            html: seg.html || null,
+            url: seg.artifact?.url || null,
+            attachmentId: seg.artifact?.id || null,
+            shared: false,
+            shareUrl: null,
+        };
         this.state.artifactOpen = true;
     }
 
@@ -433,41 +442,93 @@ export class AiChatAction extends Component {
     }
 
     openArtifactNewTab() {
-        if (!this.state.artifact) {
+        const art = this.state.artifact;
+        if (!art) {
             return;
         }
-        const blob = new Blob([this.state.artifact], { type: "text/html" });
+        if (art.url) {
+            window.open(art.url, "_blank", "noopener,noreferrer");
+            return;
+        }
+        const blob = new Blob([art.html || ""], { type: "text/html" });
         const url = URL.createObjectURL(blob);
         window.open(url, "_blank", "noopener,noreferrer");
         setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    async shareArtifact() {
+        const art = this.state.artifact;
+        if (!art?.attachmentId) {
+            return;
+        }
+        try {
+            const res = await rpc("/aidoo/artifact/share", {
+                attachment_id: art.attachmentId,
+            });
+            art.shared = true;
+            art.shareUrl = res.url;
+            await browser.navigator.clipboard.writeText(res.url);
+            this.notification.add("Share link copied to clipboard.", {
+                type: "success",
+            });
+        } catch (e) {
+            this.notification.add(
+                e.message?.data?.message || "Could not create the share link.",
+                { type: "danger" });
+        }
+    }
+
+    async revokeArtifact() {
+        const art = this.state.artifact;
+        if (!art?.attachmentId) {
+            return;
+        }
+        try {
+            await rpc("/aidoo/artifact/revoke", {
+                attachment_id: art.attachmentId,
+            });
+            art.shared = false;
+            art.shareUrl = null;
+            this.notification.add("Share link revoked.", { type: "success" });
+        } catch (e) {
+            this.notification.add(
+                e.message?.data?.message || "Could not revoke the share link.",
+                { type: "danger" });
+        }
     }
 
     _messageArtifact(msg) {
         if (!msg) {
             return null;
         }
+        const descriptors = (msg.attachments || [])
+            .filter((a) => a.kind === "artifact")
+            .sort((a, b) => (a.index || 0) - (b.index || 0));
+        const last = descriptors[descriptors.length - 1];
         if (msg.role === "report") {
-            return msg.body || null;
+            return msg.body ? { html: msg.body, artifact: last } : null;
         }
         if (msg.role === "assistant") {
             const blocks = extractHtmlBlocks(msg.body || "");
-            return blocks.length ? blocks[blocks.length - 1] : null;
+            return blocks.length
+                ? { html: blocks[blocks.length - 1], artifact: last }
+                : null;
         }
         return null;
     }
 
     _maybeCaptureArtifact(msg) {
-        const html = this._messageArtifact(msg);
-        if (html) {
-            this.openArtifact(html);
+        const seg = this._messageArtifact(msg);
+        if (seg) {
+            this.openArtifact(seg);
         }
     }
 
     _captureLatestArtifact() {
         for (let i = this.state.messages.length - 1; i >= 0; i--) {
-            const html = this._messageArtifact(this.state.messages[i]);
-            if (html) {
-                this.openArtifact(html);
+            const seg = this._messageArtifact(this.state.messages[i]);
+            if (seg) {
+                this.openArtifact(seg);
                 return;
             }
         }

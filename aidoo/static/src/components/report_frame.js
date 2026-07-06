@@ -4,16 +4,23 @@
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import { Component, useRef } from "@odoo/owl";
 
-// Renders generated HTML (e.g. a chart/report) inside a sandboxed iframe.
+// Renders generated HTML (e.g. a chart/report) inside a sandboxed iframe,
+// either inline (srcdoc, streaming/historical fallback) or from the server
+// artifact URL (src) when the block was persisted as an ir.attachment.
 //
 // Security: sandbox="allow-same-origin" WITHOUT allow-scripts. The HTML's own
 // <script>s never run (it is untrusted markup), while staying same-origin lets
 // us read its document to size the frame to its content. NEVER add allow-scripts
 // here — allow-scripts + allow-same-origin together let the frame drop its own
-// sandbox.
+// sandbox. Server-served documents additionally carry a CSP "sandbox" header
+// (opaque origin), which makes the height read below throw — they fall back to
+// the CSS height.
 export class ReportFrame extends Component {
     static template = "aidoo.ReportFrame";
-    static props = { html: String };
+    static props = {
+        html: { type: String, optional: true },
+        src: { type: String, optional: true },
+    };
 
     setup() {
         this.frame = useRef("frame");
@@ -32,8 +39,8 @@ export class ReportFrame extends Component {
                 el.style.height = h + "px";
             }
         } catch {
-            // Cross-origin read blocked (shouldn't happen with allow-same-origin);
-            // the container just scrolls instead.
+            // Opaque-origin document (CSP-sandboxed src) — the CSS fallback
+            // height applies and the container scrolls instead.
         }
     }
 }

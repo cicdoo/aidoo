@@ -8,6 +8,7 @@ from odoo import http
 from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
+from ..models.aidoo_message import ARTIFACT_MARKER
 from ..models.aidoo_session import PROVIDERS
 
 _PROVIDER_CODES = {code for code, _label in PROVIDERS}
@@ -247,6 +248,87 @@ class AiAssistantChat(http.Controller):
         except UserError as e:
             return request.make_response(
                 json.dumps({"error": str(e)}), headers, status=400)
+
+    # ------------------------------------------------------------------
+    # Generated HTML artifacts — served inline (never a generic attachment
+    # reader: only session-linked attachments carrying the artifact marker).
+    # ------------------------------------------------------------------
+    def _artifact(self, attachment_id):
+        """Sudo-fetch an artifact attachment; None when the id is not an
+        aidoo artifact (indistinguishable from missing, on purpose)."""
+        try:
+            attachment_id = int(attachment_id)
+        except (TypeError, ValueError):
+            return None
+        att = request.env["ir.attachment"].sudo().browse(
+            attachment_id).exists()
+        if (not att or att.res_model != "aidoo.session"
+                or att.description != ARTIFACT_MARKER):
+            return None
+        return att
+
+    def _own_artifact(self, attachment_id):
+        """An artifact whose session the current user owns; UserError otherwise
+        (same non-leaking style as ``_session``)."""
+        att = self._artifact(attachment_id or 0)
+        session = att and request.env["aidoo.session"].sudo().browse(att.res_id)
+        if not att or session.user_id != request.env.user:
+            raise UserError("Artifact not found.")
+        return att
+
+    @http.route("/aidoo/artifact/<int:attachment_id>", type="http",
+                auth="public", methods=["GET"])
+    def artifact(self, attachment_id, token=None, **kw):
+        """Serve a generated HTML artifact inline.
+
+        Access: a valid share token (external), or a logged-in internal user who
+        owns the session or belongs to its Discuss channel. The response CSP
+        sandboxes the document into an opaque origin with no script execution
+        and no network subresources — parity with the chat's srcdoc iframe.
+        """
+        att = self._artifact(attachment_id)
+        if not att:
+            return request.not_found()
+        if token:
+            try:
+                request.env["ir.attachment"].browse(att.id).validate_access(token)
+            except AccessError:
+                return request.not_found()
+        else:
+            user = request.env.user
+            if not user._is_internal():
+                return request.not_found()
+            session = request.env["aidoo.session"].sudo().browse(att.res_id)
+            allowed = session.user_id == user or (
+                session.discuss_channel_id
+                and user.partner_id in session.discuss_channel_id.channel_partner_ids)
+            if not allowed:
+                return request.not_found()
+        return request.make_response(att.raw or b"", [
+            ("Content-Type", "text/html; charset=utf-8"),
+            ("Content-Security-Policy",
+             "sandbox; default-src 'none'; style-src 'unsafe-inline'; "
+             "img-src data:; font-src data:"),
+            ("X-Content-Type-Options", "nosniff"),
+            ("Content-Disposition", "inline"),
+            ("Cache-Control", "private, no-store"),
+        ])
+
+    @http.route("/aidoo/artifact/share", type="jsonrpc", auth="user")
+    def artifact_share(self, attachment_id=None):
+        """Mint (or return) the public share link. Session owner only."""
+        att = self._own_artifact(attachment_id)
+        token = att.generate_access_token()[0]
+        base = request.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        return {"url": "%s/aidoo/artifact/%d?token=%s" % (base, att.id, token),
+                "shared": True}
+
+    @http.route("/aidoo/artifact/revoke", type="jsonrpc", auth="user")
+    def artifact_revoke(self, attachment_id=None):
+        """Kill the public share link. Session owner only."""
+        att = self._own_artifact(attachment_id)
+        att.access_token = False
+        return {"shared": False}
 
     @http.route("/aidoo/send", type="jsonrpc", auth="user")
     def send(self, session_id=None, body=None, attachment_ids=None):
