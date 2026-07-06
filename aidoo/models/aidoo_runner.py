@@ -22,10 +22,31 @@ import sys
 import threading
 import time
 
+try:
+    import resource
+except ImportError:  # non-Unix (dev only; production is Linux)
+    resource = None
+
 from odoo import api, models
 from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
+
+
+def _lift_rlimit_as():
+    """Raise the child's RLIMIT_AS soft limit back to the hard limit.
+
+    Odoo workers cap their address space at ``limit_memory_hard`` (soft only;
+    the hard limit stays unlimited). Bun-based CLIs (Claude) reserve large JIT
+    address ranges far beyond their RSS and die mid-run with a SIGILL panic
+    under the inherited cap. Runs as ``preexec_fn`` between fork and exec, so
+    it must stay minimal: no imports, no logging.
+    """
+    try:
+        _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (hard, hard))
+    except (ValueError, OSError):
+        pass
 
 
 class AiAssistantRunner(models.AbstractModel):
@@ -139,7 +160,8 @@ class AiAssistantRunner(models.AbstractModel):
             argv, cwd=cwd, env=run_env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             stdin=(subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL),
-            text=True, bufsize=1)
+            text=True, bufsize=1,
+            preexec_fn=(_lift_rlimit_as if resource else None))
         if stdin_data is not None:
             try:
                 proc.stdin.write(stdin_data)
