@@ -262,14 +262,19 @@ class AiAssistantRunner(models.AbstractModel):
         stderr = "".join(stderr_buf)
 
         # Fallback: some CLIs don't stream a final assistant message; recover it.
+        fallback_rec = env["aidoo.message"]
         if not produced_text["any"] and session.state == "running":
             fallback = adapter._post_run(ctx, rc, stderr)
             if fallback:
-                rec = env["aidoo.message"].create({
+                fallback_rec = env["aidoo.message"].create({
                     "session_id": session.id, "role": "assistant", "body": fallback})
-                self._emit_message(session, rec)
+                self._emit_message(session, fallback_rec)
                 produced_text["any"] = True
 
+        # The fallback record is not in msg_map — include it explicitly.
+        self._persist_turn_artifacts(
+            env, session,
+            env["aidoo.message"].browse(list(msg_map.values())) | fallback_rec)
         session.write({"last_run_pid": False, "turn_count": session.turn_count + 1})
         # Any tool call still marked "running" never received its result event
         # (CLI exited mid-tool, timed out, or was stopped). Settle it so the
@@ -328,6 +333,8 @@ class AiAssistantRunner(models.AbstractModel):
             if ctx.get("routing_sid"):
                 env["aidoo.session"]._delete_routing_sid(ctx["routing_sid"])
 
+        self._persist_turn_artifacts(
+            env, session, env["aidoo.message"].browse(list(msg_map.values())))
         session.write({"last_run_pid": False,
                        "turn_count": session.turn_count + 1})
         # An error op (yielded by the adapter) already set state="error" via
@@ -449,6 +456,16 @@ class AiAssistantRunner(models.AbstractModel):
             if changed:
                 rec.tool_calls = calls
                 self._emit_message(session, rec)
+
+    def _persist_turn_artifacts(self, env, session, records):
+        """Persist the turn's generated HTML blocks as artifact attachments and
+        re-emit the updated messages so an open chat swaps its inline cards to
+        the server-backed ones. Must never fail a finished turn."""
+        try:
+            for rec in records.exists()._persist_artifacts():
+                self._emit_message(session, rec)
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: artifact persistence failed")
 
     # ------------------------------------------------------------------
     # Bus

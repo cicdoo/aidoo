@@ -7,6 +7,20 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Generated HTML artifacts are persisted and shareable** — every ```` ```html ````
+  block the assistant produces (and every report) is stored as an `ir.attachment`
+  on its session at run end and served through the new hardened
+  `GET /aidoo/artifact/<id>` route (explicit `text/html` + CSP
+  `sandbox; default-src 'none'; style-src 'unsafe-inline'` — no scripts, no
+  network subresources, opaque origin) instead of a client-side blob. The chat's
+  artifact panel and "open in new tab" load the server URL; a new **Share** button
+  mints a public tokenized link (core `ir.attachment` access token, owner-only,
+  revocable via **Revoke**), so artifacts can be shared internally or externally.
+  Persona replies in Discuss append `View:` links that any channel member can
+  open (the route grants channel members read access). Historical messages keep
+  rendering inline as before.
+
 ### Fixed
 - **Persona replies in Discuss are now formatted** — the assistant's Markdown
   answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to

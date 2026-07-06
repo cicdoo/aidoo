@@ -15,3 +15,4 @@ from . import test_skill
 from . import test_providers
 from . import test_runner_stream
 from . import test_features
+from . import test_artifacts

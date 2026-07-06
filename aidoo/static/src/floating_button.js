@@ -233,8 +233,12 @@ export class FloatingAidoo extends Component {
         this.state.messages = data.messages;
     }
 
-    openArtifact(html) {
-        const blob = new Blob([html], { type: "text/html" });
+    openArtifact(seg) {
+        if (seg.artifact?.url) {
+            window.open(seg.artifact.url, "_blank", "noopener,noreferrer");
+            return;
+        }
+        const blob = new Blob([seg.html || ""], { type: "text/html" });
         const url = URL.createObjectURL(blob);
         window.open(url, "_blank", "noopener,noreferrer");
         setTimeout(() => URL.revokeObjectURL(url), 60000);

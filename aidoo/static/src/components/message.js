@@ -35,29 +35,41 @@ export class AiMessage extends Component {
         return this.props.message.role === "divider";
     }
 
+    // Server-persisted artifact descriptors for this message, ordered by their
+    // html-block index. Empty for historical/streaming messages (srcdoc fallback).
+    get artifactDescriptors() {
+        return (this.props.message.attachments || [])
+            .filter((a) => a.kind === "artifact")
+            .sort((a, b) => (a.index || 0) - (b.index || 0));
+    }
+
     // Ordered render segments for non-user messages: markdown chunks (rendered
     // to safe HTML) interleaved with embedded HTML chunks shown as a card that
     // opens the artifact panel. A report-role message is a single HTML segment.
-    // User messages stay plain text and don't use this.
+    // The nth HTML segment carries the nth artifact descriptor (when the run
+    // has finished and the server persisted it). User messages stay plain text
+    // and don't use this.
     get segments() {
         const body = this.props.message.body || "";
+        const artifacts = this.artifactDescriptors;
         if (this.isReport) {
-            return [{ type: "html", html: body }];
+            return [{ type: "html", html: body, artifact: artifacts[0] }];
         }
         const out = [];
+        let n = 0;
         for (const seg of splitSegments(body)) {
             if (!seg.text.trim()) {
                 continue;
             }
             out.push(seg.type === "html"
-                ? { type: "html", html: seg.text }
+                ? { type: "html", html: seg.text, artifact: artifacts[n++] }
                 : { type: "md", html: renderMarkdown(seg.text) });
         }
         return out;
     }
 
-    openArtifact(html) {
-        this.props.onOpenArtifact?.(html);
+    openArtifact(seg) {
+        this.props.onOpenArtifact?.(seg);
     }
 
     get toolCalls() {
@@ -74,8 +86,10 @@ export class AiMessage extends Component {
             (c) => c.status !== "done" && c.status !== "error");
     }
 
+    // Upload chips only — generated artifacts render as cards, not chips.
     get attachments() {
-        return this.props.message.attachments || [];
+        return (this.props.message.attachments || [])
+            .filter((a) => a.kind !== "artifact");
     }
 
     attachmentIcon(att) {
