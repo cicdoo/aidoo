@@ -8,6 +8,20 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Audio / voice-note uploads with local transcription** — the chat composer and
+  Discuss attachments now accept audio files (`.mp3 .wav .m4a .ogg .opus .flac
+  .aac .webm`). Audio is never handed to the model directly (the CLI's Read tool
+  cannot consume it): a standalone [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  wrapper (`bridge/transcribe_audio.py`, running under its own venv, never
+  importing Odoo) transcribes it **on the server** in the background runner
+  thread before the provider dispatches, and the prompt manifest points the
+  model at the resulting `<file>.transcript.txt` in the session uploads dir.
+  Transcripts are cached on the attachment (`description`, marker-prefixed) so
+  re-materialization never re-transcribes; a transcription failure writes an
+  explanatory note instead of crashing the turn. Configurable via
+  `ir.config_parameter` (`aidoo.whisper_python` / `whisper_model` /
+  `whisper_model_dir` / `whisper_threads` / `whisper_timeout_s` /
+  `whisper_language`). Documented in SECURITY.md.
 - **Generated HTML artifacts are persisted and shareable** — every ```` ```html ````
   block the assistant produces (and every report) is stored as an `ir.attachment`
   on its session at run end and served through the new hardened

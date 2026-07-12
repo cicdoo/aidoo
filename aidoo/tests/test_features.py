@@ -11,7 +11,7 @@ from odoo import fields
 from odoo.tests.common import TransactionCase, tagged
 
 
-def _no_launch(self, session, prompt, is_first, token):
+def _no_launch(self, session, prompt, is_first, token, pending_audio=None):
     """Stand-in for the runner: skip spawning a CLI (the session is already
     flipped to 'running' by send_message before this is called)."""
     return None
@@ -235,7 +235,7 @@ class TestAidooFeatures(TransactionCase):
         but never into the stored user message body."""
         captured = {}
 
-        def _capture(this, session, prompt, is_first, token):
+        def _capture(this, session, prompt, is_first, token, pending_audio=None):
             captured["prompt"] = prompt
             return None
 
@@ -389,3 +389,74 @@ class TestAidooFeatures(TransactionCase):
         # A session row may be created, but the run is never launched.
         self.assertFalse(self._sessions_in(channel).filtered(
             lambda s: s.state == "running"))
+
+
+@tagged("post_install", "-at_install", "aidoo")
+class TestAidooAudioUploads(TransactionCase):
+    """Audio voice-note uploads: allow-list, transcript manifest, cached
+    transcript replay and the never-crash failure path. Whisper itself is
+    never spawned — the failure test points ``aidoo.whisper_python`` at a
+    non-existent binary."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.env["res.users"].create({
+            "name": "Aidoo Audio Tester",
+            "login": "aidoo_audio_tester",
+            "email": "audio.tester@example.com",
+            "groups_id": [(4, self.env.ref("base.group_user").id),
+                          (4, self.env.ref("aidoo.group_ai_user").id)],
+        })
+        self.session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude"})
+
+    def test_audio_extensions_allowed_others_still_rejected(self):
+        S = self.env["aidoo.session"]
+        self.assertEqual(S._safe_upload_name("voice note.mp3"), "voice_note.mp3")
+        self.assertEqual(S._safe_upload_name("memo.OGG"), "memo.OGG")
+        with self.assertRaises(Exception):
+            S._safe_upload_name("payload.exe")
+
+    def test_compose_prompt_points_at_transcript(self):
+        path = "/tmp/uploads/7_note.mp3"
+        prompt = self.session._compose_prompt("what did I say?", [path])
+        self.assertIn(path + ".transcript.txt", prompt)
+        self.assertIn("Never try to Read the audio file itself", prompt)
+        # Non-audio files keep the plain manifest line.
+        self.assertNotIn(".transcript.txt",
+                         self.session._compose_prompt("hi", ["/tmp/a.txt"]))
+
+    def test_cached_transcript_replayed_on_materialize(self):
+        from odoo.addons.aidoo.models.aidoo_session import TRANSCRIPT_MARKER
+        desc = self.session.with_user(self.user)._store_upload(
+            "note.mp3", b"\xff\xfbfake-mp3-bytes")
+        att = self.env["ir.attachment"].browse(desc["id"])
+        # No transcript yet -> the attachment is a pending job.
+        paths, atts = self.session._materialize_attachments([att.id])
+        self.assertEqual(
+            [j["att_id"] for j in self.session._pending_audio_jobs(paths, atts)],
+            [att.id])
+        # Cache a transcript, re-materialize: file replayed, no pending job.
+        att.sudo().description = TRANSCRIPT_MARKER + "hello from cache"
+        paths, atts = self.session._materialize_attachments([att.id])
+        tpath = self.session._transcript_path_for(paths[0])
+        with open(tpath, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello from cache")
+        self.assertFalse(self.session._pending_audio_jobs(paths, atts))
+
+    def test_transcription_failure_writes_note_and_never_raises(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.whisper_python", "/nonexistent/python-binary")
+        desc = self.session.with_user(self.user)._store_upload(
+            "broken.mp3", b"\xff\xfbnot-really-audio")
+        att = self.env["ir.attachment"].browse(desc["id"])
+        paths, atts = self.session._materialize_attachments([att.id])
+        jobs = self.session._pending_audio_jobs(paths, atts)
+        self.session._transcribe_pending(jobs)  # must not raise
+        tpath = self.session._transcript_path_for(paths[0])
+        with open(tpath, encoding="utf-8") as f:
+            note = f.read()
+        self.assertIn("No transcript available", note)
+        self.assertIn("broken.mp3", note)
+        # Nothing cached -> retried on the next turn.
+        self.assertFalse(att.sudo().description)

@@ -13,7 +13,7 @@ from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase, tagged
 
 
-def _no_launch(self, session, prompt, is_first, token):
+def _no_launch(self, session, prompt, is_first, token, pending_audio=None):
     return None
 
 
