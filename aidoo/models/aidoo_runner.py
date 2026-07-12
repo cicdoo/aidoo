@@ -67,7 +67,9 @@ class AiAssistantRunner(models.AbstractModel):
         native = adapter._is_native
         cli_path = "" if native else adapter._resolve_cli_path()
         scratch = session._get_scratch_dir()
-        model = adapter._model()
+        # A persona-driven session runs on the persona's model when one is set
+        # (falling back to the provider's configured default).
+        model = session.persona_id.sudo().model or adapter._model()
         max_turns = int(session._config("max_turns", 30))
         timeout_s = int(session._config("timeout_s", 900))
         base_url = session._config("base_url", "http://127.0.0.1:8069")
@@ -85,7 +87,7 @@ class AiAssistantRunner(models.AbstractModel):
         if not native:
             adapter._sync_cli_account(cred_user)
         allowed_tools = sorted(session._effective_tools())
-        excluded_models = sorted(session._ai_excluded_models())
+        excluded_models = sorted(session.user_id.sudo()._ai_excluded_models())
         identity = session._run_identity(set(allowed_tools))
 
         # ``is_first`` is turn-based (passed by send_message). Each adapter decides

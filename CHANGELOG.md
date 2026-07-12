@@ -8,6 +8,33 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Added
+- **Sessions and scheduled agents take multiple skills** — `skill_id` becomes a
+  `skill_ids` M2M on both `aidoo.session` and `aidoo.scheduled` (migrated in
+  18.0.1.4.0); the chat's skill picker multi-selects, and `/aidoo/skill` /
+  `/aidoo/new` accept `skill_ids` (the single-id `skill_id` param stays as a
+  legacy alias).
+- **Personas are first-class Discuss contacts** — persona bots now show up in
+  Discuss's "New message" and "Invite people" searches (they were hidden because
+  their service users are portal accounts), so a persona can be DM'd or invited
+  from the UI; a 1:1 chat answers every message without needing an @mention. A
+  new **Open chat** button on the persona form jumps straight into the DM, and a
+  persona can carry its own **email identity** (written through to its service
+  user) used when it sends or posts. Files attached to a Discuss message are
+  materialized into the persona's session uploads so the model can read them.
+- **Scheduled agents can run as a persona** — a new `persona_id` on
+  `aidoo.scheduled`: the persona's provider, model override and connected
+  service account drive the run (the agent's own Provider / Run As stay the
+  fallback), its skills are copied onto the form as a starting point, and
+  email/chatter deliveries are sent under the persona's identity. Tools still
+  execute with the Run As user's Odoo permissions.
+
+### Fixed
+- **Artifact viewer can now load same-origin images and fonts** — the
+  `GET /aidoo/artifact/<id>` CSP allows `img-src/font-src 'self'` (e.g.
+  `/logo.png`) in addition to `data:`; still sandboxed, no scripts, no
+  cross-origin subresources.
+
+### Added
 - **Generated HTML artifacts are persisted and shareable** — every ```` ```html ````
   block the assistant produces (and every report) is stored as an `ir.attachment`
   on its session at run end and served through the new hardened

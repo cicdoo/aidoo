@@ -192,8 +192,8 @@
                     </div>
                     <AiComposer onSend.bind="onSend" disabled="state.running"
                                 sessionId="state.currentId"
-                                skills="state.skills" skillId="state.currentSkillId"
-                                onSelectSkill.bind="setSkill"/>
+                                skills="state.skills" skillIds="state.currentSkillIds"
+                                onSelectSkills.bind="setSkills"/>
                 </t>
             </div>
 

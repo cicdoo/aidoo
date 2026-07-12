@@ -48,6 +48,15 @@ class ResUsers(models.Model):
              "when they are NOT in the AI SQL Analyst group. Leave empty to give "
              "them no SQL access (the default). Members of AI SQL Analyst can read "
              "everything except the global SQL denylist and ignore this field.")
+    # Per-user model blocklist, unioned with the global aidoo.excluded_models
+    # parameter (see _ai_excluded_models). Lets an admin hide extra models from
+    # one user without hiding them from everyone.
+    aidoo_excluded_model_ids = fields.Many2many(
+        "ir.model", "aidoo_user_excluded_model_rel", "user_id", "model_id",
+        string="Models Hidden from AI (this user)",
+        help="The AI Assistant will refuse to introspect, read, or write these "
+             "models for this user, in addition to the globally hidden models "
+             "in Settings.")
     # Optional per-user Google Cloud project id (exported as GOOGLE_CLOUD_PROJECT
     # by the Gemini adapter). Needed by some account types.
     aidoo_cloud_project = fields.Char(
@@ -104,6 +113,15 @@ class ResUsers(models.Model):
             names = {n for n in names if n in READONLY_TOOL_SET}
         return names
 
+    def _ai_excluded_models(self):
+        """Model names hidden from the AI for this user: the global exclusion
+        set (Settings) plus this user's personal blocklist."""
+        self.ensure_one()
+        names = self.env["aidoo.session"]._ai_excluded_models()
+        # sudo: reading the ir.model M2M must not depend on the user's own
+        # access rights — the blocklist is manager-set policy about them.
+        return names | set(self.sudo().aidoo_excluded_model_ids.mapped("model"))
+
     def _ai_sql_allow_patterns(self):
         """Parsed per-user SQL table allowlist (fnmatch globs, lowercased)."""
         self.ensure_one()
@@ -118,7 +136,7 @@ class ResUsers(models.Model):
     # ------------------------------------------------------------------
     # Identity / role context injected into the assistant's system prompt
     # ------------------------------------------------------------------
-    def _ai_identity_prompt(self, effective_tools=None, skill=None):
+    def _ai_identity_prompt(self, effective_tools=None, skills=None):
         """A concise, authoritative text block telling the model WHO the Odoo
         user is and what roles/permissions they hold.
 
@@ -126,9 +144,9 @@ class ResUsers(models.Model):
         application roles and the AI tool grant — so the model acts for, and
         within the rights of, this Odoo user.
 
-        ``skill`` is an optional ``aidoo.skill`` record whose instructions are
-        appended as a clearly delimited block, so an attached skill rides this
-        same per-turn identity payload into every provider."""
+        ``skills`` is an optional ``aidoo.skill`` recordset whose instructions
+        are each appended as a clearly delimited block, so the attached skills
+        ride this same per-turn identity payload into every provider."""
         self.ensure_one()
         if effective_tools is None:
             effective_tools = self._ai_effective_tools()
@@ -186,8 +204,10 @@ class ResUsers(models.Model):
                 "public web content.")
         lines.append("--- END ODOO USER CONTEXT ---")
 
-        # Attached skill: a reusable instruction preset the model must follow.
-        if skill and skill.instructions:
+        # Attached skills: reusable instruction presets the model must follow.
+        for skill in (skills or []):
+            if not skill.instructions:
+                continue
             lines.append("")
             lines.append("--- AI SKILL: %s (follow these instructions) ---"
                          % (skill.name or ""))

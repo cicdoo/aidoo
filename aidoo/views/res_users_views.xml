@@ -34,6 +34,9 @@
                         <field name="aidoo_zero_trust_mode"/>
                         <field name="aidoo_sql_table_allowlist"
                                placeholder="e.g. account_*, sale_order* — empty = no SQL unless AI SQL Analyst"/>
+                        <field name="aidoo_excluded_model_ids"
+                               widget="many2many_tags"
+                               placeholder="Extra models hidden from AI for this user (adds to the global list)"/>
                     </group>
                 </page>
             </xpath>

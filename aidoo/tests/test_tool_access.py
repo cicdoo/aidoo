@@ -83,6 +83,21 @@ class TestToolAccess(TransactionCase):
         excluded = self.env["aidoo.session"]._ai_excluded_models()
         self.assertEqual(excluded, {"res.users", "ir.config_parameter"})
 
+    def test_per_user_excluded_models_union(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.excluded_models", "ir.config_parameter")
+        hr_model = self.env["ir.model"].search(
+            [("model", "=", "res.partner")], limit=1)
+        self.user.aidoo_excluded_model_ids = [(6, 0, hr_model.ids)]
+        self.assertEqual(
+            self.user._ai_excluded_models(),
+            {"ir.config_parameter", "res.partner"})
+        # The global set stays global — another user is unaffected.
+        other = self.env["res.users"].create({
+            "name": "Other Tester", "login": "aidoo_other_tester"})
+        self.assertEqual(
+            other._ai_excluded_models(), {"ir.config_parameter"})
+
     def test_default_action_method_patterns(self):
         patterns = self.env["aidoo.session"]._ai_action_method_patterns()
         self.assertIn("action_*", patterns)

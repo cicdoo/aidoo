@@ -119,7 +119,8 @@ class AidooProviderZai(AidooProvider):
             on_retry=_on_retry,
             rpm=int(self._pconfig("rpm_limit", 0) or 0),
             deadline=ctx.get("deadline"))
-        model = self._model()
+        # The runner resolves the model (persona override, else config default).
+        model = ctx.get("model") or self._model()
         messages = self._build_messages(session, ctx)
         tools = self._tool_specs(ctx.get("allowed_tools") or [])
         max_rounds = max(1, int(ctx.get("max_turns") or 30))

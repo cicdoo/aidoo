@@ -78,25 +78,41 @@ class TestAidooRoutes(HttpCase):
     # ------------------------------------------------------------------
     # Skills: /aidoo/new with a skill, /aidoo/skill toggle, unreadable reject
     # ------------------------------------------------------------------
-    def test_new_and_set_skill(self):
-        skill = self.env["aidoo.skill"].with_user(self.user).create(
-            {"name": "Tabler", "instructions": "Answer in a table."})
+    def test_new_and_set_skills(self):
+        skills = self.env["aidoo.skill"].with_user(self.user).create([
+            {"name": "Tabler", "instructions": "Answer in a table."},
+            {"name": "Brief", "instructions": "Keep it short."},
+        ])
         self.authenticate("aidoo_routes_user", self.password)
 
         created = self._call("/aidoo/new",
-                             {"provider": "claude", "skill_id": skill.id})
-        self.assertEqual(created["result"]["skill_id"], skill.id)
+                             {"provider": "claude", "skill_ids": skills.ids})
+        self.assertEqual(sorted(created["result"]["skill_ids"]),
+                         sorted(skills.ids))
         sess = self.env["aidoo.session"].browse(created["result"]["id"])
-        self.assertEqual(sess.skill_id, skill)
+        self.assertEqual(sess.skill_ids, skills)
 
-        # Clear it via /aidoo/skill, then set it back.
-        self._call("/aidoo/skill", {"session_id": self.conv.id, "skill_id": False})
-        self.conv.invalidate_recordset(["skill_id"])
-        self.assertFalse(self.conv.skill_id)
+        # Clear them via /aidoo/skill, then set them back.
+        self._call("/aidoo/skill", {"session_id": self.conv.id, "skill_ids": []})
+        self.conv.invalidate_recordset(["skill_ids"])
+        self.assertFalse(self.conv.skill_ids)
+        self._call("/aidoo/skill",
+                   {"session_id": self.conv.id, "skill_ids": skills.ids})
+        self.conv.invalidate_recordset(["skill_ids"])
+        self.assertEqual(self.conv.skill_ids, skills)
+
+    def test_set_skill_legacy_single_id_alias(self):
+        """The pre-multi-skill ``skill_id`` param keeps working."""
+        skill = self.env["aidoo.skill"].with_user(self.user).create(
+            {"name": "Tabler", "instructions": "Answer in a table."})
+        self.authenticate("aidoo_routes_user", self.password)
         self._call("/aidoo/skill",
                    {"session_id": self.conv.id, "skill_id": skill.id})
-        self.conv.invalidate_recordset(["skill_id"])
-        self.assertEqual(self.conv.skill_id, skill)
+        self.conv.invalidate_recordset(["skill_ids"])
+        self.assertEqual(self.conv.skill_ids, skill)
+        self._call("/aidoo/skill", {"session_id": self.conv.id, "skill_id": False})
+        self.conv.invalidate_recordset(["skill_ids"])
+        self.assertFalse(self.conv.skill_ids)
 
     def test_set_skill_rejects_unreadable_skill(self):
         """A private skill owned by another user can't be attached."""
@@ -110,10 +126,10 @@ class TestAidooRoutes(HttpCase):
             {"name": "Secret", "instructions": "x"})
         self.authenticate("aidoo_routes_user", self.password)
         self._call("/aidoo/skill",
-                   {"session_id": self.conv.id, "skill_id": private.id})
-        # Not readable -> resolved to empty -> session keeps no skill.
-        self.conv.invalidate_recordset(["skill_id"])
-        self.assertFalse(self.conv.skill_id)
+                   {"session_id": self.conv.id, "skill_ids": [private.id]})
+        # Not readable -> resolved to empty -> session keeps no skills.
+        self.conv.invalidate_recordset(["skill_ids"])
+        self.assertFalse(self.conv.skill_ids)
 
     # ------------------------------------------------------------------
     # Deleting a whole conversation (/aidoo/delete)

@@ -61,6 +61,12 @@ class AidooPersona(models.Model):
         "res.partner", string="Discuss Identity",
         related="bot_user_id.partner_id", store=True, index=True,
         help="Partner used to @mention the persona and post its replies.")
+    email = fields.Char(
+        compute="_compute_email", inverse="_inverse_email",
+        string="Email Identity",
+        help="Optional email address this persona sends from (e.g. a "
+             "scheduled agent's email delivery). Leave empty to send with "
+             "the system default sender.")
     instructions = fields.Text(
         string="Personality / System Prompt",
         help="Free-form instructions describing who this persona is and how it "
@@ -115,6 +121,30 @@ class AidooPersona(models.Model):
         """The user whose on-disk credentials this persona runs under."""
         self.ensure_one()
         return self.bot_user_id
+
+    def action_open_chat(self):
+        """Open (creating if needed) the caller's 1:1 Discuss chat with this
+        persona. Same URL pattern core uses to open a channel."""
+        self.ensure_one()
+        channel = self.env["discuss.channel"].channel_get([self.partner_id.id])
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/odoo/action-mail.action_discuss?active_id=%s" % channel.id,
+            "target": "self",
+        }
+
+    @api.depends("bot_user_id.email")
+    def _compute_email(self):
+        for persona in self:
+            persona.email = persona.bot_user_id.email
+
+    def _inverse_email(self):
+        # The service account is a system-managed record; managers edit the
+        # persona, not res.users — write through with sudo (same pattern as
+        # the auth actions below).
+        for persona in self:
+            if persona.bot_user_id:
+                persona.bot_user_id.sudo().email = persona.email
 
     @api.depends("provider", "bot_user_id")
     def _compute_authenticated(self):
