@@ -60,7 +60,7 @@ class AiAssistantRunner(models.AbstractModel):
     # ------------------------------------------------------------------
     # Launch (runs in the request env, as the user)
     # ------------------------------------------------------------------
-    def _launch(self, session, prompt, is_first, token):
+    def _launch(self, session, prompt, is_first, token, pending_audio=None):
         adapter = self._adapter(session)
         # Native (in-process) providers spawn no subprocess: skip CLI path
         # resolution, the loopback bridge token/routing sid, and the CLI auth env.
@@ -119,6 +119,9 @@ class AiAssistantRunner(models.AbstractModel):
             "excluded_models": excluded_models,
             "identity": identity,
             "output_format": adapter._pconfig("output_format", ""),
+            # Audio uploads transcribed in the worker thread, before dispatch,
+            # so the transcript files exist when the CLI Reads them.
+            "pending_audio": pending_audio or [],
         }
         thread = threading.Thread(
             target=self._run_worker, args=(ctx,), daemon=True,
@@ -135,6 +138,9 @@ class AiAssistantRunner(models.AbstractModel):
             session = env["aidoo.session"].browse(ctx["session_id"])
             runner = env["aidoo.runner"]
             try:
+                if ctx.get("pending_audio"):
+                    session._transcribe_pending(ctx["pending_audio"])
+                    cr.commit()
                 if runner._adapter(session)._is_native:
                     runner._execute_native(env, session, ctx)
                 else:

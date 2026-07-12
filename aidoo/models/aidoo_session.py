@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import time
 import uuid
 
@@ -232,7 +233,17 @@ UPLOAD_TEXT_EXTS = {
 }
 UPLOAD_PDF_EXTS = {".pdf"}
 UPLOAD_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-ALLOWED_UPLOAD_EXTS = UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS
+UPLOAD_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac", ".webm"}
+ALLOWED_UPLOAD_EXTS = (
+    UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS | UPLOAD_AUDIO_EXTS)
+
+# Audio can't be Read by the CLI agent: it is transcribed server-side (in the
+# runner worker thread, see _transcribe_pending) into a sibling text file the
+# prompt manifest points at. The transcript is cached on the attachment's
+# ``description`` behind a marker prefix, so re-materialization never
+# re-transcribes.
+AUDIO_TRANSCRIPT_SUFFIX = ".transcript.txt"
+TRANSCRIPT_MARKER = "[aidoo-transcript-v1]\n"
 
 # Subdirectory of the scratch dir that holds uploaded files. The Read tool is
 # allowed ONLY under this path — never the scratch root (which holds the bridge
@@ -526,7 +537,8 @@ class AiAssistantSession(models.Model):
         if ext not in ALLOWED_UPLOAD_EXTS:
             raise UserError(_(
                 "File type '%s' is not supported. You can upload text/CSV/code, "
-                "PDF and image (PNG/JPG/GIF/WebP) files.") % (ext or base))
+                "PDF, image (PNG/JPG/GIF/WebP) and audio "
+                "(MP3/WAV/M4A/OGG/OPUS/FLAC/AAC/WebM) files.") % (ext or base))
         return base
 
     def _store_upload(self, filename, content):
@@ -552,6 +564,92 @@ class AiAssistantSession(models.Model):
     def _attachment_descriptor(self, att):
         return {"id": att.id, "name": att.name, "mimetype": att.mimetype or ""}
 
+    # ------------------------------------------------------------------
+    # Audio transcription (see UPLOAD_AUDIO_EXTS comment above)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _is_audio_path(path):
+        return os.path.splitext(path or "")[1].lower() in UPLOAD_AUDIO_EXTS
+
+    @staticmethod
+    def _transcript_path_for(audio_path):
+        return audio_path + AUDIO_TRANSCRIPT_SUFFIX
+
+    @staticmethod
+    def _cached_transcript(att):
+        desc = att.sudo().description or ""
+        if desc.startswith(TRANSCRIPT_MARKER):
+            return desc[len(TRANSCRIPT_MARKER):]
+        return None
+
+    @staticmethod
+    def _write_transcript_file(path, text):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def _pending_audio_jobs(self, paths, atts):
+        """Audio attachments (from ONE materializer call, so zip is order-safe)
+        that still need transcription in the runner worker."""
+        return [
+            {"att_id": a.id, "path": p, "name": a.name}
+            for p, a in zip(paths, list(atts))
+            if self._is_audio_path(p) and self._cached_transcript(a) is None
+        ]
+
+    def _transcribe_pending(self, jobs):
+        """Transcribe queued audio uploads. Runs in the runner worker thread,
+        before the provider dispatch, so the transcript file exists by the time
+        the CLI Reads it. Never raises: a failure writes an explanatory
+        transcript file instead and the turn proceeds."""
+        self.ensure_one()
+        for job in jobs or []:
+            tpath = self._transcript_path_for(job["path"])
+            try:
+                text = self._run_whisper(job["path"], tpath)
+                att = self.env["ir.attachment"].sudo().browse(job["att_id"]).exists()
+                if att:
+                    att.write({"description": TRANSCRIPT_MARKER + text})
+            except Exception as e:  # noqa: BLE001
+                _logger.exception("aidoo: transcription failed for %s", job["path"])
+                self._write_transcript_file(tpath, _(
+                    "[No transcript available: automatic transcription of the "
+                    "audio file '%(name)s' failed (%(err)s). Tell the user you "
+                    "could not listen to their audio and ask them to try again "
+                    "or type the message.]")
+                    % {"name": job["name"], "err": str(e)[:300]})
+
+    def _run_whisper(self, audio_path, transcript_path):
+        """Run the standalone faster-whisper wrapper on one audio file and
+        return the transcript text. The child lifts RLIMIT_AS (workers cap it)."""
+        from .aidoo_runner import _lift_rlimit_as, resource
+        script = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "bridge", "transcribe_audio.py")
+        argv = [
+            self._config("whisper_python", "/opt/odoo/whisper-venv/bin/python"),
+            script, audio_path,
+            "--model", self._config("whisper_model", "medium"),
+            "--model-dir", self._config("whisper_model_dir", "/opt/odoo/whisper-models"),
+            "--threads", str(int(self._config("whisper_threads", 8))),
+            "--output", transcript_path,
+        ]
+        lang = self._config("whisper_language", "")
+        if lang:
+            argv += ["--language", lang]
+        proc = subprocess.run(
+            argv, capture_output=True, text=True,
+            timeout=int(self._config("whisper_timeout_s", 300)),
+            preexec_fn=(_lift_rlimit_as if resource else None))
+        if proc.returncode != 0:
+            err_lines = [ln for ln in (proc.stderr or "").strip().splitlines()
+                         if ln.strip() and not ln.strip().startswith("^")]
+            raise RuntimeError(
+                (err_lines[-1].strip() if err_lines else "")[:500]
+                or "transcriber exited %s" % proc.returncode)
+        with open(transcript_path, encoding="utf-8") as f:
+            return f.read().strip()
+
     def _write_attachment_to_disk(self, att):
         """Materialize one attachment into the uploads dir; return its abs path."""
         self.ensure_one()
@@ -560,6 +658,10 @@ class AiAssistantSession(models.Model):
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(att.raw or b"")
+        if self._is_audio_path(path):
+            cached = self._cached_transcript(att)
+            if cached is not None:
+                self._write_transcript_file(self._transcript_path_for(path), cached)
         return path
 
     def _materialize_attachments(self, attachment_ids):
@@ -819,12 +921,30 @@ class AiAssistantSession(models.Model):
         if body:
             parts.append(body)
         if paths:
-            listing = "\n".join("- %s" % p for p in paths)
-            parts.append(_(
+            lines, has_audio = [], False
+            for p in paths:
+                if self._is_audio_path(p):
+                    has_audio = True
+                    lines.append(_(
+                        '- %(t)s — transcript of the attached voice note "%(a)s"'
+                    ) % {"t": self._transcript_path_for(p),
+                         "a": os.path.basename(p)})
+                else:
+                    lines.append("- %s" % p)
+            msg = _(
                 "The user attached the following file(s), saved in your working "
                 "directory. Use the Read tool to open them — text/CSV/code is read "
                 "verbatim, images are viewed visually, and PDFs page-by-page:\n%s"
-            ) % listing)
+            ) % "\n".join(lines)
+            if has_audio:
+                msg += "\n" + _(
+                    "Audio files were transcribed server-side: Read the "
+                    ".transcript.txt file and treat its content as what the user "
+                    "said (it may be in any language). Never try to Read the "
+                    "audio file itself. If the transcript says transcription "
+                    "failed, tell the user and ask them to retry or type the "
+                    "message.")
+            parts.append(msg)
         return "\n\n".join(parts)
 
     def _history_for_prompt(self):
@@ -910,8 +1030,10 @@ class AiAssistantSession(models.Model):
                 % adapter._provider_label)
 
         paths, atts = self._materialize_attachments(attachment_ids)
+        pending_audio = self._pending_audio_jobs(paths, atts)
         if discuss_message is not None:
             d_paths, d_atts = self._materialize_message_attachments(discuss_message)
+            pending_audio += self._pending_audio_jobs(d_paths, d_atts)
             paths = paths + d_paths
             atts = atts | d_atts
         if not body and not atts:
@@ -938,7 +1060,8 @@ class AiAssistantSession(models.Model):
             prompt = context_prefix + "\n\n" + prompt
         self.write({"state": "running"})
         token = self._mint_bridge_token()
-        self.env["aidoo.runner"]._launch(self, prompt, is_first, token)
+        self.env["aidoo.runner"]._launch(self, prompt, is_first, token,
+                                         pending_audio=pending_audio)
         return {"message_id": user_msg.id, "session_id": self.id}
 
     def _post_report(self, html):

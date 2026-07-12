@@ -63,6 +63,19 @@ are in scope for security reports include:
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
+- **Audio transcription is an isolated local subprocess** — uploaded voice notes
+  are transcribed by `bridge/transcribe_audio.py`, a standalone script that never
+  imports Odoo, runs under its own dedicated Python venv
+  (`aidoo.whisper_python`) as the Odoo service user, and loads a **local**
+  faster-whisper model from disk (`aidoo.whisper_model_dir`) — no audio or
+  transcript ever leaves the server. Its input is a file that already passed the
+  upload validation (extension allow-list + size cap) and lives in the
+  session-scoped uploads directory; its only output is a `.transcript.txt`
+  written next to the audio in that same directory (the path-scoped Read guard
+  applies unchanged). The subprocess runs with a hard timeout
+  (`aidoo.whisper_timeout_s`, default 300 s) and any failure degrades to an
+  explanatory transcript note — it can neither block nor crash the turn, and a
+  failed transcription caches nothing.
 - **Per-user credential isolation** — OAuth credentials and per-user API keys
   (e.g. a user's Z.AI key under `.zai/api_key`) are stored per user with mode
   `0600` and never exposed on a record. The optional *shared* fallback keys
