@@ -22,7 +22,7 @@ class DiscussChannel(models.Model):
     def _message_post_after_hook(self, message, msg_values):
         res = super()._message_post_after_hook(message, msg_values)
         try:
-            self.env["aidoo.session"]._maybe_handle_discuss(self, msg_values)
+            self.env["aidoo.session"]._maybe_handle_discuss(self, msg_values, message=message)
         except Exception:  # noqa: BLE001
             # Never let assistant handling break a normal message post.
             _logger.exception("aidoo: discuss bot handling failed")

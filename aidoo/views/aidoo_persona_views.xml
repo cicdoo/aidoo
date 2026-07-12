@@ -24,6 +24,11 @@
         <field name="model">aidoo.persona</field>
         <field name="arch" type="xml">
             <form>
+                <header>
+                    <button name="action_open_chat" type="object" string="Chat"
+                            class="btn-primary" icon="fa-comments"
+                            invisible="not bot_user_id"/>
+                </header>
                 <sheet>
                     <widget name="web_ribbon" title="Default"
                             invisible="not is_default"/>
@@ -39,6 +44,8 @@
                             <field name="model"
                                    placeholder="Provider default"/>
                             <field name="skill_ids" widget="many2many_tags"/>
+                            <field name="email"
+                                   placeholder="System default sender"/>
                         </group>
                         <group>
                             <field name="authenticated" widget="boolean_toggle"

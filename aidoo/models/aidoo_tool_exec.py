@@ -114,7 +114,9 @@ def _sql_table_refs(query):
     so a column named like a denied table (e.g. account_id) is NOT flagged."""
     bare = _sql_strip_comments_strings(query)
     tokens = re.findall(r'"[^"]*"|[A-Za-z_][A-Za-z0-9_$]*|[(),.]', bare)
-    unq = lambda t: t[1:-1] if t.startswith('"') else t
+
+    def unq(t):
+        return t[1:-1] if t.startswith('"') else t
     refs, i, n = set(), 0, len(tokens)
     while i < n:
         low = tokens[i].lower()
@@ -220,7 +222,7 @@ class AidooToolExec(models.AbstractModel):
     def _check_model(self, model):
         if model not in self.env:
             raise UserError("Unknown model: %s" % model)
-        if model in self.env["aidoo.session"]._ai_excluded_models():
+        if model in self.env.user._ai_excluded_models():
             raise AccessError(
                 "Model '%s' is not accessible to the AI Assistant." % model)
 

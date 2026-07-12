@@ -31,7 +31,7 @@ export class AiChatAction extends Component {
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
             skills: [],             // [{id, name, description}] the user may use
-            currentSkillId: false,  // skill on the open conversation
+            currentSkillIds: [],    // skills on the open conversation
             sessions: [],
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
@@ -360,7 +360,7 @@ export class AiChatAction extends Component {
         });
         this.state.currentProvider = data.provider;
         this.state.contextLabel = data.context_label || "";
-        this.state.currentSkillId = data.skill_id || false;
+        this.state.currentSkillIds = data.skill_ids || [];
         this.state.messages = data.messages;
         this.state.hasMore = !!data.has_more;
         this.state.running = data.state === "running";
@@ -369,15 +369,15 @@ export class AiChatAction extends Component {
         this._captureLatestArtifact();
     }
 
-    // Attach (or clear) the skill on the open conversation — applies from the
-    // next turn. Called by the composer's skill picker with the chosen id.
-    async setSkill(skillId) {
-        const id = skillId || false;
-        this.state.currentSkillId = id;
+    // Set (or clear) the skills on the open conversation — applies from the
+    // next turn. Called by the composer's skill picker with the chosen ids.
+    async setSkills(skillIds) {
+        const ids = skillIds || [];
+        this.state.currentSkillIds = ids;
         if (this.state.currentId) {
             await rpc("/aidoo/skill", {
                 session_id: this.state.currentId,
-                skill_id: id,
+                skill_ids: ids,
             });
         }
     }

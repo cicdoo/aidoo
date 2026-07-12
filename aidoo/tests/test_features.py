@@ -278,6 +278,59 @@ class TestAidooFeatures(TransactionCase):
             session._deliver_result(True)
         self.assertEqual(self.env["mail.mail"].search_count([]), before + 1)
 
+    def test_email_delivery_uses_persona_identity(self):
+        persona = self.env["aidoo.persona"].create({
+            "name": "ReportBot", "provider": "claude",
+            "email": "reportbot@example.com",
+        })
+        agent = self._agent(delivery="email", persona_id=persona.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "All good."})
+        with patch("odoo.addons.mail.models.mail_mail.MailMail.send",
+                   return_value=True):
+            session._deliver_result(True)
+        mail = self.env["mail.mail"].search([], order="id desc", limit=1)
+        self.assertIn("reportbot@example.com", mail.email_from)
+        self.assertIn("ReportBot", mail.email_from)
+        self.assertEqual(mail.author_id, persona.partner_id)
+
+    def test_chatter_delivery_posts_as_persona(self):
+        persona = self.env["aidoo.persona"].create({
+            "name": "ChatterBot", "provider": "claude",
+            "email": "chatterbot@example.com",
+        })
+        partner = self.env["res.partner"].create({"name": "Acme Co"})
+        # Chatter delivery posts as the run-as user, which needs write access
+        # on the target record (standard mail posting rule).
+        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        agent = self._agent(delivery="chatter", persona_id=persona.id,
+                            res_model="res.partner", res_id=partner.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "Noted."})
+        session._deliver_result(True)
+        self.assertEqual(partner.message_ids[0].author_id, persona.partner_id)
+
+    def test_chatter_delivery_without_persona_email_still_posts(self):
+        """A persona with no email identity falls back to the default author
+        (mail refuses authors without an email address)."""
+        persona = self.env["aidoo.persona"].create({
+            "name": "MuteBot", "provider": "claude",
+        })
+        partner = self.env["res.partner"].create({"name": "Beta Co"})
+        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        agent = self._agent(delivery="chatter", persona_id=persona.id,
+                            res_model="res.partner", res_id=partner.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "Noted."})
+        before = len(partner.message_ids)
+        session._deliver_result(True)
+        self.assertEqual(len(partner.message_ids), before + 1)
+        self.assertNotEqual(partner.message_ids[0].author_id,
+                            persona.partner_id)
+
     def test_chat_delivery_sends_no_mail(self):
         agent = self._agent(delivery="chat")
         session = agent._run_once()
@@ -304,6 +357,63 @@ class TestAidooFeatures(TransactionCase):
             ("discuss_channel_id", "=", channel.id),
             ("user_id", "=", self.user.id)])
         self.assertEqual(len(session), 1)
+        self.assertEqual(session.state, "running")
+
+    def test_im_search_includes_personas(self):
+        """Persona partners show up in Discuss's "New message" search even
+        though their service users are portal (share) users."""
+        persona = self.env["aidoo.persona"].create(
+            {"name": "SearchBot", "provider": "claude"})
+        Partner = self.env["res.partner"].with_user(self.user)
+        ids = [p["id"] for p in
+               Partner.im_search("SearchBot").get("res.partner", [])]
+        self.assertIn(persona.partner_id.id, ids)
+        # An empty search lists personas too.
+        ids = [p["id"] for p in
+               Partner.im_search("").get("res.partner", [])]
+        self.assertIn(persona.partner_id.id, ids)
+        # Users outside the AI group are not offered personas.
+        outsider = self.env["res.users"].create({
+            "name": "No AI", "login": "aidoo_no_ai",
+            "groups_id": [(6, 0, [self.env.ref("base.group_user").id])],
+        })
+        ids = [p["id"] for p in
+               self.env["res.partner"].with_user(outsider)
+               .im_search("SearchBot").get("res.partner", [])]
+        self.assertNotIn(persona.partner_id.id, ids)
+
+    def test_channel_invite_search_includes_personas(self):
+        persona = self.env["aidoo.persona"].create(
+            {"name": "InviteBot", "provider": "claude"})
+        Partner = self.env["res.partner"].with_user(self.user)
+        res = Partner.search_for_channel_invite("InviteBot")
+        ids = [p["id"] for p in res["data"].get("res.partner", [])]
+        self.assertIn(persona.partner_id.id, ids)
+        # A persona already in the channel is not suggested again.
+        channel = self.env["discuss.channel"].sudo().create(
+            {"name": "Grp", "channel_type": "channel"})
+        channel.sudo().add_members(partner_ids=[persona.partner_id.id])
+        res = Partner.search_for_channel_invite(
+            "InviteBot", channel_id=channel.id)
+        ids = [p["id"] for p in res["data"].get("res.partner", [])]
+        self.assertNotIn(persona.partner_id.id, ids)
+
+    def test_dm_with_persona_answers_without_mention(self):
+        """A 1:1 chat with a persona spawns a session on a plain message —
+        no @mention required."""
+        persona = self.env["aidoo.persona"].create(
+            {"name": "DmBot", "provider": "claude"})
+        channel = self.env["discuss.channel"].with_user(self.user).channel_get(
+            [persona.partner_id.id])
+        channel.with_user(self.user).message_post(
+            body="hello there", message_type="comment",
+            author_id=self.user.partner_id.id,
+            subtype_xmlid="mail.mt_comment")
+        session = self.env["aidoo.session"].search(
+            [("discuss_channel_id", "=", channel.id)])
+        self.assertEqual(len(session), 1)
+        self.assertEqual(session.persona_id, persona)
+        self.assertEqual(session.user_id, self.user)
         self.assertEqual(session.state, "running")
 
     def test_bot_own_message_does_not_recurse(self):

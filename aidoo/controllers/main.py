@@ -104,22 +104,24 @@ class AiAssistantChat(http.Controller):
         session.is_favorite = bool(is_favorite)
         return {"id": session.id, "is_favorite": session.is_favorite}
 
-    def _readable_skill(self, skill_id):
-        """Return the skill the caller may use, or an empty recordset. Resolved
-        through search so the record rules (own + shared) apply — a private skill
-        of another user is simply not found."""
-        if not skill_id:
+    def _readable_skills(self, skill_ids):
+        """Return the subset of ``skill_ids`` the caller may use. Resolved
+        through search so the record rules (own + shared) apply — a private
+        skill of another user is simply not found."""
+        ids = [int(i) for i in (skill_ids or []) if i]
+        if not ids:
             return request.env["aidoo.skill"]
-        return request.env["aidoo.skill"].search(
-            [("id", "=", int(skill_id))], limit=1)
+        return request.env["aidoo.skill"].search([("id", "in", ids)])
 
     @http.route("/aidoo/skill", type="jsonrpc", auth="user")
-    def set_skill(self, session_id=None, skill_id=None):
-        """Attach (or clear) the instruction skill on a conversation. Takes
-        effect on the next turn."""
+    def set_skill(self, session_id=None, skill_ids=None, skill_id=None):
+        """Set (or clear) the instruction skills on a conversation. Takes
+        effect on the next turn. ``skill_id`` is a legacy single-id alias."""
         session = self._session(session_id)
-        session.skill_id = self._readable_skill(skill_id).id or False
-        return {"id": session.id, "skill_id": session.skill_id.id or False}
+        if skill_ids is None and skill_id is not None:
+            skill_ids = [skill_id] if skill_id else []
+        session.skill_ids = [(6, 0, self._readable_skills(skill_ids).ids)]
+        return {"id": session.id, "skill_ids": session.skill_ids.ids}
 
     @http.route("/aidoo/discard", type="jsonrpc", auth="user")
     def discard(self, session_id=None):
@@ -145,15 +147,18 @@ class AiAssistantChat(http.Controller):
         return {"deleted": True}
 
     @http.route("/aidoo/new", type="jsonrpc", auth="user")
-    def new(self, provider=None, skill_id=None, context_model=None,
+    def new(self, provider=None, skill_ids=None, skill_id=None,
+            context_model=None,
             context_res_id=None, context_domain=None, context_view_type=None,
             context_groupby=None, context_filters=None, context_selected_ids=None):
         vals = {"user_id": request.env.uid}
         if provider in _PROVIDER_CODES:
             vals["provider"] = provider
-        skill = self._readable_skill(skill_id)
-        if skill:
-            vals["skill_id"] = skill.id
+        if skill_ids is None and skill_id is not None:
+            skill_ids = [skill_id] if skill_id else []
+        skills = self._readable_skills(skill_ids)
+        if skills:
+            vals["skill_ids"] = [(6, 0, skills.ids)]
         # Optional focus context (from "Ask Aidoo"): a record on a form, or the
         # filtered/selected record set on any multi-record view. Only stored when
         # the user may actually read the model — never seed something outside
@@ -210,7 +215,7 @@ class AiAssistantChat(http.Controller):
         return {"id": session.id, "name": session.name, "state": session.state,
                 "provider": session.provider,
                 "is_favorite": session.is_favorite,
-                "skill_id": session.skill_id.id or False,
+                "skill_ids": session.skill_ids.ids,
                 "context_label": session._context_label()}
 
     @http.route("/aidoo/messages", type="jsonrpc", auth="user")
@@ -229,7 +234,7 @@ class AiAssistantChat(http.Controller):
             "name": session.name,
             "state": session.state,
             "provider": session.provider,
-            "skill_id": session.skill_id.id or False,
+            "skill_ids": session.skill_ids.ids,
             "context_label": session._context_label(),
             "messages": page["messages"],
             "has_more": page["has_more"],
@@ -284,8 +289,9 @@ class AiAssistantChat(http.Controller):
 
         Access: a valid share token (external), or a logged-in internal user who
         owns the session or belongs to its Discuss channel. The response CSP
-        sandboxes the document into an opaque origin with no script execution
-        and no network subresources — parity with the chat's srcdoc iframe.
+        sandboxes the document into an opaque origin with no script execution;
+        the only network subresources allowed are same-origin images/fonts
+        (e.g. /logo.png) — parity with the chat's srcdoc iframe.
         """
         att = self._artifact(attachment_id)
         if not att:
@@ -310,7 +316,7 @@ class AiAssistantChat(http.Controller):
             ("Content-Type", "text/html; charset=utf-8"),
             ("Content-Security-Policy",
              "sandbox; default-src 'none'; style-src 'unsafe-inline'; "
-             "img-src data:; font-src data:"),
+             "img-src 'self' data:; font-src 'self' data:"),
             ("X-Content-Type-Options", "nosniff"),
             ("Content-Disposition", "inline"),
             ("Cache-Control", "private, no-store"),
