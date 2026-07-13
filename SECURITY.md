@@ -82,6 +82,14 @@ are in scope for security reports include:
   (`aidoo.<provider>.api_key`, including `aidoo.zai.api_key`) live in
   `ir.config_parameter` and are readable by system-settings administrators —
   prefer per-user keys, and treat a shared key as an instance-wide secret.
+- **Native (in-process) providers keep the same isolation** — Codex, Gemini and
+  Z.AI talk to the provider backend directly from the Python worker instead of
+  spawning a CLI binary. This removes the subprocess/CLI attack surface, but the
+  credential model is unchanged: tokens are read from the acting/credential
+  user's own per-user config dir (`$CODEX_HOME/auth.json` etc., `0600`), token
+  refresh writes back to that same file, and tools still run in-process through
+  `aidoo.tool.exec` as the invoking user (never superuser). No credential is
+  placed on a record or shared across users.
 - **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
   ships built-in web tools (read_url_content / search_web / browser) that its
   permission engine **cannot deny** — so it has ungated internet access, a
@@ -166,7 +174,12 @@ are in scope for security reports include:
   The persona's service user never logs in and is not used as an acting identity.
   Creating/editing personas — and connecting their provider accounts — is gated to
   *AI Assistant Managers* (ir.model.access + record rules); other AI users may only
-  read active personas to resolve a mention. Credentials are written to the service
+  read active personas to resolve a mention. Persona discoverability in Discuss
+  (the "New message"/"Invite people" partner search, via the
+  `res.partner._search_for_channel_invite` override) is likewise gated to the
+  *AI Assistant User* group — non-AI users are never offered a persona to DM or
+  invite, and core's own search domain already excludes the portal service users.
+  Credentials are written to the service
   user's per-user, per-provider config dir exactly like a human's (0700/0600), never
   stored in the database; the transient connect-form inputs (API key / paste creds /
   login code) are cleared immediately after use.

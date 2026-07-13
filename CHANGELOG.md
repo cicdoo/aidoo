@@ -74,6 +74,16 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   were added.
 
 ### Fixed
+- **Forward-ported feature set adapted to Odoo 19 APIs** — the native Codex,
+  voice-note, HTML-artifact and multi-skill/persona features were brought over
+  and reconciled with framework changes in 19: the artifact share link replaces
+  the removed `ir.attachment.validate_access` with a constant-time
+  `odoo.tools.consteq` token check; persona Discuss discoverability is routed
+  through the single surviving `res.partner._search_for_channel_invite` hook
+  (18's `im_search` is gone) and `discuss.channel._get_or_create_chat` (was
+  `channel_get`); `Store()` is built with `.add()` (its first positional arg is
+  now `bus_channel`); and `res.users.groups_id` references become `group_ids`.
+  The `skill_id → skill_ids` migration ships at `19.0.1.7.0`.
 - **The model now searches for deferred MCP tools before giving up** — newer CLIs
   (e.g. Codex 0.144+) defer MCP server tools behind a tool-search / MCP-resource
   layer, so `mcp__odoo__*` tools aren't listed up-front. The system prompt used to
