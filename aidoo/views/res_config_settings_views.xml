@@ -61,6 +61,14 @@
                         <setting string="Model" help="Empty uses the ChatGPT account default.">
                             <field name="aidoo_codex_model"/>
                         </setting>
+                        <setting string="MCP Startup Timeout (s)"
+                                 help="Seconds Codex waits for the odoo MCP bridge to finish starting before dropping its tools. Raise if new Codex chats intermittently say AI tools are not available.">
+                            <field name="aidoo_codex_mcp_startup_timeout_sec"/>
+                        </setting>
+                        <setting string="MCP Tool Timeout (s)"
+                                 help="Per-call ceiling for odoo MCP tools under Codex (kept above the bridge's 60s HTTP timeout).">
+                            <field name="aidoo_codex_mcp_tool_timeout_sec"/>
+                        </setting>
                     </block>
 
                     <block title="Gemini (Google)" name="aidoo_gemini">

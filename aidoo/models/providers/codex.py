@@ -170,7 +170,7 @@ class AidooProviderCodex(AidooProvider):
     def _build_argv(self, ctx, last_msg_path):
         """Build the `codex exec` argv for this turn.
 
-        Verified against codex-cli 0.139.0:
+        Verified against codex-cli 0.142.5:
           first turn:  codex exec [OPTIONS] -
           later turns: codex exec [OPTIONS] resume <thread_id> -
 
@@ -220,10 +220,23 @@ class AidooProviderCodex(AidooProvider):
 
     def _mcp_overrides(self, ctx):
         bridge_env = self._bridge_env(ctx)
+        # Explicit startup/tool timeouts. Without a startup_timeout_sec Codex
+        # relies on its short built-in default, and a cold `python` spawn for the
+        # stdio bridge occasionally doesn't finish the `initialize` handshake in
+        # that window — so Codex silently drops the `odoo` server and the model,
+        # seeing no mcp__odoo__* tools, emits the SYSTEM_PROMPT fallback ("AI tools
+        # are not available right now, please retry."). A generous startup timeout
+        # makes Codex wait for the handshake. tool_timeout_sec is kept above the
+        # bridge's own 60s HTTP timeout so real Odoo calls aren't cut short.
+        # Both fields accept a plain TOML integer (verified on codex-cli 0.142.5).
+        startup_timeout = int(self._pconfig("mcp_startup_timeout_sec", 30))
+        tool_timeout = int(self._pconfig("mcp_tool_timeout_sec", 120))
         return [
             "-c", "mcp_servers.odoo.command=%s" % _toml_str(ctx["python_bin"]),
             "-c", "mcp_servers.odoo.args=[%s]" % _toml_str(ctx["bridge_script"]),
             "-c", "mcp_servers.odoo.env=%s" % _toml_inline_table(bridge_env),
+            "-c", "mcp_servers.odoo.startup_timeout_sec=%d" % startup_timeout,
+            "-c", "mcp_servers.odoo.tool_timeout_sec=%d" % tool_timeout,
         ]
 
     def _post_run(self, ctx, rc, stderr):
