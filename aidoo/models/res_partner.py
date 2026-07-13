@@ -70,9 +70,12 @@ class ResPartner(models.Model):
                 if not isinstance(v, dict) or v.get("id") not in seen)
 
     @api.model
-    def im_search(self, name, limit=20, excluded_ids=None):
-        res = super().im_search(name, limit=limit, excluded_ids=excluded_ids)
-        bots = self._aidoo_persona_partners_matching(name, excluded_ids)
+    def get_mention_suggestions(self, search, limit=8):
+        # Odoo 19 dropped res.partner.im_search (the 18 "New message" search);
+        # partner suggestions now flow through get_mention_suggestions, so the
+        # persona bots are surfaced here instead.
+        res = super().get_mention_suggestions(search, limit=limit)
+        bots = self._aidoo_persona_partners_matching(search)
         if bots:
             self._aidoo_merge_store_result(res, Store(bots.sudo()).get_result())
         return res
@@ -87,8 +90,12 @@ class ResPartner(models.Model):
         if channel:
             bots -= channel.channel_partner_ids
         if bots:
+            # Odoo 19's search_for_channel_invite returns {count, partner_ids,
+            # store_data, …} — the matching partners live in ``store_data`` and
+            # are referenced by ``partner_ids`` (18's flat ``data`` key is gone).
             store = Store()
             bots.sudo()._search_for_channel_invite_to_store(store, channel)
-            self._aidoo_merge_store_result(res["data"], store.get_result())
+            self._aidoo_merge_store_result(res["store_data"], store.get_result())
+            res["partner_ids"] = list(res.get("partner_ids") or []) + bots.ids
             res["count"] += len(bots)
         return res

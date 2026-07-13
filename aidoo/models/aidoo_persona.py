@@ -126,7 +126,10 @@ class AidooPersona(models.Model):
         """Open (creating if needed) the caller's 1:1 Discuss chat with this
         persona. Same URL pattern core uses to open a channel."""
         self.ensure_one()
-        channel = self.env["discuss.channel"].channel_get([self.partner_id.id])
+        # Odoo 19 renamed discuss.channel.channel_get -> _get_or_create_chat
+        # (returns the chat channel record between the given partners + self).
+        channel = self.env["discuss.channel"]._get_or_create_chat(
+            [self.partner_id.id])
         return {
             "type": "ir.actions.act_url",
             "url": "/odoo/action-mail.action_discuss?active_id=%s" % channel.id,

@@ -303,7 +303,7 @@ class TestAidooFeatures(TransactionCase):
         partner = self.env["res.partner"].create({"name": "Acme Co"})
         # Chatter delivery posts as the run-as user, which needs write access
         # on the target record (standard mail posting rule).
-        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
         agent = self._agent(delivery="chatter", persona_id=persona.id,
                             res_model="res.partner", res_id=partner.id)
         session = agent._run_once()
@@ -319,7 +319,7 @@ class TestAidooFeatures(TransactionCase):
             "name": "MuteBot", "provider": "claude",
         })
         partner = self.env["res.partner"].create({"name": "Beta Co"})
-        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
         agent = self._agent(delivery="chatter", persona_id=persona.id,
                             res_model="res.partner", res_id=partner.id)
         session = agent._run_once()
@@ -366,20 +366,20 @@ class TestAidooFeatures(TransactionCase):
             {"name": "SearchBot", "provider": "claude"})
         Partner = self.env["res.partner"].with_user(self.user)
         ids = [p["id"] for p in
-               Partner.im_search("SearchBot").get("res.partner", [])]
+               Partner.get_mention_suggestions("SearchBot").get("res.partner", [])]
         self.assertIn(persona.partner_id.id, ids)
         # An empty search lists personas too.
         ids = [p["id"] for p in
-               Partner.im_search("").get("res.partner", [])]
+               Partner.get_mention_suggestions("").get("res.partner", [])]
         self.assertIn(persona.partner_id.id, ids)
         # Users outside the AI group are not offered personas.
         outsider = self.env["res.users"].create({
             "name": "No AI", "login": "aidoo_no_ai",
-            "groups_id": [(6, 0, [self.env.ref("base.group_user").id])],
+            "group_ids": [(6, 0, [self.env.ref("base.group_user").id])],
         })
         ids = [p["id"] for p in
                self.env["res.partner"].with_user(outsider)
-               .im_search("SearchBot").get("res.partner", [])]
+               .get_mention_suggestions("SearchBot").get("res.partner", [])]
         self.assertNotIn(persona.partner_id.id, ids)
 
     def test_channel_invite_search_includes_personas(self):
@@ -387,7 +387,7 @@ class TestAidooFeatures(TransactionCase):
             {"name": "InviteBot", "provider": "claude"})
         Partner = self.env["res.partner"].with_user(self.user)
         res = Partner.search_for_channel_invite("InviteBot")
-        ids = [p["id"] for p in res["data"].get("res.partner", [])]
+        ids = [p["id"] for p in res["store_data"].get("res.partner", [])]
         self.assertIn(persona.partner_id.id, ids)
         # A persona already in the channel is not suggested again.
         channel = self.env["discuss.channel"].sudo().create(
@@ -395,7 +395,7 @@ class TestAidooFeatures(TransactionCase):
         channel.sudo().add_members(partner_ids=[persona.partner_id.id])
         res = Partner.search_for_channel_invite(
             "InviteBot", channel_id=channel.id)
-        ids = [p["id"] for p in res["data"].get("res.partner", [])]
+        ids = [p["id"] for p in res["store_data"].get("res.partner", [])]
         self.assertNotIn(persona.partner_id.id, ids)
 
     def test_dm_with_persona_answers_without_mention(self):
@@ -403,7 +403,7 @@ class TestAidooFeatures(TransactionCase):
         no @mention required."""
         persona = self.env["aidoo.persona"].create(
             {"name": "DmBot", "provider": "claude"})
-        channel = self.env["discuss.channel"].with_user(self.user).channel_get(
+        channel = self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
             [persona.partner_id.id])
         channel.with_user(self.user).message_post(
             body="hello there", message_type="comment",
