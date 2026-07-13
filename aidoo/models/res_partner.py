@@ -77,7 +77,10 @@ class ResPartner(models.Model):
         res = super().get_mention_suggestions(search, limit=limit)
         bots = self._aidoo_persona_partners_matching(search)
         if bots:
-            self._aidoo_merge_store_result(res, Store(bots.sudo()).get_result())
+            # Odoo 19 Store(): first positional arg is bus_channel, not records
+            # — add records via .add() (18 passed them to the constructor).
+            self._aidoo_merge_store_result(
+                res, Store().add(bots.sudo()).get_result())
         return res
 
     @api.model
