@@ -2,121 +2,100 @@
 # Copyright 2026 CICDoo (https://cicdoo.com)
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-"""Codex (OpenAI Codex CLI) provider adapter.
+"""Codex (ChatGPT subscription) provider — NATIVE (in-process) adapter.
 
-Drives the Codex CLI headless via ``codex exec --json`` (JSONL stream).  Codex
-``exec`` has no ``--append-system-prompt`` flag, so the system prompt and the
-per-user identity block are folded into the prompt text (fed via stdin).  The
-Odoo MCP bridge is injected per-invocation with inline ``-c`` TOML overrides so
-the per-session bridge token never touches a shared config file.
+Like the native Gemini and Z.AI adapters, this provider does **not** drive a
+CLI subprocess. It talks to the ChatGPT Codex backend — a Responses-API shaped
+SSE endpoint at ``https://chatgpt.com/backend-api/codex`` — directly from
+Python (see ``codex_client.py``) and runs the agent tool-calling loop
+in-process, so the ``codex`` binary is not needed at all.
 
-Per-user auth is the ChatGPT subscription device-code login: the user opens a
-verification URL, enters the one-time code, and Codex completes the exchange in
-the background and writes ``$CODEX_HOME/auth.json``.
+It is marked ``_is_native = True``; the runner drives ``_run_stream`` (a
+generator of the same ops the CLI parsers emit) instead of spawning a process.
+Tools are executed in-process through ``aidoo.tool.exec`` — the same
+enforcement + audit path the loopback MCP bridge uses — so su=False and the
+audit log are preserved.
+
+Per-user auth is unchanged: the ChatGPT subscription device-code login writing
+``$CODEX_HOME/auth.json`` — but the device flow is now reimplemented in pure
+Python (``codex_client.device_code_start`` / ``device_code_poll_and_exchange``)
+instead of shelling out to ``codex login``. An ``auth.json`` produced by
+``codex login`` on another machine can also be pasted via credential import.
+
+The backend is stateless (``store:false``): prior turns are replayed into the
+``input`` list each request, and within a turn the completed output items
+(including ``reasoning`` items with encrypted content) are carried forward
+between tool rounds. The legacy subprocess adapter is preserved, unregistered,
+in ``codex_cli.py``.
 """
 import json
 import logging
 import os
-import queue
-import re
-import signal
-import subprocess
 import threading
-import time
+import uuid
 
 from odoo import _
 from odoo.exceptions import UserError
 
-from .base import AidooProvider, SYSTEM_PROMPT
+from .base import AidooProvider, SYSTEM_PROMPT, _bridge_tool_schemas
+from .codex_client import (
+    CHATGPT_CODEX_BASE,
+    CodexAuthError,
+    CodexClient,
+    CodexError,
+    device_code_poll_and_exchange,
+    device_code_start,
+)
 
 _logger = logging.getLogger(__name__)
 
-# Per-user, in-flight `codex login --device-auth` process id (so a new login can
-# reap a stale one). Stored in ir.config_parameter, cleared on logout/complete.
-_LOGIN_PID = "aidoo.codex.login_pid.%s"
-
-# How long the start route waits to capture the device URL + code from the
-# codex login subprocess before returning to the UI.
-_LOGIN_CAPTURE_S = 15
-
-# Patterns to lift the verification URL and one-time code out of the codex login
-# stdout. The exact wording is Codex-version dependent; these are deliberately
-# loose and we also return the raw text as a fallback.
-_URL_RE = re.compile(r"https://\S*device\S*", re.IGNORECASE)
-# Codex device codes vary in length (e.g. the 4-then-5 "IL70-LNADU"); accept any
-# reasonable XXXX-XXXX grouping rather than a fixed 4-4 so the code is extracted
-# (which also lets the capture loop exit early instead of stalling the full 15s).
-_CODE_RE = re.compile(r"\b([A-Z0-9]{3,8}-[A-Z0-9]{3,8})\b")
-# Strip ANSI color/format escapes the CLI emits, so the captured URL/code regexes
-# match cleanly and any raw fallback shown in the UI is plain text.
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
-
-def _toml_str(value):
-    """Quote a Python string as a TOML basic string for a -c override."""
-    s = str(value)
-    s = s.replace("\\", "\\\\").replace('"', '\\"')
-    s = s.replace("\n", "\\n").replace("\t", "\\t")
-    return '"%s"' % s
-
-
-def _toml_inline_table(mapping):
-    """Render a flat {str: str} mapping as a TOML inline table."""
-    items = ", ".join(
-        "%s = %s" % (k, _toml_str(v)) for k, v in mapping.items())
-    return "{ %s }" % items
+# In-flight device-login attempts, one per user: {user_id: threading.Event}.
+# A new login (or a logout) sets the previous attempt's cancel event. Kept
+# in-process only — a login is a short-lived UI interaction, and auth.json on
+# disk is the durable outcome the status poll watches.
+_LOGIN_CANCEL = {}
+_LOGIN_LOCK = threading.Lock()
 
 
 class AidooProviderCodex(AidooProvider):
     _name = "aidoo.provider.codex"
     _inherit = "aidoo.provider"
-    _description = "Aidoo Provider — Codex"
+    _description = "Aidoo Provider — Codex (native ChatGPT backend)"
 
     _provider_code = "codex"
     _provider_label = "Codex"
     _accent_color = "#10a37f"          # codex used teal
     _provider_icon = "/aidoo/static/src/svg/openai.svg"
     _config_dir_name = ".codex"        # CODEX_HOME lives at <home>/.codex
-    _default_cli_glob = "/usr/local/bin/codex"
-    _default_model = ""                 # empty = ChatGPT account default
+    # The native client must always pin a model (the request body requires one;
+    # there is no CLI "account default" to fall back to).
+    _default_model = "gpt-5-codex"
     _auth_ui_mode = "device_poll"
     _uses_system_prompt_flag = False
+    _is_native = True
 
     # ------------------------------------------------------------------
-    # Runtime env: HOME + CODEX_HOME (per user); force subscription auth
-    # ------------------------------------------------------------------
-    def _oauth_env(self, user):
-        """Point the Codex CLI at THIS user's private home/config dir.
-
-        Each user authenticates with their own ChatGPT subscription; Codex
-        stores credentials in ``$CODEX_HOME/auth.json``. Isolating CODEX_HOME
-        (and HOME) per user keeps credentials, config and session state fully
-        separate. ``CODEX_API_KEY=""`` forces subscription auth (never an API
-        key)."""
-        return {
-            "HOME": self._home_dir(user),
-            "CODEX_HOME": self._config_dir(user, create=True),
-            "CODEX_API_KEY": "",
-        }
-
-    # ------------------------------------------------------------------
-    # Authentication state — read $CODEX_HOME/auth.json
+    # Authentication state — read/write $CODEX_HOME/auth.json
     # ------------------------------------------------------------------
     def _auth_path(self, user):
         return os.path.join(self._config_dir(user), "auth.json")
 
-    def _is_authenticated(self, user):
-        """True if this user has stored, non-empty Codex credentials.
-
-        Codex writes ``$CODEX_HOME/auth.json`` after a successful login. The
-        exact schema is version-dependent; accept any of the known token
-        locations (ChatGPT login nests under ``tokens``)."""
+    def _load_auth(self, user):
+        """The parsed auth.json dict, or None if absent/unusable."""
         try:
             with open(self._auth_path(user), "r") as f:
                 data = json.load(f)
         except (OSError, ValueError):
-            return False
-        if not isinstance(data, dict):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _is_authenticated(self, user):
+        """True if this user has stored, non-empty Codex credentials.
+
+        The exact schema is version-dependent; accept any of the known token
+        locations (ChatGPT login nests under ``tokens``)."""
+        data = self._load_auth(user)
+        if not data:
             return False
         tokens = data.get("tokens") or {}
         return bool(
@@ -124,339 +103,334 @@ class AidooProviderCodex(AidooProvider):
             or data.get("access_token")
             or data.get("OPENAI_API_KEY"))
 
+    def _base_url(self):
+        """The Codex backend base URL, read PROVIDER-SCOPED only.
+
+        We must not use ``_pconfig`` here: its fallback to the shared
+        ``aidoo.base_url`` is the Odoo *host* URL, which would silently point
+        the client at the local server. Read ``aidoo.codex.base_url`` directly
+        and fall back to the ChatGPT backend constant."""
+        val = self.env["ir.config_parameter"].sudo().get_param(
+            "aidoo.codex.base_url")
+        return val if val not in (None, False, "") else CHATGPT_CODEX_BASE
+
     # ------------------------------------------------------------------
-    # Prompt assembly — Codex exec has no --append-system-prompt
+    # Prompt: native assembles structured `input` items in _run_stream; here we
+    # only need the composed current-turn user text (+ attachment manifest).
     # ------------------------------------------------------------------
     def _build_prompt(self, session, body, paths, is_first, identity):
-        """Fold the system prompt and the per-user identity block into the prompt
-        text (Codex cannot take a system prompt flag).
-
-        Ordered: system prompt, identity block, prior conversation (when not the
-        first turn, replayed from the DB since Codex resume is by thread id but
-        history is also surfaced for context), then the current user turn plus
-        its attachment manifest. The system prompt is included on the first turn;
-        the identity block (which reflects the current tool grant) every turn."""
-        parts = []
-        if is_first:
-            parts.append(SYSTEM_PROMPT)
-        parts.append(identity)
-        if not is_first:
-            history = session._history_for_prompt()
-            if history:
-                parts.append(
-                    "--- PRIOR CONVERSATION ---\n" + history
-                    + "\n--- END PRIOR CONVERSATION ---")
-        parts.append("--- USER MESSAGE ---\n" + session._compose_prompt(body, paths))
-        return "\n\n".join(parts)
+        return session._compose_prompt(body, paths)
 
     # ------------------------------------------------------------------
-    # Launch: build `codex exec` argv/env (MCP injected via -c overrides)
+    # The native turn: Responses SSE streaming + in-process tool loop
     # ------------------------------------------------------------------
-    def _prepare_run(self, ctx):
-        last_msg_path = os.path.join(ctx["scratch"], "last_message.txt")
-        argv = self._build_argv(ctx, last_msg_path)
-        env = self._base_run_env(ctx)
-        # The prompt is fed via STDIN (argv ends with "-"), never as an argv
-        # token: it begins with the "--- ODOO USER CONTEXT" block, which codex's
-        # parser would otherwise mistake for a CLI flag ("unexpected argument").
-        return {
-            "argv": argv,
-            "env": env,
-            "cwd": ctx["scratch"],
-            "stdin": ctx["prompt"],
-            "cleanup": [last_msg_path],
-        }
+    def _run_stream(self, env, session, ctx):
+        user = session._credential_user().sudo()
+        auth = self._load_auth(user)
+        if not auth or not (auth.get("tokens") or {}).get("access_token"):
+            yield {"op": "error", "text": _(
+                "Connect Codex with your ChatGPT account to chat. Open the "
+                "connect panel to sign in with a device code (or import your "
+                "auth.json).")}
+            return
 
-    def _build_argv(self, ctx, last_msg_path):
-        """Build the `codex exec` argv for this turn.
+        def _save(new_auth):
+            try:
+                self._write_user_file(
+                    user, self._auth_path(user), json.dumps(new_auth, indent=2))
+            except Exception:  # noqa: BLE001 — token persistence is best-effort
+                # The refreshed token still works for this turn, but losing it
+                # forces a re-auth once it expires, so leave a trace.
+                _logger.warning(
+                    "Codex: failed to persist refreshed OAuth tokens for user %s",
+                    user.id, exc_info=True)
 
-        Verified against codex-cli 0.142.5:
-          first turn:  codex exec [OPTIONS] -
-          later turns: codex exec [OPTIONS] resume <thread_id> -
+        runner = env["aidoo.runner"]
 
-        The exec OPTIONS (--json, -C, -o, -c, …) belong to `exec` and MUST come
-        BEFORE the `resume` subcommand — `resume` itself only accepts `-c` plus
-        the [SESSION_ID] [PROMPT] positionals, so passing e.g. `-C` after
-        `resume` errors with "unexpected argument '-C'".
-
-        Two flags work together for safe unattended operation:
-
-        * --dangerously-bypass-approvals-and-sandbox: in `codex exec` (non-
-          interactive) MCP tool calls are otherwise auto-cancelled — there is no
-          TTY to approve them. This flag lets the Odoo MCP tools run.
-        * --disable shell_tool: turns OFF Codex's built-in shell/command tool, so
-          the agent has NO local execution at all. The only capabilities left are
-          the loopback-only, token-gated Odoo MCP tools, which run under the
-          acting user's own ACLs.
-
-        --skip-git-repo-check is required because the scratch cwd is not a git
-        repository.
-        """
-        resume = (not ctx["is_first"]) and ctx["cli_session_id"]
-        argv = [ctx["cli_path"], "exec"]
-        # exec-level options FIRST (apply to both fresh and resumed turns).
-        argv += [
-            "--json",
-            "-C", ctx["scratch"],
-            "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--disable", "shell_tool",
-            "--output-last-message", last_msg_path,
-        ]
-        # Only pin the model if explicitly configured; otherwise let Codex use
-        # the account default (forcing an unsupported model 400s the turn).
-        if ctx["model"]:
-            argv += ["-m", ctx["model"]]
-        # MCP server is injected per-invocation via -c overrides (race-free: the
-        # per-session bridge token never touches a shared config file). The -c
-        # value is parsed as TOML, so an inline table for `.env` is accepted.
-        argv += self._mcp_overrides(ctx)
-        # Then the resume subcommand + thread id, and finally "-" so codex reads
-        # the PROMPT from stdin (see _prepare_run) instead of from argv.
-        if resume:
-            argv += ["resume", ctx["cli_session_id"]]
-        argv.append("-")
-        return argv
-
-    def _mcp_overrides(self, ctx):
-        bridge_env = self._bridge_env(ctx)
-        # Explicit startup/tool timeouts. Without a startup_timeout_sec Codex
-        # relies on its short built-in default, and a cold `python` spawn for the
-        # stdio bridge occasionally doesn't finish the `initialize` handshake in
-        # that window — so Codex silently drops the `odoo` server and the model,
-        # seeing no mcp__odoo__* tools, emits the SYSTEM_PROMPT fallback ("AI tools
-        # are not available right now, please retry."). A generous startup timeout
-        # makes Codex wait for the handshake. tool_timeout_sec is kept above the
-        # bridge's own 60s HTTP timeout so real Odoo calls aren't cut short.
-        # Both fields accept a plain TOML integer (verified on codex-cli 0.142.5).
-        startup_timeout = int(self._pconfig("mcp_startup_timeout_sec", 30))
-        tool_timeout = int(self._pconfig("mcp_tool_timeout_sec", 120))
-        return [
-            "-c", "mcp_servers.odoo.command=%s" % _toml_str(ctx["python_bin"]),
-            "-c", "mcp_servers.odoo.args=[%s]" % _toml_str(ctx["bridge_script"]),
-            "-c", "mcp_servers.odoo.env=%s" % _toml_inline_table(bridge_env),
-            "-c", "mcp_servers.odoo.startup_timeout_sec=%d" % startup_timeout,
-            "-c", "mcp_servers.odoo.tool_timeout_sec=%d" % tool_timeout,
-        ]
-
-    def _post_run(self, ctx, rc, stderr):
-        """Fallback assistant message: read the --output-last-message file.
-
-        Codex has no explicit final-text event the way Claude's `result` does;
-        when nothing was streamed the runner uses this file's contents."""
-        path = os.path.join(ctx["scratch"], "last_message.txt")
-        try:
-            with open(path, "r") as f:
-                return f.read().strip() or None
-        except OSError:
-            return None
-
-    # ------------------------------------------------------------------
-    # Stream parsing: codex stream-json (JSONL) -> common ops
-    # ------------------------------------------------------------------
-    def _normalize_event(self, evt, state):
-        etype = evt.get("type") or ""
-        ops = []
-
-        # thread.started carries the codex thread/session id used to resume.
-        if etype == "thread.started":
-            tid = evt.get("thread_id") or (evt.get("thread") or {}).get("id")
-            if tid:
-                ops.append({"op": "session_id", "id": tid})
-            return ops
-
-        # item.* events carry the actual content (agent text, tool calls, …).
-        if etype.startswith("item."):
-            return self._normalize_item(evt.get("item") or {})
-
-        if etype == "turn.completed":
-            ops.append({"op": "done", "text": None})
-            return ops
-
-        if etype in ("turn.failed", "error"):
-            # Codex emits either {"type":"error","message":"…"} (top-level) or a
-            # nested {"error":{"message":"…"}} — accept both.
-            err = evt.get("error")
-            if isinstance(err, dict):
-                text = err.get("message")
+        def _on_retry(attempt, delay, reason):
+            # Surface a live "retrying…" notice during the client's backoff
+            # wait. Stay quiet for the first quick retry that recovers alone.
+            if attempt < 2 and delay < 8:
+                return
+            if reason == 429:
+                text = _("Codex is rate-limited — retrying in %ss…") % int(delay)
             else:
-                text = err if isinstance(err, str) else None
-            text = text or evt.get("message") or "Codex run failed."
-            ops.append({"op": "error", "text": text})
-            return ops
+                text = _("Codex is busy — retrying in %ss…") % int(delay)
+            runner._emit_notice(ctx, text)
 
-        # Unknown events: ignore (never raise).
-        return ops
+        client = CodexClient(
+            auth,
+            save_auth=_save,
+            base_url=self._base_url(),
+            on_retry=_on_retry,
+            rpm=int(self._pconfig("rpm_limit", 0) or 0),
+            deadline=ctx.get("deadline"))
+        # The runner resolves the model (persona override, else config default).
+        model = ctx.get("model") or self._model()
+        # Conversation id: client-minted, reused as the session_id header and
+        # prompt_cache_key so the backend can cache the replayed prefix.
+        sid = session.cli_session_id
+        if not sid:
+            sid = str(uuid.uuid4())
+            yield {"op": "session_id", "id": sid}
+        instructions = "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or "")
+        input_items = self._build_input(session, ctx)
+        tools = self._tool_specs(ctx.get("allowed_tools") or [])
+        # Reasoning summaries are a gpt-5-family feature; other models 400.
+        reasoning = {"summary": "auto"} if (model or "").startswith("gpt-5") else None
+        max_rounds = max(1, int(ctx.get("max_turns") or 30))
 
-    def _normalize_item(self, item):
-        ops = []
-        # Codex labels the kind under "type" (within the item) or "item_type".
-        itype = item.get("item_type") or item.get("type") or ""
-        item_id = item.get("id") or item.get("item_id")
+        rnd = 0
+        tried_dev_fallback = False
+        while rnd < max_rounds:
+            msg_id = "x%s-%s" % (session.turn_count, rnd)
+            calls = []
+            failed = None
+            try:
+                stream = client.stream_responses(
+                    model, input_items, instructions=instructions,
+                    tools=tools, reasoning=reasoning,
+                    session_id=sid, prompt_cache_key=sid)
+                for evt in stream:
+                    etype = evt.get("type") or ""
+                    if etype == "response.output_text.delta":
+                        piece = evt.get("delta") or ""
+                        if piece:
+                            yield {"op": "text", "msg_id": msg_id, "text": piece}
+                    elif etype == "response.output_item.done":
+                        item = evt.get("item") or {}
+                        # Carry every completed item (message, function_call
+                        # AND reasoning w/ encrypted content) into the next
+                        # round's input — required for coherence with store:false.
+                        input_items.append(item)
+                        if item.get("type") == "function_call":
+                            calls.append(item)
+                    elif etype in ("response.failed", "response.incomplete"):
+                        resp = evt.get("response") or {}
+                        err = resp.get("error") or {}
+                        failed = (err.get("message") if isinstance(err, dict)
+                                  else str(err)) or _("Codex run failed.")
+                    # response.completed / deltas of other kinds: nothing to do.
+            except CodexAuthError as e:
+                yield {"op": "error", "text": _(
+                    "Codex authentication failed: %s") % e}
+                return
+            except CodexError as e:
+                # Some models may reject a custom ``instructions`` text with a
+                # 400. Retry ONCE (before anything streamed, so round 0 only)
+                # with the system text demoted to a leading developer message.
+                if (getattr(e, "status", None) == 400 and rnd == 0
+                        and not tried_dev_fallback):
+                    tried_dev_fallback = True
+                    _logger.info(
+                        "Codex: 400 on instructions, retrying with a "
+                        "developer message: %.300s", e)
+                    input_items.insert(0, {
+                        "type": "message", "role": "developer",
+                        "content": [{"type": "input_text",
+                                     "text": instructions}]})
+                    instructions = "You are a helpful assistant."
+                    continue
+                yield {"op": "error", "text": _("Codex request failed: %s") % e}
+                return
+            if failed:
+                yield {"op": "error", "text": failed}
+                return
 
-        if itype in ("agent_message", "assistant_message", "message"):
-            text = (item.get("text") or item.get("message")
-                    or self._content_text(item.get("content")) or "")
-            if not text:
-                return ops
-            # Item events may arrive as started/updated/completed for one id;
-            # Codex emits the latest FULL text, so replace rather than append.
-            ops.append({"op": "text", "msg_id": item_id,
-                        "text": text, "replace": True})
-            return ops
+            if not calls:
+                return  # turn complete; the runner finalizes the 'done' state
 
-        if itype in ("mcp_tool_call", "tool_call", "function_call",
-                     "command_execution", "web_search"):
-            name = (item.get("tool") or item.get("name")
-                    or item.get("command") or itype)
-            tinput = (item.get("arguments") or item.get("args")
-                      or item.get("input") or {})
-            if not isinstance(tinput, dict):
-                tinput = {"arguments": tinput}
-            ops.append({
-                "op": "tool_use",
-                "msg_id": item_id,
-                "id": item_id or itype,
-                "name": self._strip_tool_prefix(name),
-                "input": tinput,
+            # Execute each requested tool in-process and feed results back.
+            for item in calls:
+                cid = item.get("call_id") or item.get("id") or ""
+                name = self._strip_tool_prefix(item.get("name") or "")
+                try:
+                    args = json.loads(item.get("arguments") or "{}")
+                    if not isinstance(args, dict):
+                        args = {}
+                except ValueError:
+                    _logger.warning(
+                        "Codex: tool %s sent non-JSON arguments, using {}: %.200s",
+                        name, item.get("arguments"))
+                    args = {}
+                yield {"op": "tool_use", "msg_id": msg_id, "id": cid,
+                       "name": name, "input": args}
+                result = env["aidoo.tool.exec"]._dispatch(session, name, args)
+                is_error = isinstance(result, dict) and set(result) == {"error"}
+                payload = json.dumps(result, default=str, ensure_ascii=False)
+                yield {"op": "tool_result", "id": cid,
+                       "text": payload, "is_error": bool(is_error)}
+                input_items.append({"type": "function_call_output",
+                                    "call_id": cid, "output": payload})
+            rnd += 1
+
+        yield {"op": "text", "msg_id": "x%s-cap" % session.turn_count,
+               "text": _("\n\n_(stopped after %s tool rounds)_") % max_rounds}
+        return  # hard stop: never run beyond the round cap
+
+    # ------------------------------------------------------------------
+    # Input / tool-schema assembly
+    # ------------------------------------------------------------------
+    def _build_input(self, session, ctx):
+        """Responses ``input`` items: replayed prior user/assistant text, then
+        this turn's user message. (The system text goes via ``instructions``.)
+
+        The backend is stateless (store:false), so we replay recent context
+        each turn — same windowing as the native Z.AI/Gemini adapters.
+
+        On a first turn (``ctx['is_first']``) we skip the replay: there is no
+        prior context in interactive chat, and scheduled runs force a first turn
+        so the agent-configured context prefix (in ``ctx['prompt']``) is the
+        sole, non-duplicated source of prior context."""
+        items = []
+        if not ctx.get("is_first"):
+            msgs = session.message_ids.filtered(
+                lambda m: m.role in ("user", "assistant")).sorted("id")
+            # The current turn's user message was just persisted (it is the last
+            # one); replay only PRIOR turns and add this turn from ctx['prompt'].
+            prior = msgs[:-1] if msgs else msgs
+            for m in prior[-20:]:
+                body = m.body or ""
+                if not body:
+                    continue
+                if m.role == "user":
+                    role, ptype = "user", "input_text"
+                else:
+                    role, ptype = "assistant", "output_text"
+                items.append({"type": "message", "role": role,
+                              "content": [{"type": ptype, "text": body}]})
+        items.append({"type": "message", "role": "user",
+                      "content": [{"type": "input_text",
+                                   "text": ctx.get("prompt") or ""}]})
+        return items
+
+    def _tool_specs(self, allowed_tools):
+        """Responses-API ``tools`` for the user's granted Odoo tools.
+
+        The Odoo tools come from the shared bridge schema, filtered to what the
+        user is granted (the executor re-checks the grant authoritatively at
+        call time). Unlike chat-completions (z.ai), Responses function tools
+        are FLAT: ``name``/``parameters`` at the top level, no nested
+        ``function`` object."""
+        try:
+            schemas = _bridge_tool_schemas()
+        except Exception:  # noqa: BLE001 — never let schema loading break a run
+            schemas = []
+        allowed = set(allowed_tools)
+        specs = []
+        for t in schemas:
+            if t.get("name") not in allowed:
+                continue
+            specs.append({
+                "type": "function",
+                "name": t["name"],
+                "description": t.get("description") or "",
+                "strict": False,
+                "parameters": t.get("inputSchema") or {"type": "object"},
             })
-            # Codex has no streamed tool_result event, so none is emitted here.
-            return ops
-
-        # reasoning / plan_update / file_change / others: not surfaced.
-        return ops
-
-    @staticmethod
-    def _content_text(content):
-        """Flatten a list-of-blocks content payload into plain text."""
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return "".join(
-                b.get("text", "") for b in content if isinstance(b, dict))
-        return ""
+        return specs or None
 
     # ------------------------------------------------------------------
-    # Authentication — ChatGPT subscription device-code login
+    # Authentication — ChatGPT device-code login, now in pure Python
     # ------------------------------------------------------------------
-    def _login_env(self, user):
-        """Minimal env for spawning the codex CLI for THIS user."""
-        env = {
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            "LANG": os.environ.get("LANG", "C.UTF-8"),
-        }
-        env.update(self._oauth_env(user))
-        return env
+    def _cancel_login(self, user):
+        """Signal any in-flight device-login poll thread for this user."""
+        with _LOGIN_LOCK:
+            ev = _LOGIN_CANCEL.pop(user.id, None)
+        if ev is not None:
+            ev.set()
 
     def _auth_start(self, user):
-        """Begin a device-code login: spawn `codex login --device-auth`, capture
-        the verification URL + one-time code, and leave the process running so
-        Codex completes the exchange and writes auth.json.
+        """Begin a device-code login: obtain the verification URL + one-time
+        code from auth.openai.com, then poll for approval in a background
+        thread that writes ``auth.json`` when the exchange completes.
 
-        Returns ``{"url", "code", "raw", "authenticated"}`` for the chat gate."""
+        Returns ``{"url", "code", "raw", "authenticated"}`` for the chat gate
+        (same shape the CLI-scraping implementation returned, so the OWL
+        device_poll panel is unchanged)."""
         if self._is_authenticated(user):
             return {"url": "", "code": "", "raw": "", "authenticated": True}
 
-        self._reap_login(user)  # kill any previous in-flight attempt
-        cli = self._resolve_cli_path()
+        self._cancel_login(user)  # cancel any previous in-flight attempt
         try:
-            proc = subprocess.Popen(
-                [cli, "login", "--device-auth"],
-                cwd=self._home_dir(user), env=self._login_env(user),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, text=True, bufsize=1)
-        except OSError as e:
-            raise UserError(_("Could not start codex login: %s") % e)
-
-        self.env["ir.config_parameter"].sudo().set_param(
-            _LOGIN_PID % user.id, str(proc.pid))
-
-        raw = self._capture_login(proc, _LOGIN_CAPTURE_S)
-        raw = _ANSI_RE.sub("", raw)
-        url_m = _URL_RE.search(raw)
-        url = url_m.group(0) if url_m else ""
-        m = _CODE_RE.search(raw)
-        code = m.group(1) if m else ""
-        if proc.poll() not in (None, 0) and not url:
+            info = device_code_start()
+        except CodexError as e:
             raise UserError(_(
-                "codex login failed to start the device flow. Make sure device-"
-                "code login is enabled for your ChatGPT account/workspace.\n%s"
-            ) % (raw[:500] or "(no output)"))
-        return {"url": url, "code": code, "raw": raw[:2000],
-                "authenticated": self._is_authenticated(user)}
+                "Could not start the Codex device login: %s") % e)
 
-    @staticmethod
-    def _capture_login(proc, wait_s):
-        """Read the login process's stdout for up to ``wait_s`` seconds (without
-        blocking on the long-lived process), returning the captured text."""
-        q = queue.Queue()
+        # Resolve everything the thread needs BEFORE spawning it: no self.env
+        # (no cursor) may be touched from the worker thread.
+        auth_path = self._auth_path(user)
+        self._config_dir(user, create=True)
+        cancel = threading.Event()
+        with _LOGIN_LOCK:
+            _LOGIN_CANCEL[user.id] = cancel
 
-        def _pump(pipe, out_q):
+        def _worker():
             try:
-                for ln in pipe:
-                    out_q.put(ln)
-            finally:
-                out_q.put(None)
+                auth = device_code_poll_and_exchange(
+                    info["device_auth_id"], info["user_code"],
+                    interval=info["interval"], cancel_event=cancel)
+            except CodexError as e:
+                if not cancel.is_set():
+                    _logger.warning("Codex device login failed: %s", e)
+                return
+            if cancel.is_set():
+                return
+            tmp = auth_path + ".tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(auth, f, indent=2)
+            os.replace(tmp, auth_path)
+            _logger.info("Codex device login completed for user %s", user.id)
 
-        threading.Thread(target=_pump, args=(proc.stdout, q), daemon=True,
-                         name="aidoo_codex_login_read").start()
-        deadline = time.time() + wait_s
-        buf = []
-        while time.time() < deadline:
-            try:
-                ln = q.get(timeout=min(1.0, max(0.05, deadline - time.time())))
-            except queue.Empty:
-                if proc.poll() is not None:
-                    break
-                continue
-            if ln is None:
-                break
-            buf.append(ln)
-            # Strip ANSI before matching: the CLI wraps the code in color escapes
-            # (e.g. "\x1b[94mIL70-LNADU\x1b[0m") whose trailing "m" would otherwise
-            # defeat the \b boundary and prevent the early exit, stalling the run.
-            text = _ANSI_RE.sub("", "".join(buf))
-            # Stop early once we have both a device URL and a code.
-            if _URL_RE.search(text) and _CODE_RE.search(text):
-                break
-        return "".join(buf)
+        threading.Thread(target=_worker, daemon=True,
+                         name="aidoo_codex_device_poll").start()
+        return {"url": info["verify_url"], "code": info["user_code"],
+                "raw": "", "authenticated": False}
 
     def _auth_status(self, user):
-        """Are this user's credentials present? Reap the (finished) login
-        process once authenticated."""
+        """Are this user's credentials present? Drop the (finished) login
+        attempt's cancel handle once authenticated."""
         ok = self._is_authenticated(user)
         if ok:
-            self._reap_login(user)  # login done; drop the (now-exited) process
+            with _LOGIN_LOCK:
+                _LOGIN_CANCEL.pop(user.id, None)
         return {"authenticated": ok, "auth_mode": self._auth_ui_mode}
 
-    def _reap_login(self, user):
-        """Kill any in-flight login subprocess for this user and clear the pid."""
-        ICP = self.env["ir.config_parameter"].sudo()
-        raw = ICP.get_param(_LOGIN_PID % user.id)
-        if raw and raw.isdigit():
-            try:
-                os.kill(int(raw), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-        ICP.set_param(_LOGIN_PID % user.id, "")
+    def _auth_import(self, user, blob):
+        """Validate and store a pasted ``auth.json`` (full file or just its
+        ``tokens`` object), as produced by ``codex login`` on a machine with a
+        browser. Mirrors the Gemini oauth_creds.json import."""
+        blob = (blob or "").strip()
+        if not blob:
+            raise UserError(_("Paste the JSON content of your Codex auth.json."))
+        try:
+            data = json.loads(blob)
+        except ValueError:
+            raise UserError(_(
+                "That is not valid JSON. Paste the full content of your "
+                "~/.codex/auth.json file."))
+        if not isinstance(data, dict):
+            raise UserError(_("Paste the full content of your auth.json file."))
+        # Accept either the whole file or a bare tokens object.
+        tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) \
+            else (data if data.get("access_token") else {})
+        if not (tokens.get("access_token") and tokens.get("refresh_token")):
+            raise UserError(_(
+                "The pasted credentials do not contain an access_token and "
+                "refresh_token. Run `codex login` on a machine with a browser, "
+                "then paste ~/.codex/auth.json."))
+        if not data.get("tokens"):
+            data = {"OPENAI_API_KEY": None, "tokens": tokens}
+        data.setdefault("last_refresh", None)
+        self._write_user_file(
+            user, self._auth_path(user), json.dumps(data, indent=2))
+        return {"authenticated": True}
 
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-authentication)."""
-        self._reap_login(user)
-        cli = None
-        try:
-            cli = self._resolve_cli_path()
-        except UserError:
-            cli = None
-        if cli:
-            try:
-                subprocess.run(
-                    [cli, "logout"], cwd=self._home_dir(user),
-                    env=self._login_env(user), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    timeout=30, check=False)
-            except (OSError, subprocess.SubprocessError):
-                pass
+        self._cancel_login(user)
         try:
             os.remove(self._auth_path(user))
         except OSError:

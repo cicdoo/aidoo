@@ -55,19 +55,14 @@
                     </block>
 
                     <block title="Codex (OpenAI)" name="aidoo_codex">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_codex_cli_path" placeholder="auto-detect"/>
+                        <setting string="Model" help="Model on the ChatGPT Codex backend. Empty falls back to gpt-5-codex.">
+                            <field name="aidoo_codex_model" placeholder="gpt-5-codex"/>
                         </setting>
-                        <setting string="Model" help="Empty uses the ChatGPT account default.">
-                            <field name="aidoo_codex_model"/>
+                        <setting string="Base URL" help="Empty = https://chatgpt.com/backend-api/codex (native, no codex binary needed).">
+                            <field name="aidoo_codex_base_url" placeholder="https://chatgpt.com/backend-api/codex"/>
                         </setting>
-                        <setting string="MCP Startup Timeout (s)"
-                                 help="Seconds Codex waits for the odoo MCP bridge to finish starting before dropping its tools. Raise if new Codex chats intermittently say AI tools are not available.">
-                            <field name="aidoo_codex_mcp_startup_timeout_sec"/>
-                        </setting>
-                        <setting string="MCP Tool Timeout (s)"
-                                 help="Per-call ceiling for odoo MCP tools under Codex (kept above the bridge's 60s HTTP timeout).">
-                            <field name="aidoo_codex_mcp_tool_timeout_sec"/>
+                        <setting string="Requests/min Cap" help="Proactive cap on Codex requests per minute (per account, per worker). 0 disables.">
+                            <field name="aidoo_codex_rpm_limit"/>
                         </setting>
                     </block>
 
