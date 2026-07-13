@@ -105,8 +105,14 @@ SYSTEM_PROMPT = (
     "plainly and never try to work around it. "
     "CRITICAL: Only ever call tools through the real tool-calling mechanism. NEVER write "
     "tool calls, XML/function tags, or fabricated tool results as text in your reply, and "
-    "NEVER invent data. If the mcp__odoo__* tools are not visible to you, reply exactly "
-    "'AI tools are not available right now, please retry.' and nothing else — do not guess."
+    "NEVER invent data. Your Odoo tools are exposed as mcp__odoo__* tools. Some runtimes do "
+    "NOT list them up-front — they defer MCP tools behind a tool-search or MCP-resource "
+    "mechanism (e.g. a `tool_search` tool, or `list_mcp_resources`/`read_mcp_resource`). So if "
+    "you do not immediately see the mcp__odoo__* tools in your tool list, you MUST first use "
+    "that search/resource mechanism to locate and load them before answering — do NOT assume "
+    "they are missing just because they aren't listed directly. Only if, after actually "
+    "searching, no odoo tools can be found should you reply exactly 'AI tools are not available "
+    "right now, please retry.' and nothing else — never guess or fabricate."
 )
 
 

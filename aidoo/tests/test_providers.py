@@ -125,6 +125,16 @@ class TestProviders(TransactionCase):
         self.assertIn("mcp_servers.odoo.startup_timeout_sec=90", argv)
         self.assertNotIn("mcp_servers.odoo.startup_timeout_sec=30", argv)
 
+    def test_system_prompt_handles_deferred_mcp_tools(self):
+        """Newer CLIs (e.g. Codex 0.144+) defer MCP tools behind a tool-search
+        layer instead of listing them directly. The system prompt must tell the
+        model to search for them, and must NOT emit the "not available" fallback
+        merely because the tools aren't listed up-front — only after searching."""
+        from odoo.addons.aidoo.models.providers.base import SYSTEM_PROMPT
+        self.assertIn("tool_search", SYSTEM_PROMPT)
+        self.assertIn("mcp__odoo__", SYSTEM_PROMPT)
+        self.assertIn("after actually searching", SYSTEM_PROMPT)
+
     def test_build_prompt_folds_context_for_cli_non_claude(self):
         """CLI non-Claude providers can't pass a system-prompt flag, so the system
         prompt + identity must be folded into the prompt text."""
