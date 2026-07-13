@@ -1220,11 +1220,23 @@ class AiAssistantSession(models.Model):
             names.append("aidoo")
         return names
 
+    @staticmethod
+    def _discuss_plaintext(body_html):
+        """Plain text of a Discuss message body, with anchor tags flattened to
+        their inner text first. ``html2plaintext`` otherwise renders a link as
+        ``text [n]`` plus a ``[n] <href>`` footnote — for an @mention the href is
+        the mentioned record (e.g. ``/odoo/res.partner/1034``), which the model
+        then misreads as a "look this up" instruction. Keeping only the visible
+        text (e.g. ``@Sophia``) avoids leaking those URLs into the prompt."""
+        html = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", body_html or "",
+                      flags=re.DOTALL | re.IGNORECASE)
+        return html2plaintext(html)
+
     def _discuss_body_mentions(self, body_html, names):
         """True when the raw message body textually contains ``@<name>`` for any
         of ``names``. Covers the auto-join path, where the persona is not yet a
         channel member so Odoo never resolved the mention into ``partner_ids``."""
-        text = html2plaintext(body_html or "").lower()
+        text = self._discuss_plaintext(body_html).lower()
         if not text:
             return False
         return any(("@" + n).lower() in text for n in names if n)
@@ -1304,7 +1316,7 @@ class AiAssistantSession(models.Model):
         if bot.id not in member_ids:
             channel.sudo().add_members(partner_ids=[bot.id])  # auto-join on mention
 
-        body_text = html2plaintext(body_html or "").strip()
+        body_text = self._discuss_plaintext(body_html).strip()
         body_text = self._strip_mentions(
             body_text, self._persona_mention_names(persona))
         has_attachments = bool(message and message.attachment_ids)

@@ -74,6 +74,11 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   were added.
 
 ### Fixed
+- **Personas no longer dump the mentioned record** — an `@Persona` mention link's
+  href (e.g. `/odoo/res.partner/1034`, the persona's own partner) leaked into the
+  prompt because `html2plaintext` renders a link as `text [n]` + an `[n] <href>`
+  footnote, which the model read as "look this up". Inbound Discuss bodies are now
+  flattened to visible text (anchor tags reduced to their label) before the prompt.
 - **Forward-ported feature set adapted to Odoo 19 APIs** — the native Codex,
   voice-note, HTML-artifact and multi-skill/persona features were brought over
   and reconciled with framework changes in 19: the artifact share link replaces
