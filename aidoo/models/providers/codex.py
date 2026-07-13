@@ -68,8 +68,11 @@ class AidooProviderCodex(AidooProvider):
     _provider_icon = "/aidoo/static/src/svg/openai.svg"
     _config_dir_name = ".codex"        # CODEX_HOME lives at <home>/.codex
     # The native client must always pin a model (the request body requires one;
-    # there is no CLI "account default" to fall back to).
-    _default_model = "gpt-5-codex"
+    # there is no CLI "account default" to fall back to). NB: the ChatGPT
+    # backend only serves the mainline chat models — codex-branded ids
+    # (gpt-*-codex) are rejected with "not supported when using Codex with a
+    # ChatGPT account"; those remain API-key-only on api.openai.com.
+    _default_model = "gpt-5.5"
     _auth_ui_mode = "device_poll"
     _uses_system_prompt_flag = False
     _is_native = True

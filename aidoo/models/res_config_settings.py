@@ -32,9 +32,10 @@ class ResConfigSettings(models.TransientModel):
              "adapter only.")
     aidoo_codex_model = fields.Char(
         string="Codex Model", config_parameter="aidoo.codex.model",
-        default="gpt-5-codex",
-        help="Model id on the ChatGPT Codex backend (e.g. gpt-5-codex, gpt-5, "
-             "gpt-5-codex-mini). Empty falls back to gpt-5-codex.")
+        default="gpt-5.5",
+        help="Model id on the ChatGPT Codex backend (e.g. gpt-5.5, gpt-5.4, "
+             "gpt-5.4-mini). Codex-branded ids (gpt-*-codex) are NOT accepted "
+             "with a ChatGPT account. Empty falls back to gpt-5.5.")
     aidoo_codex_base_url = fields.Char(
         string="Codex Base URL", config_parameter="aidoo.codex.base_url",
         help="ChatGPT Codex backend base URL. Empty = "
