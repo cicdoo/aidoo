@@ -7,6 +7,7 @@ import json
 from odoo import http
 from odoo.exceptions import AccessError, UserError
 from odoo.http import request
+from odoo.tools import consteq
 
 from ..models.aidoo_message import ARTIFACT_MARKER
 from ..models.aidoo_session import PROVIDERS
@@ -290,9 +291,10 @@ class AiAssistantChat(http.Controller):
         if not att:
             return request.not_found()
         if token:
-            try:
-                request.env["ir.attachment"].browse(att.id).validate_access(token)
-            except AccessError:
+            # Odoo 19 dropped ir.attachment.validate_access; gate the public
+            # share link by constant-time comparing the query token against the
+            # attachment's own access_token (att is already sudo-fetched).
+            if not att.access_token or not consteq(token, att.access_token):
                 return request.not_found()
         else:
             user = request.env.user
