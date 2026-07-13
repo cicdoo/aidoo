@@ -8,6 +8,14 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 ## [Unreleased]
 
 ### Fixed
+- **The model now searches for deferred MCP tools before giving up** — newer CLIs
+  (e.g. Codex 0.144+) defer MCP server tools behind a tool-search / MCP-resource
+  layer, so `mcp__odoo__*` tools aren't listed up-front. The system prompt used to
+  tell the model to emit the "AI tools are not available right now" fallback the
+  moment the tools weren't visible, so it bailed instead of searching. It is now
+  told the tools may be deferred and it MUST locate/load them via the
+  search/resource mechanism first, emitting the fallback only after a search
+  actually turns up nothing.
 - **Persona replies in Discuss are now formatted** — the assistant's Markdown
   answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to
   sanitized HTML (`aidoo.session.aidoo_md_to_html`: headings, bold/italic, links,
