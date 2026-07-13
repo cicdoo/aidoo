@@ -7,6 +7,23 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Changed
+- **Codex is now a native in-process provider** — like the native Gemini and
+  Z.AI adapters, `aidoo.provider.codex` no longer drives a CLI subprocess: it
+  talks to the ChatGPT Codex backend (`chatgpt.com/backend-api/codex/responses`,
+  Responses-API SSE) directly from Python with the user's ChatGPT-subscription
+  OAuth tokens (`$CODEX_HOME/auth.json`, unchanged location/format), and runs
+  the tool-calling loop in-process via `aidoo.tool.exec`. **No `codex` binary is
+  required anymore.** The device-code login is reimplemented in pure Python
+  (`codex_client.device_code_start` / `device_code_poll_and_exchange`, same OWL
+  device-poll panel), an `auth.json` produced by `codex login` elsewhere can be
+  pasted via credential import, and token refresh (with refresh-token rotation)
+  is handled client-side. New stdlib-only client in
+  `models/providers/codex_client.py`; the legacy subprocess adapter is preserved
+  unregistered in `codex_cli.py`. Settings: default model is now `gpt-5-codex`
+  (the native request must pin a model), the CLI-path setting left the UI, and
+  `aidoo.codex.base_url` + `aidoo.codex.rpm_limit` were added.
+
 ### Fixed
 - **The model now searches for deferred MCP tools before giving up** — newer CLIs
   (e.g. Codex 0.144+) defer MCP server tools behind a tool-search / MCP-resource

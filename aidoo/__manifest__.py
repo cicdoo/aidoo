@@ -28,8 +28,9 @@ code, Gemini/Grok by importing credentials or an API key — stored privately in
 per-user, per-provider config dir. Chatting is gated until the conversation's
 provider is connected.
 
-Requires the chosen provider's CLI installed on the server (claude / codex /
-gemini / grok).
+Claude and Grok drive the provider's CLI on the server (binary required);
+Codex, Gemini and Z.AI are native in-process providers — they talk to the
+provider's backend directly from Python, no binary needed.
 """,
     'author': "CICDoo",
     'website': "https://cicdoo.com",
