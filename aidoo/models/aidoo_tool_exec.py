@@ -29,6 +29,7 @@ import time
 
 from odoo import models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.osv import expression
 from odoo.tools import str2bool
 
 _logger = logging.getLogger(__name__)
@@ -461,6 +462,42 @@ class AidooToolExec(models.AbstractModel):
     # ------------------------------------------------------------------
     # Write tools
     # ------------------------------------------------------------------
+    def _validate_m2o_domains(self, Model, values):
+        """Reject many2one values that violate the field's static list domain.
+
+        Field domains are only enforced by the web client, so an AI-guessed id
+        can land a record the UI could never produce (e.g. a mailing.mailing
+        whose mailing_model_id points at the abstract 'base' model, which then
+        crashes the form's DomainSelector). Only plain list domains are checked;
+        string/callable domains stay UI-only, and a failing search (e.g. a
+        non-searchable compute in the domain) skips the check rather than
+        blocking the write.
+        """
+        for fname, val in values.items():
+            field = Model._fields.get(fname)
+            if field is None or field.type != "many2one":
+                continue
+            if not isinstance(val, int) or isinstance(val, bool) or val <= 0:
+                continue
+            domain = field.domain
+            if not isinstance(domain, (list, tuple)) or not domain:
+                continue
+            try:
+                ok = self.env[field.comodel_name].search_count(
+                    expression.AND([[("id", "=", val)], list(domain)])) == 1
+            except Exception:
+                _logger.debug(
+                    "aidoo: could not enforce domain %s on %s.%s",
+                    domain, Model._name, fname, exc_info=True)
+                continue
+            if not ok:
+                raise ValidationError(
+                    "Value %s for '%s' does not satisfy the field domain %s "
+                    "on %s. Search %s with that domain to find a valid id "
+                    "instead of guessing." % (
+                        val, fname, list(domain), field.comodel_name,
+                        field.comodel_name))
+
     def _t_orm_create(self, session, model=None, values=None, **kw):
         self._check_tool(session, "orm_create")
         self._check_model(model)
@@ -468,6 +505,7 @@ class AidooToolExec(models.AbstractModel):
             raise ValidationError("values must be an object.")
         Model = self.env[model]
         Model.check_access("create")
+        self._validate_m2o_domains(Model, values)
         rec = Model.create(values)
         return {"ids": rec.ids}
 
@@ -478,6 +516,7 @@ class AidooToolExec(models.AbstractModel):
             raise ValidationError("values must be an object.")
         recs = self.env[model].browse(ids or [])
         recs.check_access("write")
+        self._validate_m2o_domains(recs, values)
         recs.write(values)
         return {"written": len(recs), "ids": recs.ids}
 
