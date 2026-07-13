@@ -72,6 +72,11 @@ class ResPartner(models.Model):
             bots -= channel.channel_partner_ids
         if bots:
             bots.sudo()._search_for_channel_invite_to_store(store, channel)
+            # Odoo 19's "New message" command palette filters the store
+            # client-side to internal users (main_user_id.share === false), which
+            # drops the personas' portal service users. Tag them with a synthetic
+            # store field so aidoo's command-palette patch can re-add them.
+            store.add(bots.sudo(), {"is_aidoo_persona": True})
             res["partner_ids"] = list(res.get("partner_ids") or []) + bots.ids
             res["count"] += len(bots)
         return res

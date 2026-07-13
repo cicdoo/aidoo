@@ -88,10 +88,10 @@ class AidooPersona(models.Model):
         string="Login Instructions", readonly=True, copy=False,
         help="URL / device code returned by the provider's login start step.")
 
-    _sql_constraints = [
-        ("bot_user_uniq", "unique(bot_user_id)",
-         "Each persona must have its own dedicated service account."),
-    ]
+    # Odoo 19: SQL constraints are declared as models.Constraint attributes.
+    _bot_user_uniq = models.Constraint(
+        "unique(bot_user_id)",
+        "Each persona must have its own dedicated service account.")
 
     @api.constrains("name", "active")
     def _check_unique_name(self):

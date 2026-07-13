@@ -75,6 +75,8 @@ provider's backend directly from Python, no binary needed.
             'aidoo/static/src/cog_menu_item.xml',
             'aidoo/static/src/view_context_service.js',
             'aidoo/static/src/view_patches.js',
+            'aidoo/static/src/discuss/res_partner_model_patch.js',
+            'aidoo/static/src/discuss/discuss_command_palette_patch.js',
             'aidoo/static/src/floating_button.js',
             'aidoo/static/src/floating_button.xml',
         ],
