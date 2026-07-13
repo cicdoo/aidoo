@@ -14,8 +14,8 @@ export class AiComposer extends Component {
         sessionId: { type: Number, optional: true },
         // Skill picker (sits next to the attach button).
         skills: { type: Array, optional: true },
-        skillId: { type: [Number, Boolean], optional: true },
-        onSelectSkill: { type: Function, optional: true },
+        skillIds: { type: Array, optional: true },
+        onSelectSkills: { type: Function, optional: true },
     };
 
     setup() {
@@ -26,18 +26,24 @@ export class AiComposer extends Component {
         this.dialog = useService("dialog");
     }
 
-    // The currently-selected skill's name (for the picker button label/title).
+    // Label for the picker button: the first selected skill's name, plus a
+    // "+N" suffix when more skills are selected.
     get currentSkillName() {
-        const s = (this.props.skills || []).find((x) => x.id === this.props.skillId);
-        return s ? s.name : "";
+        const ids = this.props.skillIds || [];
+        const first = (this.props.skills || []).find((x) => ids.includes(x.id));
+        if (!first) {
+            return "";
+        }
+        const extra = ids.length - 1;
+        return extra > 0 ? `${first.name} +${extra}` : first.name;
     }
 
-    // Open the searchable skill dialog; selecting an entry applies it to the chat.
+    // Open the searchable skill dialog; applying a selection sets the chat's skills.
     openSkillPicker() {
         this.dialog.add(SkillPickerDialog, {
             skills: this.props.skills || [],
-            currentId: this.props.skillId,
-            onSelect: (id) => this.props.onSelectSkill?.(id),
+            currentIds: this.props.skillIds || [],
+            onSelect: (ids) => this.props.onSelectSkills?.(ids),
         });
     }
 

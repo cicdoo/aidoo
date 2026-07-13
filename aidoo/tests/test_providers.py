@@ -15,9 +15,9 @@ from odoo.tests.common import TransactionCase, tagged
 
 PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai"]
 # Providers that drive a CLI subprocess (implement _prepare_run/_normalize_event).
-# Gemini and z.ai are NATIVE (in-process) and implement _run_stream instead, so
-# the CLI-shaped contract tests don't apply to them.
-CLI_PROVIDER_CODES = ["claude", "codex", "grok"]
+# Codex, Gemini and z.ai are NATIVE (in-process) and implement _run_stream
+# instead, so the CLI-shaped contract tests don't apply to them.
+CLI_PROVIDER_CODES = ["claude", "grok"]
 
 
 @tagged("post_install", "-at_install", "aidoo")
@@ -106,10 +106,20 @@ class TestProviders(TransactionCase):
                 self.assertIn(op.get("op"), valid,
                               "%s emitted unknown op %r" % (code, op))
 
+    def test_system_prompt_handles_deferred_mcp_tools(self):
+        """Newer CLIs (e.g. Codex 0.144+) defer MCP tools behind a tool-search
+        layer instead of listing them directly. The system prompt must tell the
+        model to search for them, and must NOT emit the "not available" fallback
+        merely because the tools aren't listed up-front — only after searching."""
+        from odoo.addons.aidoo.models.providers.base import SYSTEM_PROMPT
+        self.assertIn("tool_search", SYSTEM_PROMPT)
+        self.assertIn("mcp__odoo__", SYSTEM_PROMPT)
+        self.assertIn("after actually searching", SYSTEM_PROMPT)
+
     def test_build_prompt_folds_context_for_cli_non_claude(self):
         """CLI non-Claude providers can't pass a system-prompt flag, so the system
         prompt + identity must be folded into the prompt text."""
-        for code in ("codex", "grok"):
+        for code in ("grok",):
             session = self.env["aidoo.session"].create(
                 {"user_id": self.env.user.id, "provider": code})
             prompt = self._adapter(code)._build_prompt(
@@ -219,6 +229,172 @@ class TestProviders(TransactionCase):
         self.assertEqual(acc[0]["id"], "call_1")
         self.assertEqual(acc[0]["name"], "orm_read")
         self.assertEqual(acc[0]["arguments"], '{"model": "res.partner"}')
+
+    # ------------------------------------------------------------------
+    # Native Codex (in-process ChatGPT Codex backend) adapter
+    # ------------------------------------------------------------------
+    def test_codex_is_native(self):
+        """Codex is native: it drives _run_stream, not a CLI subprocess."""
+        adapter = self._adapter("codex")
+        self.assertTrue(adapter._is_native)
+        with self.assertRaises(NotImplementedError):
+            adapter._prepare_run(self._ctx("codex"))
+
+    def test_codex_tool_specs_flat_responses_shape(self):
+        """Responses-API function tools are FLAT (name/parameters at the top
+        level, no nested `function` object); ungranted tools withheld."""
+        adapter = self._adapter("codex")
+        specs = adapter._tool_specs(["orm_read", "orm_search_read"])
+        self.assertTrue(specs)
+        names = {s["name"] for s in specs}
+        self.assertEqual(names, {"orm_read", "orm_search_read"})
+        for s in specs:
+            self.assertEqual(s["type"], "function")
+            self.assertNotIn("function", s)
+            self.assertIn("parameters", s)
+            self.assertFalse(s["strict"])
+        self.assertIsNone(adapter._tool_specs([]))
+
+    def test_codex_build_prompt_is_plain(self):
+        """Native Codex sends system+identity via `instructions`, so the
+        per-turn prompt is just the user's message (no folded system text)."""
+        session = self.env["aidoo.session"].create(
+            {"user_id": self.env.user.id, "provider": "codex"})
+        prompt = self._adapter("codex")._build_prompt(
+            session, "What is 2+2?", [], True, "ODOO USER CONTEXT BLOCK")
+        self.assertIn("What is 2+2?", prompt)
+        self.assertNotIn("ODOO USER CONTEXT BLOCK", prompt)
+
+    def test_codex_client_error_rate_limit_flag(self):
+        from odoo.addons.aidoo.models.providers.codex_client import CodexError
+        self.assertTrue(CodexError("x", status=429).is_rate_limit)
+        self.assertFalse(CodexError("x", status=500).is_rate_limit)
+        self.assertFalse(CodexError("x").is_rate_limit)
+
+    def test_codex_auth_import_normalizes(self):
+        """A bare tokens object is wrapped into the full auth.json shape; a blob
+        without both tokens is rejected."""
+        import json as _json
+        from odoo.exceptions import UserError as UE
+        adapter = self._adapter("codex")
+        user = self.env.user
+        with patch.object(type(adapter), "_write_user_file",
+                          new=lambda self, u, path, content:
+                          written.update(json=_json.loads(content))) :
+            written = {}
+            res = adapter._auth_import(user, _json.dumps(
+                {"access_token": "a.t", "refresh_token": "r.t"}))
+            self.assertTrue(res["authenticated"])
+            self.assertEqual(written["json"]["tokens"]["access_token"], "a.t")
+            self.assertIn("OPENAI_API_KEY", written["json"])
+            with self.assertRaises(UE):
+                adapter._auth_import(user, _json.dumps({"access_token": "a"}))
+            with self.assertRaises(UE):
+                adapter._auth_import(user, "not json")
+
+    def test_codex_native_tool_loop(self):
+        from odoo.addons.aidoo.models.providers import codex, codex_client
+        user, user_env, session, adapter, ctx = self._native_user_env("codex")
+        args = ('{"model": "res.users", "ids": [%s], "fields": ["login"]}'
+                % user.id)
+        rounds = [
+            # Round 0: the model asks to call orm_read.
+            [{"type": "response.output_item.done",
+              "item": {"type": "function_call", "call_id": "call_1",
+                       "name": "orm_read", "arguments": args}}],
+            # Round 1: the model answers in plain text and stops.
+            [{"type": "response.output_text.delta",
+              "delta": "Your login is aidoo_native_codex."},
+             {"type": "response.output_item.done",
+              "item": {"type": "message", "role": "assistant",
+                       "content": [{"type": "output_text",
+                                    "text": "Your login is aidoo_native_codex."}]}},
+             {"type": "response.completed", "response": {}}],
+        ]
+        calls = {"n": 0, "inputs": []}
+
+        def fake_stream_responses(self, model, input_items, **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            calls["inputs"].append(list(input_items))
+            for evt in rounds[i]:
+                yield evt
+
+        with patch.object(codex.AidooProviderCodex, "_load_auth",
+                          new=lambda self, u: {"tokens": {
+                              "access_token": "x", "refresh_token": "y"}}), \
+                patch.object(codex_client.CodexClient, "stream_responses",
+                             new=fake_stream_responses), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        kinds = [o["op"] for o in ops]
+        self.assertIn("session_id", kinds)  # client-minted conversation id
+        self.assertIn("tool_use", kinds)
+        self.assertIn("tool_result", kinds)
+        self.assertIn("text", kinds)
+        self.assertEqual(calls["n"], 2)
+        tool_use = next(o for o in ops if o["op"] == "tool_use")
+        self.assertEqual(tool_use["name"], "orm_read")
+        self.assertIn("aidoo_native_codex",
+                      next(o for o in ops if o["op"] == "tool_result")["text"])
+        # Round 1's input replays the function_call item AND its output.
+        round2 = calls["inputs"][1]
+        types = [i.get("type") for i in round2]
+        self.assertIn("function_call", types)
+        self.assertIn("function_call_output", types)
+
+    def test_codex_native_loop_stops_at_round_cap(self):
+        from odoo.addons.aidoo.models.providers import codex, codex_client
+        user, user_env, session, adapter, ctx = self._native_user_env("codex")
+        ctx["max_turns"] = 3
+        args = '{"model": "res.users", "ids": [%s]}' % user.id
+        calls = {"n": 0}
+
+        def always_calls_tool(self, model, input_items, **kw):
+            calls["n"] += 1
+            yield {"type": "response.output_item.done",
+                   "item": {"type": "function_call", "call_id": "c",
+                            "name": "orm_read", "arguments": args}}
+
+        with patch.object(codex.AidooProviderCodex, "_load_auth",
+                          new=lambda self, u: {"tokens": {
+                              "access_token": "x", "refresh_token": "y"}}), \
+                patch.object(codex_client.CodexClient, "stream_responses",
+                             new=always_calls_tool), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        self.assertEqual(calls["n"], 3)  # capped at max_turns
+        self.assertTrue(any("stopped after" in o.get("text", "")
+                            for o in ops if o["op"] == "text"))
+
+    def test_codex_dev_fallback_on_instructions_400(self):
+        """A 400 on round 0 retries once with the system text demoted to a
+        developer message and minimal instructions."""
+        from odoo.addons.aidoo.models.providers import codex, codex_client
+        user, user_env, session, adapter, ctx = self._native_user_env("codex")
+        calls = {"n": 0, "kw": []}
+
+        def first_400_then_text(self, model, input_items, **kw):
+            calls["n"] += 1
+            calls["kw"].append((list(input_items), kw))
+            if calls["n"] == 1:
+                raise codex_client.CodexError("bad instructions", status=400)
+            yield {"type": "response.output_text.delta", "delta": "hi"}
+
+        with patch.object(codex.AidooProviderCodex, "_load_auth",
+                          new=lambda self, u: {"tokens": {
+                              "access_token": "x", "refresh_token": "y"}}), \
+                patch.object(codex_client.CodexClient, "stream_responses",
+                             new=first_400_then_text), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        self.assertEqual(calls["n"], 2)
+        self.assertFalse(any(o["op"] == "error" for o in ops))
+        retry_items, retry_kw = calls["kw"][1]
+        self.assertEqual(retry_items[0]["role"], "developer")
+        self.assertIn("ODOO USER CONTEXT",
+                      retry_items[0]["content"][0]["text"])
+        self.assertNotIn("ODOO USER CONTEXT", retry_kw["instructions"])
 
     # ------------------------------------------------------------------
     # Antigravity (experimental, opt-in, text-only CLI provider)

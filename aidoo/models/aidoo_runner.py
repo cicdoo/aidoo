@@ -60,14 +60,16 @@ class AiAssistantRunner(models.AbstractModel):
     # ------------------------------------------------------------------
     # Launch (runs in the request env, as the user)
     # ------------------------------------------------------------------
-    def _launch(self, session, prompt, is_first, token):
+    def _launch(self, session, prompt, is_first, token, pending_audio=None):
         adapter = self._adapter(session)
         # Native (in-process) providers spawn no subprocess: skip CLI path
         # resolution, the loopback bridge token/routing sid, and the CLI auth env.
         native = adapter._is_native
         cli_path = "" if native else adapter._resolve_cli_path()
         scratch = session._get_scratch_dir()
-        model = adapter._model()
+        # A persona-driven session runs on the persona's model when one is set
+        # (falling back to the provider's configured default).
+        model = session.persona_id.sudo().model or adapter._model()
         max_turns = int(session._config("max_turns", 30))
         timeout_s = int(session._config("timeout_s", 900))
         base_url = session._config("base_url", "http://127.0.0.1:8069")
@@ -85,7 +87,7 @@ class AiAssistantRunner(models.AbstractModel):
         if not native:
             adapter._sync_cli_account(cred_user)
         allowed_tools = sorted(session._effective_tools())
-        excluded_models = sorted(session._ai_excluded_models())
+        excluded_models = sorted(session.user_id.sudo()._ai_excluded_models())
         identity = session._run_identity(set(allowed_tools))
 
         # ``is_first`` is turn-based (passed by send_message). Each adapter decides
@@ -117,6 +119,9 @@ class AiAssistantRunner(models.AbstractModel):
             "excluded_models": excluded_models,
             "identity": identity,
             "output_format": adapter._pconfig("output_format", ""),
+            # Audio uploads transcribed in the worker thread, before dispatch,
+            # so the transcript files exist when the CLI Reads them.
+            "pending_audio": pending_audio or [],
         }
         thread = threading.Thread(
             target=self._run_worker, args=(ctx,), daemon=True,
@@ -133,6 +138,9 @@ class AiAssistantRunner(models.AbstractModel):
             session = env["aidoo.session"].browse(ctx["session_id"])
             runner = env["aidoo.runner"]
             try:
+                if ctx.get("pending_audio"):
+                    session._transcribe_pending(ctx["pending_audio"])
+                    cr.commit()
                 if runner._adapter(session)._is_native:
                     runner._execute_native(env, session, ctx)
                 else:
@@ -260,16 +268,28 @@ class AiAssistantRunner(models.AbstractModel):
         if stderr_reader is not None:
             stderr_reader.join(timeout=5)
         stderr = "".join(stderr_buf)
+        # A CLI can exit 0 yet still print warnings to stderr — e.g. Codex noting
+        # it dropped an MCP server that lost the startup race. That stderr is
+        # discarded on the success path below, so surface it at debug level for
+        # diagnosing "tools not available" turns without changing behavior.
+        if stderr.strip():
+            _logger.debug("AI assistant: %s (session %s) stderr:\n%s",
+                          ctx["provider"], ctx["session_id"], stderr[:4000])
 
         # Fallback: some CLIs don't stream a final assistant message; recover it.
+        fallback_rec = env["aidoo.message"]
         if not produced_text["any"] and session.state == "running":
             fallback = adapter._post_run(ctx, rc, stderr)
             if fallback:
-                rec = env["aidoo.message"].create({
+                fallback_rec = env["aidoo.message"].create({
                     "session_id": session.id, "role": "assistant", "body": fallback})
-                self._emit_message(session, rec)
+                self._emit_message(session, fallback_rec)
                 produced_text["any"] = True
 
+        # The fallback record is not in msg_map — include it explicitly.
+        self._persist_turn_artifacts(
+            env, session,
+            env["aidoo.message"].browse(list(msg_map.values())) | fallback_rec)
         session.write({"last_run_pid": False, "turn_count": session.turn_count + 1})
         # Any tool call still marked "running" never received its result event
         # (CLI exited mid-tool, timed out, or was stopped). Settle it so the
@@ -328,6 +348,8 @@ class AiAssistantRunner(models.AbstractModel):
             if ctx.get("routing_sid"):
                 env["aidoo.session"]._delete_routing_sid(ctx["routing_sid"])
 
+        self._persist_turn_artifacts(
+            env, session, env["aidoo.message"].browse(list(msg_map.values())))
         session.write({"last_run_pid": False,
                        "turn_count": session.turn_count + 1})
         # An error op (yielded by the adapter) already set state="error" via
@@ -449,6 +471,16 @@ class AiAssistantRunner(models.AbstractModel):
             if changed:
                 rec.tool_calls = calls
                 self._emit_message(session, rec)
+
+    def _persist_turn_artifacts(self, env, session, records):
+        """Persist the turn's generated HTML blocks as artifact attachments and
+        re-emit the updated messages so an open chat swaps its inline cards to
+        the server-backed ones. Must never fail a finished turn."""
+        try:
+            for rec in records.exists()._persist_artifacts():
+                self._emit_message(session, rec)
+        except Exception:  # noqa: BLE001
+            _logger.exception("AI assistant: artifact persistence failed")
 
     # ------------------------------------------------------------------
     # Bus

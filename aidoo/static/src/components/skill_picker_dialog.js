@@ -5,21 +5,24 @@
 import { Component, useState, useRef, onMounted } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 
-// A searchable picker for the conversation's instruction skill. Opened from the
-// composer's skill button via the dialog service; calls `onSelect(id|false)`
-// and closes when the user picks an entry.
+// A searchable multi-select picker for the conversation's instruction skills.
+// Opened from the composer's skill button via the dialog service; clicking an
+// entry toggles it, "Apply" calls `onSelect([ids])` and closes.
 export class SkillPickerDialog extends Component {
     static template = "aidoo.SkillPickerDialog";
     static components = { Dialog };
     static props = {
         skills: { type: Array },
-        currentId: { type: [Number, Boolean], optional: true },
+        currentIds: { type: Array, optional: true },
         onSelect: { type: Function },
         close: { type: Function },   // injected by the dialog service
     };
 
     setup() {
-        this.state = useState({ query: "" });
+        this.state = useState({
+            query: "",
+            selected: new Set(this.props.currentIds || []),
+        });
         this.searchRef = useRef("search");
         onMounted(() => this.searchRef.el && this.searchRef.el.focus());
     }
@@ -36,8 +39,20 @@ export class SkillPickerDialog extends Component {
         );
     }
 
-    pick(id) {
-        this.props.onSelect(id || false);
+    toggle(id) {
+        if (this.state.selected.has(id)) {
+            this.state.selected.delete(id);
+        } else {
+            this.state.selected.add(id);
+        }
+    }
+
+    clearAll() {
+        this.state.selected.clear();
+    }
+
+    apply() {
+        this.props.onSelect([...this.state.selected]);
         this.props.close();
     }
 }

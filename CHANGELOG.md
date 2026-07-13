@@ -7,7 +7,91 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Audio / voice-note uploads with local transcription** — the chat composer and
+  Discuss attachments now accept audio files (`.mp3 .wav .m4a .ogg .opus .flac
+  .aac .webm`). Audio is never handed to the model directly (the CLI's Read tool
+  cannot consume it): a standalone [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  wrapper (`bridge/transcribe_audio.py`, running under its own venv, never
+  importing Odoo) transcribes it **on the server** in the background runner
+  thread before the provider dispatches, and the prompt manifest points the
+  model at the resulting `<file>.transcript.txt` in the session uploads dir.
+  Transcripts are cached on the attachment (`description`, marker-prefixed) so
+  re-materialization never re-transcribes; a transcription failure writes an
+  explanatory note instead of crashing the turn. Configurable via
+  `ir.config_parameter` (`aidoo.whisper_python` / `whisper_model` /
+  `whisper_model_dir` / `whisper_threads` / `whisper_timeout_s` /
+  `whisper_language`). Documented in SECURITY.md.
+- **Sessions and scheduled agents take multiple skills** — `skill_id` becomes a
+  `skill_ids` M2M on both `aidoo.session` and `aidoo.scheduled` (migrated in
+  19.0.1.7.0); the chat's skill picker multi-selects, and `/aidoo/skill` /
+  `/aidoo/new` accept `skill_ids` (the single-id `skill_id` param stays as a
+  legacy alias).
+- **Personas are first-class Discuss contacts** — persona bots now show up in
+  Discuss's "New message" and "Invite people" searches (they were hidden because
+  their service users are portal accounts), so a persona can be DM'd or invited
+  from the UI; a 1:1 chat answers every message without needing an @mention. A
+  new **Open chat** button on the persona form jumps straight into the DM, and a
+  persona can carry its own **email identity** (written through to its service
+  user) used when it sends or posts. Files attached to a Discuss message are
+  materialized into the persona's session uploads so the model can read them.
+- **Scheduled agents can run as a persona** — a new `persona_id` on
+  `aidoo.scheduled`: the persona's provider, model override and connected
+  service account drive the run (the agent's own Provider / Run As stay the
+  fallback), its skills are copied onto the form as a starting point, and
+  email/chatter deliveries are sent under the persona's identity. Tools still
+  execute with the Run As user's Odoo permissions.
+- **Generated HTML artifacts are persisted and shareable** — every ```` ```html ````
+  block the assistant produces (and every report) is stored as an `ir.attachment`
+  on its session at run end and served through the new hardened
+  `GET /aidoo/artifact/<id>` route (explicit `text/html` + CSP
+  `sandbox; default-src 'none'; style-src 'unsafe-inline'` — no scripts, no
+  network subresources, opaque origin) instead of a client-side blob. The chat's
+  artifact panel and "open in new tab" load the server URL; a new **Share** button
+  mints a public tokenized link (core `ir.attachment` access token, owner-only,
+  revocable via **Revoke**), so artifacts can be shared internally or externally.
+  Persona replies in Discuss append `View:` links that any channel member can
+  open (the route grants channel members read access). Historical messages keep
+  rendering inline as before.
+
+### Changed
+- **Codex is now a native in-process provider** — like the native Gemini and
+  Z.AI adapters, `aidoo.provider.codex` no longer drives a CLI subprocess: it
+  talks to the ChatGPT Codex backend (`chatgpt.com/backend-api/codex/responses`,
+  Responses-API SSE) directly from Python with the user's ChatGPT-subscription
+  OAuth tokens (`$CODEX_HOME/auth.json`, unchanged location/format), and runs
+  the tool-calling loop in-process via `aidoo.tool.exec`. **No `codex` binary is
+  required anymore.** The device-code login is reimplemented in pure Python
+  (`codex_client.device_code_start` / `device_code_poll_and_exchange`, same OWL
+  device-poll panel), an `auth.json` produced by `codex login` elsewhere can be
+  pasted via credential import, and token refresh (with refresh-token rotation)
+  is handled client-side. New stdlib-only client in
+  `models/providers/codex_client.py`; the legacy subprocess adapter is preserved
+  unregistered in `codex_cli.py`. Settings: default model is now `gpt-5.5`
+  (the native request must pin a model, and the ChatGPT backend rejects
+  codex-branded ids like `gpt-5-codex` — those are API-key-only), the CLI-path
+  setting left the UI, and `aidoo.codex.base_url` + `aidoo.codex.rpm_limit`
+  were added.
+
 ### Fixed
+- **Forward-ported feature set adapted to Odoo 19 APIs** — the native Codex,
+  voice-note, HTML-artifact and multi-skill/persona features were brought over
+  and reconciled with framework changes in 19: the artifact share link replaces
+  the removed `ir.attachment.validate_access` with a constant-time
+  `odoo.tools.consteq` token check; persona Discuss discoverability is routed
+  through the single surviving `res.partner._search_for_channel_invite` hook
+  (18's `im_search` is gone) and `discuss.channel._get_or_create_chat` (was
+  `channel_get`); `Store()` is built with `.add()` (its first positional arg is
+  now `bus_channel`); and `res.users.groups_id` references become `group_ids`.
+  The `skill_id → skill_ids` migration ships at `19.0.1.7.0`.
+- **The model now searches for deferred MCP tools before giving up** — newer CLIs
+  (e.g. Codex 0.144+) defer MCP server tools behind a tool-search / MCP-resource
+  layer, so `mcp__odoo__*` tools aren't listed up-front. The system prompt used to
+  tell the model to emit the "AI tools are not available right now" fallback the
+  moment the tools weren't visible, so it bailed instead of searching. It is now
+  told the tools may be deferred and it MUST locate/load them via the
+  search/resource mechanism first, emitting the fallback only after a search
+  actually turns up nothing.
 - **Persona replies in Discuss are now formatted** — the assistant's Markdown
   answer was posted verbatim (raw `*`, `#`, backticks). It is now rendered to
   sanitized HTML (`aidoo.session.aidoo_md_to_html`: headings, bold/italic, links,

@@ -192,8 +192,8 @@
                     </div>
                     <AiComposer onSend.bind="onSend" disabled="state.running"
                                 sessionId="state.currentId"
-                                skills="state.skills" skillId="state.currentSkillId"
-                                onSelectSkill.bind="setSkill"/>
+                                skills="state.skills" skillIds="state.currentSkillIds"
+                                onSelectSkills.bind="setSkills"/>
                 </t>
             </div>
 
@@ -203,7 +203,17 @@
                 <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
                     <i class="fa fa-area-chart me-2"/>
                     <span class="fw-bold">Preview</span>
-                    <button class="btn btn-sm btn-link ms-auto p-0 me-2"
+                    <button t-if="state.artifact.attachmentId and !state.artifact.shared"
+                            class="btn btn-sm btn-link ms-auto p-0 me-2"
+                            title="Copy share link" t-on-click="shareArtifact">
+                        <i class="fa fa-share-alt"/>
+                    </button>
+                    <button t-if="state.artifact.attachmentId and state.artifact.shared"
+                            class="btn btn-sm btn-link ms-auto p-0 me-2 text-danger"
+                            title="Revoke share link" t-on-click="revokeArtifact">
+                        <i class="fa fa-chain-broken"/>
+                    </button>
+                    <button t-attf-class="btn btn-sm btn-link p-0 me-2 {{ state.artifact.attachmentId ? '' : 'ms-auto' }}"
                             title="Open in new tab" t-on-click="openArtifactNewTab">
                         <i class="fa fa-external-link"/>
                     </button>
@@ -213,7 +223,7 @@
                     </button>
                 </div>
                 <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3">
-                    <ReportFrame html="state.artifact"/>
+                    <ReportFrame html="state.artifact.html" src="state.artifact.url"/>
                 </div>
             </div>
         </div>

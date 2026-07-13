@@ -63,12 +63,33 @@ are in scope for security reports include:
   HMAC bearer token (no DB credentials) and is reachable on loopback only.
 - **Denied built-ins** — the model cannot reach Bash/Read/Write/Web; it acts only
   through the `mcp__odoo__*` tools.
+- **Audio transcription is an isolated local subprocess** — uploaded voice notes
+  are transcribed by `bridge/transcribe_audio.py`, a standalone script that never
+  imports Odoo, runs under its own dedicated Python venv
+  (`aidoo.whisper_python`) as the Odoo service user, and loads a **local**
+  faster-whisper model from disk (`aidoo.whisper_model_dir`) — no audio or
+  transcript ever leaves the server. Its input is a file that already passed the
+  upload validation (extension allow-list + size cap) and lives in the
+  session-scoped uploads directory; its only output is a `.transcript.txt`
+  written next to the audio in that same directory (the path-scoped Read guard
+  applies unchanged). The subprocess runs with a hard timeout
+  (`aidoo.whisper_timeout_s`, default 300 s) and any failure degrades to an
+  explanatory transcript note — it can neither block nor crash the turn, and a
+  failed transcription caches nothing.
 - **Per-user credential isolation** — OAuth credentials and per-user API keys
   (e.g. a user's Z.AI key under `.zai/api_key`) are stored per user with mode
   `0600` and never exposed on a record. The optional *shared* fallback keys
   (`aidoo.<provider>.api_key`, including `aidoo.zai.api_key`) live in
   `ir.config_parameter` and are readable by system-settings administrators —
   prefer per-user keys, and treat a shared key as an instance-wide secret.
+- **Native (in-process) providers keep the same isolation** — Codex, Gemini and
+  Z.AI talk to the provider backend directly from the Python worker instead of
+  spawning a CLI binary. This removes the subprocess/CLI attack surface, but the
+  credential model is unchanged: tokens are read from the acting/credential
+  user's own per-user config dir (`$CODEX_HOME/auth.json` etc., `0600`), token
+  refresh writes back to that same file, and tools still run in-process through
+  `aidoo.tool.exec` as the invoking user (never superuser). No credential is
+  placed on a record or shared across users.
 - **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
   ships built-in web tools (read_url_content / search_web / browser) that its
   permission engine **cannot deny** — so it has ungated internet access, a
@@ -95,6 +116,20 @@ are in scope for security reports include:
   first-turn focus note is resolved under the user's own rights — a record or
   model the user cannot read is silently dropped, so context seeding never
   discloses data the user could not already see.
+- **Generated HTML artifacts are served sandboxed** — assistant-generated HTML
+  is persisted as `ir.attachment` and served only through
+  `GET /aidoo/artifact/<id>`, which refuses anything that is not a
+  session-linked attachment carrying the artifact marker (it is not a generic
+  attachment reader, even with a valid token). Responses are hardened against
+  the untrusted-LLM threat model: `Content-Security-Policy: sandbox;
+  default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
+  gives the document an opaque origin with **no script execution and no network
+  subresources** (no exfiltration channel, no cookie-bearing same-origin
+  requests), plus `X-Content-Type-Options: nosniff`. Access is (a) the session
+  owner, (b) an internal member of the session's Discuss channel, or (c) a
+  bearer of the owner-minted share token (core `ir.attachment` access token,
+  `consteq`-checked; **anyone with the link can view until the owner revokes
+  it** — share/revoke routes are owner-only).
 - **Conversation management is owner-scoped** — the favorite (`/aidoo/favorite`),
   discard (`/aidoo/discard`), delete (`/aidoo/delete`), messages (`/aidoo/messages`)
   and listing routes resolve the session through the same ownership check as the
@@ -139,7 +174,12 @@ are in scope for security reports include:
   The persona's service user never logs in and is not used as an acting identity.
   Creating/editing personas — and connecting their provider accounts — is gated to
   *AI Assistant Managers* (ir.model.access + record rules); other AI users may only
-  read active personas to resolve a mention. Credentials are written to the service
+  read active personas to resolve a mention. Persona discoverability in Discuss
+  (the "New message"/"Invite people" partner search, via the
+  `res.partner._search_for_channel_invite` override) is likewise gated to the
+  *AI Assistant User* group — non-AI users are never offered a persona to DM or
+  invite, and core's own search domain already excludes the portal service users.
+  Credentials are written to the service
   user's per-user, per-provider config dir exactly like a human's (0700/0600), never
   stored in the database; the transient connect-form inputs (API key / paste creds /
   login code) are cleared immediately after use.

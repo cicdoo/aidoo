@@ -203,7 +203,8 @@ class AidooProviderGemini(AidooProvider):
         client = CodeAssistClient(
             creds, save_creds=_save, project=init_project,
             on_retry=_on_retry, rpm=rpm, deadline=ctx.get("deadline"))
-        model = self._model()
+        # The runner resolves the model (persona override, else config default).
+        model = ctx.get("model") or self._model()
         # Lighter model to fall back to when the primary stays rate-limited (a
         # separate quota bucket). Empty disables fallback; same-as-primary is a
         # no-op. Mirrors the gemini CLI's onPersistent429 -> flash behaviour.

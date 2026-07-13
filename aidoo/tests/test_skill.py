@@ -13,7 +13,7 @@ from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase, tagged
 
 
-def _no_launch(self, session, prompt, is_first, token):
+def _no_launch(self, session, prompt, is_first, token, pending_audio=None):
     return None
 
 
@@ -87,28 +87,86 @@ class TestAidooSkill(TransactionCase):
     def test_identity_includes_attached_skill(self):
         skill = self.env["aidoo.skill"].create({
             "name": "Tabler", "instructions": "Always answer with a table."})
-        block = self.user._ai_identity_prompt(set(), skill=skill)
+        block = self.user._ai_identity_prompt(set(), skills=skill)
         self.assertIn("AI SKILL: Tabler", block)
         self.assertIn("Always answer with a table.", block)
-        # No skill -> no skill block.
+        # No skills -> no skill block.
         plain = self.user._ai_identity_prompt(set())
         self.assertNotIn("AI SKILL", plain)
+
+    def test_identity_includes_every_attached_skill(self):
+        skills = self.env["aidoo.skill"].create([
+            {"name": "Tabler", "instructions": "Always answer with a table."},
+            {"name": "French", "instructions": "Répondre en français."},
+        ])
+        block = self.user._ai_identity_prompt(set(), skills=skills)
+        self.assertIn("AI SKILL: Tabler", block)
+        self.assertIn("AI SKILL: French", block)
+        self.assertIn("Répondre en français.", block)
 
     # ------------------------------------------------------------------
     # Scheduled agent applies its skill to the run session
     # ------------------------------------------------------------------
-    def test_scheduled_run_applies_skill(self):
+    def test_scheduled_run_applies_skills(self):
         with patch("odoo.addons.aidoo.models.providers.claude."
                    "AidooProviderClaude._is_authenticated", return_value=True), \
              patch("odoo.addons.aidoo.models.aidoo_runner."
                    "AiAssistantRunner._launch", _no_launch):
-            skill = self.env["aidoo.skill"].with_user(self.user).create(
-                {"name": "Daily", "instructions": "Summarize sales."})
+            skills = self.env["aidoo.skill"].with_user(self.user).create([
+                {"name": "Daily", "instructions": "Summarize sales."},
+                {"name": "Brief", "instructions": "Keep it short."},
+            ])
             agent = self.env["aidoo.scheduled"].with_user(self.user).create({
                 "name": "Nightly", "provider": "claude",
-                "prompt": "go", "skill_id": skill.id,
+                "prompt": "go", "skill_ids": [(6, 0, skills.ids)],
             })
             session = agent.with_user(self.user)._run_once()
-            self.assertEqual(session.skill_id, skill)
-            # The related preview surfaces the instructions on the form.
-            self.assertEqual(agent.skill_preview, "Summarize sales.")
+            self.assertEqual(session.skill_ids, skills)
+            # The computed preview surfaces the instructions on the form.
+            self.assertIn("Summarize sales.", agent.skill_preview)
+            self.assertIn("Keep it short.", agent.skill_preview)
+
+    # ------------------------------------------------------------------
+    # Scheduled agent driven by a persona (provider/credentials override)
+    # ------------------------------------------------------------------
+    def test_scheduled_run_applies_persona(self):
+        with patch("odoo.addons.aidoo.models.providers.claude."
+                   "AidooProviderClaude._is_authenticated", return_value=True), \
+             patch("odoo.addons.aidoo.models.aidoo_runner."
+                   "AiAssistantRunner._launch", _no_launch):
+            persona = self.env["aidoo.persona"].create({
+                "name": "ReportBot", "provider": "claude",
+                "instructions": "You are ReportBot.",
+            })
+            agent = self.env["aidoo.scheduled"].with_user(self.user).create({
+                "name": "Nightly", "provider": "gemini",
+                "prompt": "go", "persona_id": persona.id,
+            })
+            session = agent.with_user(self.user)._run_once()
+            # The persona overrides the agent's own provider and supplies the
+            # credential user; tools still run as the agent's Run As user.
+            self.assertEqual(session.persona_id, persona)
+            self.assertEqual(session.provider, "claude")
+            self.assertEqual(session._credential_user(), persona.bot_user_id)
+            self.assertEqual(session.user_id, self.user)
+
+    def test_persona_onchange_mirrors_provider_and_skills(self):
+        skills = self.env["aidoo.skill"].create([
+            {"name": "One", "instructions": "a"},
+            {"name": "Two", "instructions": "b"},
+        ])
+        persona = self.env["aidoo.persona"].create({
+            "name": "MirrorBot", "provider": "claude",
+            "skill_ids": [(6, 0, skills.ids)],
+        })
+        agent = self.env["aidoo.scheduled"].create({
+            "name": "Nightly", "provider": "gemini", "prompt": "go"})
+        agent.persona_id = persona
+        agent._onchange_persona_id()
+        self.assertEqual(agent.provider, "claude")
+        self.assertEqual(agent.skill_ids, skills)
+        # Clearing the persona leaves the mirrored values untouched.
+        agent.persona_id = False
+        agent._onchange_persona_id()
+        self.assertEqual(agent.provider, "claude")
+        self.assertEqual(agent.skill_ids, skills)

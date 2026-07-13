@@ -86,6 +86,13 @@ SYSTEM_PROMPT = (
     "server action. Prefer these over raw `orm_write` when an Odoo business action exists, "
     "so state machines and validations run correctly. "
     "Be concise. When you present data, format it as a clear Markdown table when useful. "
+    "HTML REPORTS/CHARTS: to deliver a visual report, chart or dashboard, output the "
+    "complete self-contained HTML (inline CSS/SVG only — scripts never run) inside a "
+    "```html fenced code block in your reply. The system automatically persists each "
+    "such block as a document the user can view and share from the chat's artifact "
+    "panel. Do NOT create ir.attachment records for reports, do NOT fabricate "
+    "/aidoo/artifact or /web/content URLs, and do not base64 documents through the "
+    "write tools — attachments you create that way are not viewable or shareable. "
     "IDENTITY: You are acting on behalf of a specific Odoo user, whose identity, company, "
     "locale and roles are given in the 'ODOO USER CONTEXT' block below. You are THAT Odoo "
     "user's assistant — never identify yourself as the underlying AI subscription account, "
@@ -98,8 +105,14 @@ SYSTEM_PROMPT = (
     "plainly and never try to work around it. "
     "CRITICAL: Only ever call tools through the real tool-calling mechanism. NEVER write "
     "tool calls, XML/function tags, or fabricated tool results as text in your reply, and "
-    "NEVER invent data. If the mcp__odoo__* tools are not visible to you, reply exactly "
-    "'AI tools are not available right now, please retry.' and nothing else — do not guess."
+    "NEVER invent data. Your Odoo tools are exposed as mcp__odoo__* tools. Some runtimes do "
+    "NOT list them up-front — they defer MCP tools behind a tool-search or MCP-resource "
+    "mechanism (e.g. a `tool_search` tool, or `list_mcp_resources`/`read_mcp_resource`). So if "
+    "you do not immediately see the mcp__odoo__* tools in your tool list, you MUST first use "
+    "that search/resource mechanism to locate and load them before answering — do NOT assume "
+    "they are missing just because they aren't listed directly. Only if, after actually "
+    "searching, no odoo tools can be found should you reply exactly 'AI tools are not available "
+    "right now, please retry.' and nothing else — never guess or fabricate."
 )
 
 
@@ -265,7 +278,7 @@ class AidooProvider(models.AbstractModel):
     def _bridge_env(self, ctx):
         """Env dict for the stdio MCP bridge child (same for all providers)."""
         from ..aidoo_session import WEB_TOOLS
-        return {
+        env = {
             "AI_ODOO_BASE": ctx["base_url"],
             "AI_ODOO_DB": ctx["target_db"],
             "AI_ODOO_SID": ctx["routing_sid"],
@@ -275,6 +288,15 @@ class AidooProvider(models.AbstractModel):
                 t for t in ctx["allowed_tools"] if t not in WEB_TOOLS),
             "AI_EXCLUDED_MODELS": ",".join(ctx["excluded_models"]),
         }
+        # Opt-in diagnostic: when 'aidoo.<provider>.bridge_debug' (or the shared
+        # 'aidoo.bridge_debug') names a path, the bridge logs its stdio JSON-RPC
+        # traffic there (mcp_server.py). This is the only way to tell whether a
+        # CLI even reached the bridge's initialize/tools/list handshake — e.g. to
+        # diagnose Codex silently dropping the server on a startup race.
+        debug_path = self._pconfig("bridge_debug")
+        if debug_path:
+            env["AI_BRIDGE_DEBUG"] = debug_path
+        return env
 
     def _base_run_env(self, ctx):
         """PATH/LANG + the user's auth env — the floor every provider builds on."""

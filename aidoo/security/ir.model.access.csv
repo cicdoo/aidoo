@@ -12,3 +12,4 @@ access_ai_skill_user,ai.skill.user,model_aidoo_skill,group_ai_user,1,1,1,1
 access_ai_skill_manager,ai.skill.manager,model_aidoo_skill,group_ai_manager,1,1,1,1
 access_ai_persona_user,ai.persona.user,model_aidoo_persona,group_ai_user,1,0,0,0
 access_ai_persona_manager,ai.persona.manager,model_aidoo_persona,group_ai_manager,1,1,1,1
+access_mail_mail_ai_user,mail.mail.ai.user,mail.model_mail_mail,group_ai_user,1,0,1,0

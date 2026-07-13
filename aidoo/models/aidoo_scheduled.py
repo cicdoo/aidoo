@@ -16,7 +16,7 @@ import uuid
 from dateutil.relativedelta import relativedelta
 
 from odoo import api, fields, models, _
-from odoo.tools import plaintext2html
+from odoo.tools import formataddr, plaintext2html
 
 from .aidoo_session import PROVIDERS
 
@@ -39,12 +39,36 @@ class AidooScheduled(models.Model):
         PROVIDERS, string="AI Provider", required=True,
         default=lambda self: self.env["aidoo.session"]._default_provider())
     prompt = fields.Text(required=True)
-    skill_id = fields.Many2one(
-        "aidoo.skill", string="Skill", ondelete="set null",
-        help="Optional reusable instruction preset applied to every run.")
+    persona_id = fields.Many2one(
+        "aidoo.persona", string="Persona", ondelete="set null",
+        help="Optional AI persona driving this agent. When set, the persona's "
+             "provider, model and connected service account OVERRIDE the "
+             "agent's own Provider / Run As credentials, and its personality "
+             "and skills are injected into every run. Tools still execute "
+             "with the Run As user's Odoo permissions.")
+    skill_ids = fields.Many2many(
+        "aidoo.skill", "aidoo_scheduled_skill_rel", "scheduled_id", "skill_id",
+        string="Skills",
+        help="Optional reusable instruction presets applied to every run.")
     skill_preview = fields.Text(
-        related="skill_id.instructions", string="Skill Instructions",
-        readonly=True)
+        string="Skill Instructions", compute="_compute_skill_preview")
+
+    @api.depends("skill_ids.name", "skill_ids.instructions")
+    def _compute_skill_preview(self):
+        for rec in self:
+            rec.skill_preview = "\n\n".join(
+                "[%s]\n%s" % (s.name, s.instructions or "")
+                for s in rec.skill_ids) or False
+
+    @api.onchange("persona_id")
+    def _onchange_persona_id(self):
+        """Mirror the persona's configuration onto the form: the persona's
+        provider drives the run, and its skill bundle is copied as a starting
+        point (still editable). Clearing the persona leaves the fields as-is —
+        we can't tell persona-copied skills from hand-picked ones."""
+        if self.persona_id:
+            self.provider = self.persona_id.provider
+            self.skill_ids = [(6, 0, self.persona_id.skill_ids.ids)]
 
     interval_number = fields.Integer(default=1, required=True)
     interval_type = fields.Selection(
@@ -164,12 +188,16 @@ class AidooScheduled(models.Model):
         conversation per run."""
         self.ensure_one()
         now = fields.Datetime.now()
+        # A persona overrides the agent's own provider/credentials; the agent's
+        # Provider / Run As fields are the fallback when no persona is set.
+        provider = self.persona_id.provider or self.provider
         session = self.env["aidoo.session"].sudo().search(
             [("scheduled_id", "=", self.id)], order="id asc", limit=1)
         if not session:
             session = self.env["aidoo.session"].with_user(self.user_id).create({
                 "user_id": self.user_id.id,
-                "provider": self.provider,
+                "provider": provider,
+                "persona_id": self.persona_id.id or False,
                 "scheduled_id": self.id,
                 "name": self.name,
             })
@@ -195,10 +223,14 @@ class AidooScheduled(models.Model):
         # the turn is treated as the first one — no prior-run transcript or
         # replayed history reaches the model. Any context the agent is configured
         # to carry is fed in below as a bounded, non-persisted prompt prefix.
-        # Keep the run session's skill in sync with the agent so the standard
-        # identity injection applies the agent's instruction preset every run.
+        # Keep the reused run session in sync with the agent every run —
+        # provider (which may follow the persona), persona and skills — so the
+        # standard identity/credential plumbing applies the agent's current
+        # configuration even when it changed between runs.
         session.write({"cli_session_id": str(uuid.uuid4()), "turn_count": 0,
-                       "skill_id": self.skill_id.id or False})
+                       "provider": provider,
+                       "persona_id": self.persona_id.id or False,
+                       "skill_ids": [(6, 0, self.skill_ids.ids)]})
         session.send_message(self.prompt, context_prefix=run_context)
         self.write({"last_run": now, "next_run": now + self._interval_delta()})
         return session
@@ -220,18 +252,30 @@ class AidooScheduled(models.Model):
         if not body:
             return
         html = plaintext2html(body)
+        # A persona-driven agent delivers under the persona's identity: its
+        # email address as the sender, its partner as the message author.
+        persona = self.persona_id.sudo()
         if self.delivery == "email":
             email_to = self.email_to or self.user_id._ai_account_email()
             if not email_to:
                 return
-            self.env["mail.mail"].sudo().create({
+            vals = {
                 "subject": _("Aidoo: %s") % self.name,
                 "body_html": html,
                 "email_to": email_to,
                 "auto_delete": True,
-            }).send()
+            }
+            if persona and persona.email:
+                vals["email_from"] = formataddr((persona.name, persona.email))
+                vals["author_id"] = persona.partner_id.id
+            self.env["mail.mail"].sudo().create(vals).send()
         elif self.delivery == "chatter" and self.res_model and self.res_id:
             if self.res_model in self.env:
                 rec = self.env[self.res_model].browse(self.res_id).exists()
                 if rec:
-                    rec.message_post(body=html)
+                    post_kwargs = {}
+                    # mail refuses an author without an email address, so the
+                    # persona identity applies only once its email is set.
+                    if persona and persona.partner_id and persona.email:
+                        post_kwargs["author_id"] = persona.partner_id.id
+                    rec.message_post(body=html, **post_kwargs)

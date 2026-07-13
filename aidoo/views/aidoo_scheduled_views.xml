@@ -40,9 +40,10 @@
                     </div>
                     <group>
                         <group string="Run">
+                            <field name="persona_id"/>
                             <field name="user_id"/>
                             <field name="provider"/>
-                            <field name="skill_id"/>
+                            <field name="skill_ids" widget="many2many_tags"/>
                             <field name="context_mode"/>
                             <field name="context_amount"
                                    invisible="context_mode not in ('messages', 'runs')"/>
@@ -61,9 +62,9 @@
                     <separator string="Prompt"/>
                     <field name="prompt" nolabel="1"
                            placeholder="What should the assistant do on each run?"/>
-                    <separator string="Skill Instructions" invisible="not skill_id"/>
+                    <separator string="Skill Instructions" invisible="not skill_ids"/>
                     <field name="skill_preview" nolabel="1" readonly="1"
-                           invisible="not skill_id"/>
+                           invisible="not skill_ids"/>
                     <group string="Delivery">
                         <field name="delivery"/>
                         <field name="email_to" invisible="delivery != 'email'"

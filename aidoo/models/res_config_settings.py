@@ -24,12 +24,41 @@ class ResConfigSettings(models.TransientModel):
         string="Claude Model", config_parameter="aidoo.claude.model",
         default="claude-sonnet-4-5")
 
+    # Codex is native (no CLI binary); the legacy cli_path field is kept out of
+    # the UI but not deleted, so an existing configured value survives upgrades.
     aidoo_codex_cli_path = fields.Char(
-        string="Codex CLI Path", config_parameter="aidoo.codex.cli_path",
-        help="Absolute path to the codex binary. Empty = auto-detect (PATH).")
+        string="Codex CLI Path (legacy)", config_parameter="aidoo.codex.cli_path",
+        help="Unused by the native Codex provider. Kept for the legacy CLI "
+             "adapter only.")
     aidoo_codex_model = fields.Char(
-        string="Codex Model", config_parameter="aidoo.codex.model", default="",
-        help="Empty uses the ChatGPT account default.")
+        string="Codex Model", config_parameter="aidoo.codex.model",
+        default="gpt-5.5",
+        help="Model id on the ChatGPT Codex backend (e.g. gpt-5.5, gpt-5.4, "
+             "gpt-5.4-mini). Codex-branded ids (gpt-*-codex) are NOT accepted "
+             "with a ChatGPT account. Empty falls back to gpt-5.5.")
+    aidoo_codex_base_url = fields.Char(
+        string="Codex Base URL", config_parameter="aidoo.codex.base_url",
+        help="ChatGPT Codex backend base URL. Empty = "
+             "https://chatgpt.com/backend-api/codex.")
+    aidoo_codex_rpm_limit = fields.Integer(
+        string="Codex Requests/min Cap",
+        config_parameter="aidoo.codex.rpm_limit", default=0,
+        help="Proactive client-side cap on Codex requests per minute (per "
+             "account, per Odoo worker). 0 disables.")
+    # MCP bridge timeouts: only meaningful for the legacy CLI adapter
+    # (codex_cli.py, unregistered) — the native provider runs tools in-process
+    # and never spawns the bridge. Kept (out of the UI) like cli_path above.
+    aidoo_codex_mcp_startup_timeout_sec = fields.Integer(
+        string="Codex MCP Startup Timeout (s)",
+        config_parameter="aidoo.codex.mcp_startup_timeout_sec", default=30,
+        help="Legacy CLI adapter only. How long Codex waits for the odoo MCP "
+             "bridge to complete its startup handshake before giving up and "
+             "dropping its tools.")
+    aidoo_codex_mcp_tool_timeout_sec = fields.Integer(
+        string="Codex MCP Tool Timeout (s)",
+        config_parameter="aidoo.codex.mcp_tool_timeout_sec", default=120,
+        help="Legacy CLI adapter only. Per-call ceiling for odoo MCP tools "
+             "under Codex (kept above the bridge's own 60s HTTP timeout).")
 
     aidoo_gemini_cli_path = fields.Char(
         string="Gemini CLI Path", config_parameter="aidoo.gemini.cli_path",

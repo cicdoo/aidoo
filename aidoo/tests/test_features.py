@@ -11,7 +11,7 @@ from odoo import fields
 from odoo.tests.common import TransactionCase, tagged
 
 
-def _no_launch(self, session, prompt, is_first, token):
+def _no_launch(self, session, prompt, is_first, token, pending_audio=None):
     """Stand-in for the runner: skip spawning a CLI (the session is already
     flipped to 'running' by send_message before this is called)."""
     return None
@@ -235,7 +235,7 @@ class TestAidooFeatures(TransactionCase):
         but never into the stored user message body."""
         captured = {}
 
-        def _capture(this, session, prompt, is_first, token):
+        def _capture(this, session, prompt, is_first, token, pending_audio=None):
             captured["prompt"] = prompt
             return None
 
@@ -278,6 +278,59 @@ class TestAidooFeatures(TransactionCase):
             session._deliver_result(True)
         self.assertEqual(self.env["mail.mail"].search_count([]), before + 1)
 
+    def test_email_delivery_uses_persona_identity(self):
+        persona = self.env["aidoo.persona"].create({
+            "name": "ReportBot", "provider": "claude",
+            "email": "reportbot@example.com",
+        })
+        agent = self._agent(delivery="email", persona_id=persona.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "All good."})
+        with patch("odoo.addons.mail.models.mail_mail.MailMail.send",
+                   return_value=True):
+            session._deliver_result(True)
+        mail = self.env["mail.mail"].search([], order="id desc", limit=1)
+        self.assertIn("reportbot@example.com", mail.email_from)
+        self.assertIn("ReportBot", mail.email_from)
+        self.assertEqual(mail.author_id, persona.partner_id)
+
+    def test_chatter_delivery_posts_as_persona(self):
+        persona = self.env["aidoo.persona"].create({
+            "name": "ChatterBot", "provider": "claude",
+            "email": "chatterbot@example.com",
+        })
+        partner = self.env["res.partner"].create({"name": "Acme Co"})
+        # Chatter delivery posts as the run-as user, which needs write access
+        # on the target record (standard mail posting rule).
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
+        agent = self._agent(delivery="chatter", persona_id=persona.id,
+                            res_model="res.partner", res_id=partner.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "Noted."})
+        session._deliver_result(True)
+        self.assertEqual(partner.message_ids[0].author_id, persona.partner_id)
+
+    def test_chatter_delivery_without_persona_email_still_posts(self):
+        """A persona with no email identity falls back to the default author
+        (mail refuses authors without an email address)."""
+        persona = self.env["aidoo.persona"].create({
+            "name": "MuteBot", "provider": "claude",
+        })
+        partner = self.env["res.partner"].create({"name": "Beta Co"})
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
+        agent = self._agent(delivery="chatter", persona_id=persona.id,
+                            res_model="res.partner", res_id=partner.id)
+        session = agent._run_once()
+        self.env["aidoo.message"].create({
+            "session_id": session.id, "role": "assistant", "body": "Noted."})
+        before = len(partner.message_ids)
+        session._deliver_result(True)
+        self.assertEqual(len(partner.message_ids), before + 1)
+        self.assertNotEqual(partner.message_ids[0].author_id,
+                            persona.partner_id)
+
     def test_chat_delivery_sends_no_mail(self):
         agent = self._agent(delivery="chat")
         session = agent._run_once()
@@ -304,6 +357,67 @@ class TestAidooFeatures(TransactionCase):
             ("discuss_channel_id", "=", channel.id),
             ("user_id", "=", self.user.id)])
         self.assertEqual(len(session), 1)
+        self.assertEqual(session.state, "running")
+
+    def test_im_search_includes_personas(self):
+        """Persona partners show up in Discuss's "New message" search (the
+        /discuss/search route -> res.partner._search_for_channel_invite) even
+        though their service users are portal (share) users."""
+        from odoo.addons.mail.tools.discuss import Store
+
+        def _search_ids(partner_model, term):
+            store = Store()
+            partner_model._search_for_channel_invite(store, term)
+            return [p["id"]
+                    for p in store.get_result().get("res.partner", [])]
+
+        persona = self.env["aidoo.persona"].create(
+            {"name": "SearchBot", "provider": "claude"})
+        Partner = self.env["res.partner"].with_user(self.user)
+        self.assertIn(persona.partner_id.id, _search_ids(Partner, "SearchBot"))
+        # An empty search lists personas too.
+        self.assertIn(persona.partner_id.id, _search_ids(Partner, ""))
+        # Users outside the AI group are not offered personas.
+        outsider = self.env["res.users"].create({
+            "name": "No AI", "login": "aidoo_no_ai",
+            "group_ids": [(6, 0, [self.env.ref("base.group_user").id])],
+        })
+        self.assertNotIn(
+            persona.partner_id.id,
+            _search_ids(self.env["res.partner"].with_user(outsider), "SearchBot"))
+
+    def test_channel_invite_search_includes_personas(self):
+        persona = self.env["aidoo.persona"].create(
+            {"name": "InviteBot", "provider": "claude"})
+        Partner = self.env["res.partner"].with_user(self.user)
+        res = Partner.search_for_channel_invite("InviteBot")
+        ids = [p["id"] for p in res["store_data"].get("res.partner", [])]
+        self.assertIn(persona.partner_id.id, ids)
+        # A persona already in the channel is not suggested again.
+        channel = self.env["discuss.channel"].sudo().create(
+            {"name": "Grp", "channel_type": "channel"})
+        channel.sudo().add_members(partner_ids=[persona.partner_id.id])
+        res = Partner.search_for_channel_invite(
+            "InviteBot", channel_id=channel.id)
+        ids = [p["id"] for p in res["store_data"].get("res.partner", [])]
+        self.assertNotIn(persona.partner_id.id, ids)
+
+    def test_dm_with_persona_answers_without_mention(self):
+        """A 1:1 chat with a persona spawns a session on a plain message —
+        no @mention required."""
+        persona = self.env["aidoo.persona"].create(
+            {"name": "DmBot", "provider": "claude"})
+        channel = self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
+            [persona.partner_id.id])
+        channel.with_user(self.user).message_post(
+            body="hello there", message_type="comment",
+            author_id=self.user.partner_id.id,
+            subtype_xmlid="mail.mt_comment")
+        session = self.env["aidoo.session"].search(
+            [("discuss_channel_id", "=", channel.id)])
+        self.assertEqual(len(session), 1)
+        self.assertEqual(session.persona_id, persona)
+        self.assertEqual(session.user_id, self.user)
         self.assertEqual(session.state, "running")
 
     def test_bot_own_message_does_not_recurse(self):
@@ -389,3 +503,74 @@ class TestAidooFeatures(TransactionCase):
         # A session row may be created, but the run is never launched.
         self.assertFalse(self._sessions_in(channel).filtered(
             lambda s: s.state == "running"))
+
+
+@tagged("post_install", "-at_install", "aidoo")
+class TestAidooAudioUploads(TransactionCase):
+    """Audio voice-note uploads: allow-list, transcript manifest, cached
+    transcript replay and the never-crash failure path. Whisper itself is
+    never spawned — the failure test points ``aidoo.whisper_python`` at a
+    non-existent binary."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.env["res.users"].create({
+            "name": "Aidoo Audio Tester",
+            "login": "aidoo_audio_tester",
+            "email": "audio.tester@example.com",
+            "group_ids": [(4, self.env.ref("base.group_user").id),
+                          (4, self.env.ref("aidoo.group_ai_user").id)],
+        })
+        self.session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude"})
+
+    def test_audio_extensions_allowed_others_still_rejected(self):
+        S = self.env["aidoo.session"]
+        self.assertEqual(S._safe_upload_name("voice note.mp3"), "voice_note.mp3")
+        self.assertEqual(S._safe_upload_name("memo.OGG"), "memo.OGG")
+        with self.assertRaises(Exception):
+            S._safe_upload_name("payload.exe")
+
+    def test_compose_prompt_points_at_transcript(self):
+        path = "/tmp/uploads/7_note.mp3"
+        prompt = self.session._compose_prompt("what did I say?", [path])
+        self.assertIn(path + ".transcript.txt", prompt)
+        self.assertIn("Never try to Read the audio file itself", prompt)
+        # Non-audio files keep the plain manifest line.
+        self.assertNotIn(".transcript.txt",
+                         self.session._compose_prompt("hi", ["/tmp/a.txt"]))
+
+    def test_cached_transcript_replayed_on_materialize(self):
+        from odoo.addons.aidoo.models.aidoo_session import TRANSCRIPT_MARKER
+        desc = self.session.with_user(self.user)._store_upload(
+            "note.mp3", b"\xff\xfbfake-mp3-bytes")
+        att = self.env["ir.attachment"].browse(desc["id"])
+        # No transcript yet -> the attachment is a pending job.
+        paths, atts = self.session._materialize_attachments([att.id])
+        self.assertEqual(
+            [j["att_id"] for j in self.session._pending_audio_jobs(paths, atts)],
+            [att.id])
+        # Cache a transcript, re-materialize: file replayed, no pending job.
+        att.sudo().description = TRANSCRIPT_MARKER + "hello from cache"
+        paths, atts = self.session._materialize_attachments([att.id])
+        tpath = self.session._transcript_path_for(paths[0])
+        with open(tpath, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello from cache")
+        self.assertFalse(self.session._pending_audio_jobs(paths, atts))
+
+    def test_transcription_failure_writes_note_and_never_raises(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.whisper_python", "/nonexistent/python-binary")
+        desc = self.session.with_user(self.user)._store_upload(
+            "broken.mp3", b"\xff\xfbnot-really-audio")
+        att = self.env["ir.attachment"].browse(desc["id"])
+        paths, atts = self.session._materialize_attachments([att.id])
+        jobs = self.session._pending_audio_jobs(paths, atts)
+        self.session._transcribe_pending(jobs)  # must not raise
+        tpath = self.session._transcript_path_for(paths[0])
+        with open(tpath, encoding="utf-8") as f:
+            note = f.read()
+        self.assertIn("No transcript available", note)
+        self.assertIn("broken.mp3", note)
+        # Nothing cached -> retried on the next turn.
+        self.assertFalse(att.sudo().description)
