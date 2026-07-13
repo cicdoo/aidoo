@@ -272,7 +272,7 @@ class AidooProvider(models.AbstractModel):
     def _bridge_env(self, ctx):
         """Env dict for the stdio MCP bridge child (same for all providers)."""
         from ..aidoo_session import WEB_TOOLS
-        return {
+        env = {
             "AI_ODOO_BASE": ctx["base_url"],
             "AI_ODOO_DB": ctx["target_db"],
             "AI_ODOO_SID": ctx["routing_sid"],
@@ -282,6 +282,15 @@ class AidooProvider(models.AbstractModel):
                 t for t in ctx["allowed_tools"] if t not in WEB_TOOLS),
             "AI_EXCLUDED_MODELS": ",".join(ctx["excluded_models"]),
         }
+        # Opt-in diagnostic: when 'aidoo.<provider>.bridge_debug' (or the shared
+        # 'aidoo.bridge_debug') names a path, the bridge logs its stdio JSON-RPC
+        # traffic there (mcp_server.py). This is the only way to tell whether a
+        # CLI even reached the bridge's initialize/tools/list handshake — e.g. to
+        # diagnose Codex silently dropping the server on a startup race.
+        debug_path = self._pconfig("bridge_debug")
+        if debug_path:
+            env["AI_BRIDGE_DEBUG"] = debug_path
+        return env
 
     def _base_run_env(self, ctx):
         """PATH/LANG + the user's auth env — the floor every provider builds on."""

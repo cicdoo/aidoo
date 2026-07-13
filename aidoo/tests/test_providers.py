@@ -106,6 +106,25 @@ class TestProviders(TransactionCase):
                 self.assertIn(op.get("op"), valid,
                               "%s emitted unknown op %r" % (code, op))
 
+    def test_codex_mcp_startup_timeout_overrides(self):
+        """Codex must pin explicit MCP startup/tool timeouts so a cold bridge
+        spawn doesn't lose Codex's startup race and get its tools dropped
+        (the "AI tools are not available right now" symptom)."""
+        adapter = self._adapter("codex")
+        argv = adapter._build_argv(self._ctx("codex"), "/tmp/last.txt")
+        self.assertIn("mcp_servers.odoo.startup_timeout_sec=30", argv,
+                      "codex argv must set the MCP startup timeout (default 30)")
+        self.assertIn("mcp_servers.odoo.tool_timeout_sec=120", argv,
+                      "codex argv must set the MCP tool timeout (default 120)")
+
+    def test_codex_mcp_startup_timeout_configurable(self):
+        """A configured system parameter overrides the default startup timeout."""
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.codex.mcp_startup_timeout_sec", "90")
+        argv = self._adapter("codex")._build_argv(self._ctx("codex"), "/tmp/l.txt")
+        self.assertIn("mcp_servers.odoo.startup_timeout_sec=90", argv)
+        self.assertNotIn("mcp_servers.odoo.startup_timeout_sec=30", argv)
+
     def test_build_prompt_folds_context_for_cli_non_claude(self):
         """CLI non-Claude providers can't pass a system-prompt flag, so the system
         prompt + identity must be folded into the prompt text."""

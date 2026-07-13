@@ -30,6 +30,18 @@ class ResConfigSettings(models.TransientModel):
     aidoo_codex_model = fields.Char(
         string="Codex Model", config_parameter="aidoo.codex.model", default="",
         help="Empty uses the ChatGPT account default.")
+    aidoo_codex_mcp_startup_timeout_sec = fields.Integer(
+        string="Codex MCP Startup Timeout (s)",
+        config_parameter="aidoo.codex.mcp_startup_timeout_sec", default=30,
+        help="How long Codex waits for the odoo MCP bridge to complete its "
+             "startup handshake before giving up and dropping its tools. Raise "
+             "it if new Codex conversations intermittently reply that AI tools "
+             "are not available (a cold bridge spawn losing the startup race).")
+    aidoo_codex_mcp_tool_timeout_sec = fields.Integer(
+        string="Codex MCP Tool Timeout (s)",
+        config_parameter="aidoo.codex.mcp_tool_timeout_sec", default=120,
+        help="Per-call ceiling for odoo MCP tools under Codex. Kept above the "
+             "bridge's own 60s HTTP timeout so slower Odoo calls aren't cut short.")
 
     aidoo_gemini_cli_path = fields.Char(
         string="Gemini CLI Path", config_parameter="aidoo.gemini.cli_path",

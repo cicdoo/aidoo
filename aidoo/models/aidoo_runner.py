@@ -268,6 +268,13 @@ class AiAssistantRunner(models.AbstractModel):
         if stderr_reader is not None:
             stderr_reader.join(timeout=5)
         stderr = "".join(stderr_buf)
+        # A CLI can exit 0 yet still print warnings to stderr — e.g. Codex noting
+        # it dropped an MCP server that lost the startup race. That stderr is
+        # discarded on the success path below, so surface it at debug level for
+        # diagnosing "tools not available" turns without changing behavior.
+        if stderr.strip():
+            _logger.debug("AI assistant: %s (session %s) stderr:\n%s",
+                          ctx["provider"], ctx["session_id"], stderr[:4000])
 
         # Fallback: some CLIs don't stream a final assistant message; recover it.
         fallback_rec = env["aidoo.message"]
