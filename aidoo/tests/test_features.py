@@ -360,27 +360,31 @@ class TestAidooFeatures(TransactionCase):
         self.assertEqual(session.state, "running")
 
     def test_im_search_includes_personas(self):
-        """Persona partners show up in Discuss's "New message" search even
+        """Persona partners show up in Discuss's "New message" search (the
+        /discuss/search route -> res.partner._search_for_channel_invite) even
         though their service users are portal (share) users."""
+        from odoo.addons.mail.tools.discuss import Store
+
+        def _search_ids(partner_model, term):
+            store = Store()
+            partner_model._search_for_channel_invite(store, term)
+            return [p["id"]
+                    for p in store.get_result().get("res.partner", [])]
+
         persona = self.env["aidoo.persona"].create(
             {"name": "SearchBot", "provider": "claude"})
         Partner = self.env["res.partner"].with_user(self.user)
-        ids = [p["id"] for p in
-               Partner.get_mention_suggestions("SearchBot").get("res.partner", [])]
-        self.assertIn(persona.partner_id.id, ids)
+        self.assertIn(persona.partner_id.id, _search_ids(Partner, "SearchBot"))
         # An empty search lists personas too.
-        ids = [p["id"] for p in
-               Partner.get_mention_suggestions("").get("res.partner", [])]
-        self.assertIn(persona.partner_id.id, ids)
+        self.assertIn(persona.partner_id.id, _search_ids(Partner, ""))
         # Users outside the AI group are not offered personas.
         outsider = self.env["res.users"].create({
             "name": "No AI", "login": "aidoo_no_ai",
             "group_ids": [(6, 0, [self.env.ref("base.group_user").id])],
         })
-        ids = [p["id"] for p in
-               self.env["res.partner"].with_user(outsider)
-               .get_mention_suggestions("SearchBot").get("res.partner", [])]
-        self.assertNotIn(persona.partner_id.id, ids)
+        self.assertNotIn(
+            persona.partner_id.id,
+            _search_ids(self.env["res.partner"].with_user(outsider), "SearchBot"))
 
     def test_channel_invite_search_includes_personas(self):
         persona = self.env["aidoo.persona"].create(
