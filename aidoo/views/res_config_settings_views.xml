@@ -55,8 +55,8 @@
                     </block>
 
                     <block title="Codex (OpenAI)" name="aidoo_codex">
-                        <setting string="Model" help="Model on the ChatGPT Codex backend. Empty falls back to gpt-5-codex.">
-                            <field name="aidoo_codex_model" placeholder="gpt-5-codex"/>
+                        <setting string="Model" help="Model on the ChatGPT Codex backend (gpt-5.5, gpt-5.4, gpt-5.4-mini; codex-branded ids need an API key). Empty falls back to gpt-5.5.">
+                            <field name="aidoo_codex_model" placeholder="gpt-5.5"/>
                         </setting>
                         <setting string="Base URL" help="Empty = https://chatgpt.com/backend-api/codex (native, no codex binary needed).">
                             <field name="aidoo_codex_base_url" placeholder="https://chatgpt.com/backend-api/codex"/>

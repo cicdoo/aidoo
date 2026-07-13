@@ -20,9 +20,11 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
   pasted via credential import, and token refresh (with refresh-token rotation)
   is handled client-side. New stdlib-only client in
   `models/providers/codex_client.py`; the legacy subprocess adapter is preserved
-  unregistered in `codex_cli.py`. Settings: default model is now `gpt-5-codex`
-  (the native request must pin a model), the CLI-path setting left the UI, and
-  `aidoo.codex.base_url` + `aidoo.codex.rpm_limit` were added.
+  unregistered in `codex_cli.py`. Settings: default model is now `gpt-5.5`
+  (the native request must pin a model, and the ChatGPT backend rejects
+  codex-branded ids like `gpt-5-codex` — those are API-key-only), the CLI-path
+  setting left the UI, and `aidoo.codex.base_url` + `aidoo.codex.rpm_limit`
+  were added.
 
 ### Added
 - **Audio / voice-note uploads with local transcription** — the chat composer and
