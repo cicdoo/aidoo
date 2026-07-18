@@ -137,17 +137,28 @@ class AidooProviderClaude(AidooProvider):
     def _prepare_run(self, ctx):
         mcp_config_path = self._write_mcp_config(ctx)
         settings_path = self._write_settings(ctx)
-        argv = self._build_argv(ctx, mcp_config_path, settings_path)
+        sysprompt_path = self._write_system_prompt(ctx)
+        argv = self._build_argv(ctx, mcp_config_path, settings_path, sysprompt_path)
         env = self._base_run_env(ctx)
         return {
             "argv": argv,
             "env": env,
             "cwd": ctx["scratch"],
             "stdin": None,
-            "cleanup": [mcp_config_path, settings_path],
+            "cleanup": [mcp_config_path, settings_path, sysprompt_path],
         }
 
-    def _build_argv(self, ctx, mcp_config_path, settings_path):
+    def _write_system_prompt(self, ctx):
+        """Persona + skills can exceed the kernel's 128KiB per-argv-string limit
+        (execve fails with E2BIG "Argument list too long"), so the system prompt
+        goes through a file, never argv."""
+        path = os.path.join(ctx["scratch"], "system_prompt.txt")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(SYSTEM_PROMPT + "\n\n" + ctx["identity"])
+        return path
+
+    def _build_argv(self, ctx, mcp_config_path, settings_path, sysprompt_path):
         odoo_tools = [t for t in ctx["allowed_tools"] if t not in WEB_TOOLS]
         web_builtins = [WEB_TOOL_BUILTINS[t] for t in ctx["allowed_tools"] if t in WEB_TOOLS]
         allowed = ",".join(
@@ -163,7 +174,7 @@ class AidooProviderClaude(AidooProvider):
             "--mcp-config", mcp_config_path,
             "--settings", settings_path,
             "--allowedTools", allowed,
-            "--append-system-prompt", SYSTEM_PROMPT + "\n\n" + ctx["identity"],
+            "--append-system-prompt-file", sysprompt_path,
         ]
         # Resume only when this conversation's transcript exists under the
         # current CLAUDE_CONFIG_DIR; otherwise start fresh (reusing the UUID) so

@@ -53,7 +53,8 @@ class TestRunnerWeb(TransactionCase):
         self.assertNotIn("WebFetch", deny, "granted web tool must leave the deny list")
         self.assertIn("WebSearch", deny, "ungranted web tool stays denied")
 
-        argv = self.claude._build_argv(ctx, "/tmp/mcp.json", settings_path)
+        argv = self.claude._build_argv(
+            ctx, "/tmp/mcp.json", settings_path, "/tmp/system_prompt.txt")
         allowed = argv[argv.index("--allowedTools") + 1].split(",")
         self.assertIn("WebFetch", allowed, "web tool goes in by bare built-in name")
         self.assertIn("mcp__odoo__orm_read", allowed)
