@@ -4,55 +4,62 @@
      Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
 <odoo>
 
-    <!-- Sensible global defaults (per-provider defaults live in the adapters and
-         can be overridden in Settings → Aidoo). -->
-    <record id="param_base_url" model="ir.config_parameter">
-        <field name="key">aidoo.base_url</field>
-        <field name="value">http://127.0.0.1:8069</field>
-    </record>
-    <record id="param_sql_enabled" model="ir.config_parameter">
-        <field name="key">aidoo.sql_enabled</field>
-        <field name="value">True</field>
-    </record>
-    <record id="param_default_provider" model="ir.config_parameter">
-        <field name="key">aidoo.default_provider</field>
-        <field name="value">claude</field>
-    </record>
+    <data>
+        <!-- Client action that opens the chat UI -->
+        <record id="action_ai_chat" model="ir.actions.client">
+            <field name="name">Aidoo</field>
+            <field name="tag">aidoo.chat</field>
+        </record>
 
-    <!-- Client action that opens the chat UI -->
-    <record id="action_ai_chat" model="ir.actions.client">
-        <field name="name">Aidoo</field>
-        <field name="tag">aidoo.chat</field>
-    </record>
+        <!-- Menu -->
+        <menuitem id="menu_ai_root" name="Aidoo"
+                  web_icon="aidoo,static/description/icon.png"
+                  sequence="20" groups="group_ai_user"/>
+        <menuitem id="menu_ai_chat" name="Chat"
+                  parent="menu_ai_root" action="action_ai_chat"
+                  sequence="10" groups="group_ai_user"/>
+    </data>
 
-    <!-- Menu -->
-    <menuitem id="menu_ai_root" name="Aidoo"
-              web_icon="aidoo,static/description/icon.png"
-              sequence="20" groups="group_ai_user"/>
-    <menuitem id="menu_ai_chat" name="Chat"
-              parent="menu_ai_root" action="action_ai_chat"
-              sequence="10" groups="group_ai_user"/>
+    <!-- Seeded once, then left alone: admin-editable via Settings → Aidoo /
+         Technical → Scheduled Actions. Without noupdate, every module
+         upgrade silently reset these back to the hardcoded values below. -->
+    <data noupdate="1">
+        <!-- Sensible global defaults (per-provider defaults live in the adapters and
+             can be overridden in Settings → Aidoo). -->
+        <record id="param_base_url" model="ir.config_parameter">
+            <field name="key">aidoo.base_url</field>
+            <field name="value">http://127.0.0.1:8069</field>
+        </record>
+        <record id="param_sql_enabled" model="ir.config_parameter">
+            <field name="key">aidoo.sql_enabled</field>
+            <field name="value">True</field>
+        </record>
+        <record id="param_default_provider" model="ir.config_parameter">
+            <field name="key">aidoo.default_provider</field>
+            <field name="value">claude</field>
+        </record>
 
-    <!-- Cron: reap stuck running sessions and GC old scratch dirs -->
-    <record id="cron_ai_reaper" model="ir.cron">
-        <field name="name">Aidoo: reap stale sessions</field>
-        <field name="model_id" ref="model_aidoo_session"/>
-        <field name="state">code</field>
-        <field name="code">model._cron_reap_stale()</field>
-        <field name="interval_number">30</field>
-        <field name="interval_type">minutes</field>
-        <field name="active">True</field>
-    </record>
+        <!-- Cron: reap stuck running sessions and GC old scratch dirs -->
+        <record id="cron_ai_reaper" model="ir.cron">
+            <field name="name">Aidoo: reap stale sessions</field>
+            <field name="model_id" ref="model_aidoo_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_reap_stale()</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
 
-    <!-- Cron: run due scheduled AI agents -->
-    <record id="cron_ai_scheduled" model="ir.cron">
-        <field name="name">Aidoo: run scheduled agents</field>
-        <field name="model_id" ref="model_aidoo_scheduled"/>
-        <field name="state">code</field>
-        <field name="code">model._cron_run_due()</field>
-        <field name="interval_number">15</field>
-        <field name="interval_type">minutes</field>
-        <field name="active">True</field>
-    </record>
+        <!-- Cron: run due scheduled AI agents -->
+        <record id="cron_ai_scheduled" model="ir.cron">
+            <field name="name">Aidoo: run scheduled agents</field>
+            <field name="model_id" ref="model_aidoo_scheduled"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_run_due()</field>
+            <field name="interval_number">15</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+    </data>
 
 </odoo>
