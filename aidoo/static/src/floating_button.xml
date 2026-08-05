@@ -50,7 +50,9 @@
                     <div t-esc="state.authError"/>
                 </div>
                 <AiComposer onSend.bind="onSend" disabled="state.running"
-                            sessionId="state.sessionId"/>
+                            sessionId="state.sessionId"
+                            skills="state.skills" skillIds="state.skillIds"
+                            onSelectSkills.bind="setSkills"/>
             </t>
         </div>
       </div>

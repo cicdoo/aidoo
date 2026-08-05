@@ -36,6 +36,8 @@ export class FloatingAidoo extends Component {
             messages: [],
             running: false,
             authError: "",
+            skills: [],
+            skillIds: [],
         });
         this._allowed = false;
 
@@ -47,6 +49,14 @@ export class FloatingAidoo extends Component {
         });
         onWillStart(async () => {
             this._allowed = await user.hasGroup("aidoo.group_ai_user");
+            if (this._allowed) {
+                try {
+                    const info = await rpc("/aidoo/providers");
+                    this.state.skills = info.skills || [];
+                } catch {
+                    // Non-fatal: picker just shows empty; FAB still works.
+                }
+            }
         });
     }
 
@@ -122,6 +132,7 @@ export class FloatingAidoo extends Component {
         }
         this.state.sessionId = null;
         this.state.messages = [];
+        this.state.skillIds = [];
         this.state.contextLabel = "";
     }
 
@@ -136,6 +147,7 @@ export class FloatingAidoo extends Component {
         this.state.contextLabel = s.context_label || "";
         const data = await rpc("/aidoo/messages", { session_id: s.id });
         this.state.messages = data.messages;
+        this.state.skillIds = data.skill_ids || [];
         this.state.running = data.state === "running";
         this.state.ready = true;
     }
@@ -148,6 +160,7 @@ export class FloatingAidoo extends Component {
         }
         this.state.sessionId = null;
         this.state.messages = [];
+        this.state.skillIds = [];
         await this._startSession();
     }
 
@@ -231,6 +244,14 @@ export class FloatingAidoo extends Component {
         }
         const data = await rpc("/aidoo/messages", { session_id: this.state.sessionId });
         this.state.messages = data.messages;
+    }
+
+    async setSkills(skillIds) {
+        const ids = skillIds || [];
+        this.state.skillIds = ids;
+        if (this.state.sessionId) {
+            await rpc("/aidoo/skill", { session_id: this.state.sessionId, skill_ids: ids });
+        }
     }
 
     openArtifact(seg) {
