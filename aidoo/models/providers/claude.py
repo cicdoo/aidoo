@@ -19,6 +19,7 @@ import os
 import re
 import shlex
 import secrets
+import shutil
 import time
 
 import requests
@@ -72,16 +73,21 @@ class AidooProviderClaude(AidooProvider):
             return explicit
         pattern = self._pconfig("cli_glob", self._default_cli_glob)
         matches = glob.glob(pattern)
-        if not matches:
-            raise UserError(_(
-                "Claude CLI binary not found. Set the System Parameter "
-                "'aidoo.claude.cli_path' or 'aidoo.claude.cli_glob'. Tried: %s") % pattern)
+        if matches:
+            def _ver_key(p):
+                m = re.search(r"claude-code-(\d+)\.(\d+)\.(\d+)", p)
+                return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
 
-        def _ver_key(p):
-            m = re.search(r"claude-code-(\d+)\.(\d+)\.(\d+)", p)
-            return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
-
-        return sorted(matches, key=_ver_key)[-1]
+            return sorted(matches, key=_ver_key)[-1]
+        # Fall back to PATH lookup, same as the base class, for standalone
+        # installs (e.g. CICDoo's /opt/odoo/.local/bin/claude) that aren't
+        # bundled as a code-server extension.
+        which = shutil.which(os.path.basename(pattern))
+        if which:
+            return which
+        raise UserError(_(
+            "Claude CLI binary not found. Set the System Parameter "
+            "'aidoo.claude.cli_path' or 'aidoo.claude.cli_glob'. Tried: %s") % pattern)
 
     # ------------------------------------------------------------------
     # Runtime env: HOME + CLAUDE_CONFIG_DIR (per user)
