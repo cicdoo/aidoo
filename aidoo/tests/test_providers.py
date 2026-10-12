@@ -627,3 +627,34 @@ class TestProviders(TransactionCase):
         self.assertEqual(calls["n"], 2)
         self.assertIn("aidoo_native_gemini",
                       next(o for o in ops if o["op"] == "tool_result")["text"])
+
+
+@tagged("post_install", "-at_install", "aidoo")
+class TestClaudeStreaming(TransactionCase):
+
+    def _run(self, events):
+        adapter = self.env["aidoo.provider.claude"]
+        state, ops = {}, []
+        for evt in events:
+            ops.extend(adapter._normalize_event(evt, state))
+        return ops
+
+    def test_deltas_then_final_replace(self):
+        se = lambda e: {"type": "stream_event", "event": e}
+        ops = self._run([
+            se({"type": "message_start", "message": {"id": "m1"}}),
+            se({"type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "Hel"}}),
+            se({"type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "lo"}}),
+            {"type": "assistant", "message": {
+                "id": "m1", "content": [{"type": "text", "text": "Hello"}]}},
+        ])
+        self.assertEqual([o["text"] for o in ops], ["Hel", "lo", "Hello"])
+        self.assertTrue(ops[-1].get("replace"))
+        self.assertFalse(ops[0].get("replace"))
+
+    def test_non_streamed_assistant_appends(self):
+        ops = self._run([{"type": "assistant", "message": {
+            "id": "m2", "content": [{"type": "text", "text": "Hi"}]}}])
+        self.assertEqual(ops, [{"op": "text", "msg_id": "m2", "text": "Hi"}])

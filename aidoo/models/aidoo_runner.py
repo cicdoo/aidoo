@@ -32,6 +32,9 @@ from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
+# Max delay before streamed text deltas are written/emitted to the chat.
+_STREAM_FLUSH_S = 0.15
+
 
 def _lift_rlimit_as():
     """Raise the child's RLIMIT_AS soft limit back to the hard limit.
@@ -191,6 +194,17 @@ class AiAssistantRunner(models.AbstractModel):
         state = {}            # adapter scratchpad for stream parsing
         produced_text = {"any": False}
         line_q = queue.Queue()
+        # Streamed text deltas are coalesced so we don't commit + bus-send per
+        # token: pending holds consecutive appends for one CLI message id.
+        pending = {"msg_id": None, "text": "", "since": 0.0}
+
+        def _flush_pending():
+            if not pending["text"]:
+                return False
+            op = {"op": "text", "msg_id": pending["msg_id"], "text": pending["text"]}
+            pending["text"] = ""
+            self._apply_op(env, session, op, msg_map, produced_text)
+            return True
 
         def _pump(pipe, q):
             try:
@@ -232,9 +246,14 @@ class AiAssistantRunner(models.AbstractModel):
                 if remaining <= 0:
                     proc.kill()
                     raise TimeoutError("Run exceeded timeout")
+                wait = min(remaining, 5)
+                if pending["text"]:
+                    wait = min(wait, max(0.0, pending["since"] + _STREAM_FLUSH_S - time.time()))
                 try:
-                    line = line_q.get(timeout=max(0.05, min(remaining, 5)))
+                    line = line_q.get(timeout=max(0.01, wait))
                 except queue.Empty:
+                    if _flush_pending():
+                        env.cr.commit()
                     if proc.poll() is not None:
                         break
                     continue
@@ -249,8 +268,25 @@ class AiAssistantRunner(models.AbstractModel):
                     _logger.debug("AI assistant: dropping non-JSON line: %.200s",
                                   line)
                     continue
+                dirty = False
                 for op in adapter._normalize_event(evt, state):
+                    if (op.get("op") == "text" and not op.get("replace")
+                            and op.get("text")
+                            and (not pending["text"]
+                                 or pending["msg_id"] == op.get("msg_id"))):
+                        if not pending["text"]:
+                            pending["msg_id"] = op.get("msg_id")
+                            pending["since"] = time.time()
+                        pending["text"] += op["text"]
+                        continue
+                    _flush_pending()
                     self._apply_op(env, session, op, msg_map, produced_text)
+                    dirty = True
+                if pending["text"] and time.time() - pending["since"] >= _STREAM_FLUSH_S:
+                    dirty = _flush_pending() or dirty
+                if dirty:
+                    env.cr.commit()
+            if _flush_pending():
                 env.cr.commit()
             try:
                 rc = proc.wait(timeout=10)
