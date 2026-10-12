@@ -535,12 +535,31 @@ export class AiChatAction extends Component {
     }
 
     _upsertMessage(msg) {
+        if (msg.delta !== undefined) {
+            const existing = this.state.messages.find((m) => m.id === msg.id);
+            const { delta, base_len, ...rest } = msg;
+            if (existing) {
+                if ((existing.body || "").length !== base_len) {
+                    return null; // missed event; `done` reload restores the body
+                }
+                Object.assign(existing, rest);
+                existing.body = (existing.body || "") + delta;
+                return existing;
+            }
+            if (base_len !== 0) {
+                return null;
+            }
+            const created = { ...rest, body: delta };
+            this.state.messages.push(created);
+            return this.state.messages[this.state.messages.length - 1];
+        }
         const idx = this.state.messages.findIndex((m) => m.id === msg.id);
         if (idx === -1) {
             this.state.messages.push(msg);
         } else {
             this.state.messages[idx] = msg;
         }
+        return msg;
     }
 
     _onBusEvent(p) {
@@ -556,8 +575,12 @@ export class AiChatAction extends Component {
                 break;
             case "message":
                 this.state.notice = "";
-                this._upsertMessage(p.message);
-                this._maybeCaptureArtifact(p.message);
+                {
+                    const merged = this._upsertMessage(p.message);
+                    if (merged) {
+                        this._maybeCaptureArtifact(merged);
+                    }
+                }
                 break;
             case "done":
                 this.state.running = false;
