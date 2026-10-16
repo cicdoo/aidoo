@@ -634,6 +634,10 @@ class AidooToolExec(models.AbstractModel):
         Model = self.env[model]
         target = Model.browse(ids) if ids else Model
         target.check_access("write")
+        # Tell the action which chat session called it, so it can hand files
+        # back into that session (e.g. an image preview in uploads/). The model
+        # cannot set this: its kwargs are method arguments, not context.
+        target = target.with_context(aidoo_session_id=session.id)
         result = getattr(target, method)(*(args or []), **(kwargs or {}))
         return self._serialize_result(result)
 
