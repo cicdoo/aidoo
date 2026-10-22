@@ -78,10 +78,9 @@ OWL chat UI ──/aidoo/send (auth=user)──► Odoo worker ──► daemon 
 ### Requirements
 
 - **Odoo 18.0**
-- The CLI for each provider you want to enable, installed on the Odoo server
-  (Aidoo auto-detects the binary; the path is configurable per provider):
-  **Claude Code** (`claude`), **Codex** (`codex`), **Gemini** (`gemini`),
-  **Grok** (`grok`).
+- For **Claude**, the Claude Code CLI (`claude`) installed on the Odoo server
+  (auto-detected; the path is configurable). **Codex**, **Gemini**, **Grok**
+  and **Z.AI** are native in-process providers and need no binary.
 - Python **`requests`** (declared as an external dependency).
 - A per-user account for whichever provider(s) you use — connected from the chat
   (Claude OAuth, Codex device-code, Gemini/Grok credential-import or API key).

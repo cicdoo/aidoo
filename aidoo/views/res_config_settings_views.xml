@@ -94,20 +94,14 @@
                     </block>
 
                     <block title="Grok (xAI)" name="aidoo_grok">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_grok_cli_path" placeholder="auto-detect"/>
-                        </setting>
                         <setting string="Model">
-                            <field name="aidoo_grok_model"/>
+                            <field name="aidoo_grok_model" placeholder="grok-4.7"/>
                         </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_grok_auth_mode"/>
                         </setting>
                         <setting string="Shared xAI API Key">
                             <field name="aidoo_grok_api_key" password="True"/>
-                        </setting>
-                        <setting string="Output Format">
-                            <field name="aidoo_grok_output_format"/>
                         </setting>
                     </block>
 
