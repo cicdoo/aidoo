@@ -133,7 +133,7 @@ export class AiChatAction extends Component {
             window.open(url, "_blank", "noopener,noreferrer");
             this.state.authStep = "awaiting_code";
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not start the login.";
+            this.state.authError = e.data?.message || "Could not start the login.";
         }
     }
 
@@ -152,7 +152,7 @@ export class AiChatAction extends Component {
             await this._onAuthSuccess();
         } catch (e) {
             this.state.authStep = "awaiting_code";
-            this.state.authError = e.message?.data?.message || "Authentication failed. Try again.";
+            this.state.authError = e.data?.message || "Authentication failed. Try again.";
         }
     }
 
@@ -174,7 +174,7 @@ export class AiChatAction extends Component {
             }
             this._startPolling();
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not start the login.";
+            this.state.authError = e.data?.message || "Could not start the login.";
         }
     }
 
@@ -217,7 +217,7 @@ export class AiChatAction extends Component {
             });
             await this._onAuthSuccess();
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Import failed.";
+            this.state.authError = e.data?.message || "Import failed.";
         }
     }
 
@@ -238,7 +238,7 @@ export class AiChatAction extends Component {
                 this.state.authError = "The key was not accepted.";
             }
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not save the key.";
+            this.state.authError = e.data?.message || "Could not save the key.";
         }
     }
 
@@ -473,7 +473,7 @@ export class AiChatAction extends Component {
             });
         } catch (e) {
             this.notification.add(
-                e.message?.data?.message || "Could not create the share link.",
+                e.data?.message || "Could not create the share link.",
                 { type: "danger" });
         }
     }
@@ -492,7 +492,7 @@ export class AiChatAction extends Component {
             this.notification.add("Share link revoked.", { type: "success" });
         } catch (e) {
             this.notification.add(
-                e.message?.data?.message || "Could not revoke the share link.",
+                e.data?.message || "Could not revoke the share link.",
                 { type: "danger" });
         }
     }
@@ -630,7 +630,7 @@ export class AiChatAction extends Component {
             });
         } catch (e) {
             this.state.running = false;
-            this.notification.add(e.message?.data?.message || "Failed to send.", {
+            this.notification.add(e.data?.message || "Failed to send.", {
                 type: "danger",
             });
         }
