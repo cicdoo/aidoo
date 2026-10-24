@@ -667,3 +667,55 @@ class TestCustomProvider(TransactionCase):
         self.assertFalse(self.adapter._configured())
         self._set(base_url="https://gw.example")
         self.assertTrue(self.adapter._configured())
+
+
+@tagged("post_install", "-at_install", "aidoo")
+class TestCustomProviderIcon(TransactionCase):
+
+    def _png(self, color, size=(300, 200)):
+        import base64
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", size, color).save(buf, "PNG")
+        return base64.b64encode(buf.getvalue())
+
+    def _upload(self, value):
+        self.env["res.config.settings"].create(
+            {"aidoo_custom_icon": value}).set_values()
+
+    def _icon(self):
+        return self.env["aidoo.provider.custom"]._descriptor()["icon"]
+
+    def _att(self):
+        return self.env["res.config.settings"]._aidoo_custom_icon_attachment()
+
+    def test_default_icon(self):
+        self.assertTrue(self._icon().endswith("claude-color.svg"))
+
+    def test_upload_replace_clear(self):
+        import base64
+        import io
+        from PIL import Image
+        self._upload(self._png("red"))
+        att = self._att()
+        self.assertTrue(att.public)
+        self.assertEqual(self._icon(), "/web/image/%d?unique=%s" % (att.id, att.checksum))
+        w, h = Image.open(io.BytesIO(base64.b64decode(att.datas))).size
+        self.assertLessEqual(max(w, h), 128)
+        old = att.checksum
+        self._upload(self._png("blue"))
+        att2 = self._att()
+        self.assertEqual(att2, att)
+        self.assertNotEqual(att2.checksum, old)
+        self.assertEqual(self.env["ir.attachment"].sudo().search_count([
+            ("name", "=", "aidoo_custom_provider_icon")]), 1)
+        self._upload(False)
+        self.assertFalse(self._att())
+        self.assertTrue(self._icon().endswith("claude-color.svg"))
+
+    def test_non_image_rejected(self):
+        import base64
+        from odoo.exceptions import UserError
+        with self.assertRaises(UserError):
+            self._upload(base64.b64encode(b"not an image at all"))

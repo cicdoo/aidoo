@@ -2,7 +2,11 @@
 # Copyright 2026 CICDoo (https://cicdoo.com)
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-from odoo import fields, models
+import base64
+
+from odoo import _, fields, models
+from odoo.exceptions import UserError
+from odoo.tools import image as image_tools
 
 from .aidoo_session import PROVIDERS
 
@@ -134,6 +138,10 @@ class ResConfigSettings(models.TransientModel):
     aidoo_custom_label = fields.Char(
         string="Custom LLM Label", config_parameter="aidoo.custom.label",
         help="Name shown in the provider picker (default: Custom LLM).")
+    # Non-stored: kept as a public ir.attachment (see set_values).
+    aidoo_custom_icon = fields.Binary(
+        string="Custom LLM Icon",
+        help="Logo shown in the provider picker and chat list.")
     aidoo_custom_base_url = fields.Char(
         string="Custom LLM Base URL", config_parameter="aidoo.custom.base_url",
         help="Anthropic-compatible gateway URL (ANTHROPIC_BASE_URL). The provider stays hidden until set.")
@@ -234,8 +242,16 @@ class ResConfigSettings(models.TransientModel):
              "Empty = none. A 'code' server action runs arbitrary Python, so "
              "only allowlist actions you trust.")
 
+    _AIDOO_ICON_NAME = "aidoo_custom_provider_icon"
+
+    def _aidoo_custom_icon_attachment(self):
+        return self.env["ir.attachment"].sudo().search([
+            ("name", "=", self._AIDOO_ICON_NAME),
+            ("res_model", "=", "res.config.settings")], limit=1)
+
     def get_values(self):
         res = super().get_values()
+        res["aidoo_custom_icon"] = self._aidoo_custom_icon_attachment().datas or False
         names = self.env["aidoo.session"]._ai_excluded_models()
         models = self.env["ir.model"].search([("model", "in", list(names))])
         res["aidoo_excluded_model_ids"] = [(6, 0, models.ids)]
@@ -246,8 +262,40 @@ class ResConfigSettings(models.TransientModel):
             res["aidoo_dispatch_interval_minutes"] = cron.interval_number
         return res
 
+    def _aidoo_store_custom_icon(self):
+        att = self._aidoo_custom_icon_attachment()
+        if not self.aidoo_custom_icon:
+            att.unlink()
+            return
+        if att and att.datas == self.aidoo_custom_icon:
+            return
+        try:
+            raw = base64.b64decode(self.aidoo_custom_icon)
+            data = image_tools.image_process(
+                raw, size=(128, 128), verify_resolution=True)
+        except Exception:
+            raise UserError(_("The icon must be a valid image (PNG, JPEG, WebP or SVG)."))
+        if not data:
+            raise UserError(_("The icon must be a valid image (PNG, JPEG, WebP or SVG)."))
+        mimetype = self.env["ir.attachment"]._compute_mimetype({"raw": data})
+        if not mimetype.startswith("image/"):
+            raise UserError(_("The icon must be a valid image (PNG, JPEG, WebP or SVG)."))
+        vals = {
+            "name": self._AIDOO_ICON_NAME,
+            "res_model": "res.config.settings",
+            "res_id": 0,
+            "public": True,
+            "mimetype": mimetype,
+            "raw": data,
+        }
+        if att:
+            att.write(vals)
+        else:
+            self.env["ir.attachment"].sudo().create(vals)
+
     def set_values(self):
         super().set_values()
+        self._aidoo_store_custom_icon()
         names = ",".join(sorted(self.aidoo_excluded_model_ids.mapped("model")))
         ICP = self.env["ir.config_parameter"].sudo()
         ICP.set_param("aidoo.excluded_models", names)

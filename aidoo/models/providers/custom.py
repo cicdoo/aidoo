@@ -62,6 +62,9 @@ class AidooProviderCustom(AidooProviderClaude):
     def _descriptor(self):
         desc = super()._descriptor()
         desc["label"] = self._param("label") or self._provider_label
+        att = self.env["res.config.settings"]._aidoo_custom_icon_attachment()
+        if att:
+            desc["icon"] = "/web/image/%d?unique=%s" % (att.id, att.checksum)
         return desc
 
     # ------------------------------------------------------------------
