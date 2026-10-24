@@ -131,6 +131,34 @@ class ResConfigSettings(models.TransientModel):
         string="Shared Z.AI API Key", config_parameter="aidoo.zai.api_key",
         help="Optional fallback key used when a user has no personal key.")
 
+    aidoo_custom_label = fields.Char(
+        string="Custom LLM Label", config_parameter="aidoo.custom.label",
+        help="Name shown in the provider picker (default: Custom LLM).")
+    aidoo_custom_base_url = fields.Char(
+        string="Custom LLM Base URL", config_parameter="aidoo.custom.base_url",
+        help="Anthropic-compatible gateway URL (ANTHROPIC_BASE_URL). The provider stays hidden until set.")
+    aidoo_custom_api_key = fields.Char(
+        string="Shared Custom LLM Auth Token", config_parameter="aidoo.custom.api_key",
+        help="Gateway token (ANTHROPIC_AUTH_TOKEN), used when a user has no personal token.")
+    aidoo_custom_model = fields.Char(
+        string="Custom LLM Model", config_parameter="aidoo.custom.model",
+        help="Main model (ANTHROPIC_MODEL).")
+    aidoo_custom_opus_model = fields.Char(
+        string="Custom LLM Opus Model", config_parameter="aidoo.custom.opus_model",
+        help="ANTHROPIC_DEFAULT_OPUS_MODEL (optional).")
+    aidoo_custom_sonnet_model = fields.Char(
+        string="Custom LLM Sonnet Model", config_parameter="aidoo.custom.sonnet_model",
+        help="ANTHROPIC_DEFAULT_SONNET_MODEL (optional).")
+    aidoo_custom_haiku_model = fields.Char(
+        string="Custom LLM Haiku Model", config_parameter="aidoo.custom.haiku_model",
+        help="ANTHROPIC_DEFAULT_HAIKU_MODEL (optional).")
+    aidoo_custom_subagent_model = fields.Char(
+        string="Custom LLM Subagent Model", config_parameter="aidoo.custom.subagent_model",
+        help="CLAUDE_CODE_SUBAGENT_MODEL (optional).")
+    aidoo_custom_cli_path = fields.Char(
+        string="Custom LLM CLI Path", config_parameter="aidoo.custom.cli_path",
+        help="Claude CLI binary. Empty = auto-detect.")
+
     aidoo_antigravity_enabled = fields.Boolean(
         string="Enable Antigravity (experimental)",
         config_parameter="aidoo.antigravity.enabled", default=False,

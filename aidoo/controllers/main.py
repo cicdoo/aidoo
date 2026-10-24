@@ -46,6 +46,8 @@ class AiAssistantChat(http.Controller):
             # sandboxed) stay hidden until explicitly enabled by an admin.
             if getattr(adapter, "_experimental", False) and not adapter._pconfig("enabled"):
                 continue
+            if not adapter._configured():
+                continue
             desc = adapter._descriptor()
             desc["authenticated"] = user._ai_is_authenticated(code)
             out.append(desc)

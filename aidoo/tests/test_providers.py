@@ -7,13 +7,14 @@
 Every provider adapter must: expose the right descriptor, build a runnable
 command from a ctx (writing whatever config files its CLI needs), and normalize
 its CLI's stream events into the common op format without ever raising on junk."""
+import os
 import sys
 import tempfile
 from unittest.mock import patch
 
 from odoo.tests.common import TransactionCase, tagged
 
-PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai"]
+PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai", "custom"]
 # Providers that drive a CLI subprocess (implement _prepare_run/_normalize_event).
 # Codex, Gemini and z.ai are NATIVE (in-process) and implement _run_stream
 # instead, so the CLI-shaped contract tests don't apply to them.
@@ -603,3 +604,66 @@ class TestProviders(TransactionCase):
         self.assertEqual(calls["n"], 2)
         self.assertIn("aidoo_native_gemini",
                       next(o for o in ops if o["op"] == "tool_result")["text"])
+
+
+@tagged("post_install", "-at_install", "aidoo")
+class TestCustomProvider(TransactionCase):
+    _ctx = TestProviders._ctx
+    _adapter = TestProviders._adapter
+
+    def _set(self, **kw):
+        icp = self.env["ir.config_parameter"].sudo()
+        for k, v in kw.items():
+            icp.set_param("aidoo.custom.%s" % k, v)
+
+    def setUp(self):
+        super().setUp()
+        self.scratch = tempfile.mkdtemp(prefix="aidoo_custom_")
+        self.adapter = self._adapter("custom")
+        self.user = self.env.user
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.custom.home_root", self.scratch)
+
+    def test_env_carries_anthropic_vars(self):
+        self._set(base_url="https://gw.example/anthropic", api_key="tok",
+                  model="m-main", opus_model="m-opus", sonnet_model="",
+                  haiku_model="m-haiku", subagent_model="")
+        env = self.adapter._oauth_env(self.user)
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://gw.example/anthropic")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "tok")
+        self.assertEqual(env["ANTHROPIC_MODEL"], "m-main")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "m-opus")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "m-haiku")
+        self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", env)
+        self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
+        self.assertIn(".custom", env["CLAUDE_CONFIG_DIR"])
+
+    def test_authentication_and_key_file(self):
+        self._set(base_url="", api_key="")
+        self.assertFalse(self.adapter._is_authenticated(self.user))
+        self._set(base_url="https://gw.example", api_key="shared")
+        self.assertTrue(self.adapter._is_authenticated(self.user))
+        self._set(api_key="")
+        self.assertFalse(self.adapter._is_authenticated(self.user))
+        self.adapter._auth_set_key(self.user, "personal")
+        path = self.adapter._api_key_path(self.user)
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertTrue(self.adapter._is_authenticated(self.user))
+        self.adapter._auth_logout(self.user)
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(self.adapter._is_authenticated(self.user))
+
+    def test_prepare_run_argv(self):
+        ctx = self._ctx("custom")
+        ctx["model"] = "m-main"
+        prep = self.adapter._prepare_run(ctx)
+        argv = prep["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "m-main")
+        self.assertIn("--mcp-config", argv)
+        self.assertIn("--strict-mcp-config", argv)
+
+    def test_configured_hook(self):
+        self._set(base_url="")
+        self.assertFalse(self.adapter._configured())
+        self._set(base_url="https://gw.example")
+        self.assertTrue(self.adapter._configured())

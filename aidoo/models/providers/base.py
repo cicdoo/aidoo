@@ -174,6 +174,10 @@ class AidooProvider(models.AbstractModel):
     # ------------------------------------------------------------------
     # Config helpers (aidoo.<code>.<key> with fallback to aidoo.<key>)
     # ------------------------------------------------------------------
+    def _configured(self):
+        """False hides the provider from the catalogue (e.g. no base URL yet)."""
+        return True
+
     def _pconfig(self, key, default=None):
         return self.env["aidoo.session"]._pconfig(self._provider_code, key, default)
 

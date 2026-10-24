@@ -123,6 +123,36 @@
                         </setting>
                     </block>
 
+                    <block title="Custom LLM (Anthropic-compatible)" name="aidoo_custom">
+                        <setting string="Label" help="Name shown in the provider picker (default: Custom LLM).">
+                            <field name="aidoo_custom_label"/>
+                        </setting>
+                        <setting string="Base URL" help="Anthropic-compatible gateway URL (ANTHROPIC_BASE_URL). The provider stays hidden until set.">
+                            <field name="aidoo_custom_base_url"/>
+                        </setting>
+                        <setting string="Shared Auth Token" help="Gateway token (ANTHROPIC_AUTH_TOKEN), used when a user has no personal token.">
+                            <field name="aidoo_custom_api_key" password="True"/>
+                        </setting>
+                        <setting string="Model" help="Main model (ANTHROPIC_MODEL).">
+                            <field name="aidoo_custom_model"/>
+                        </setting>
+                        <setting string="Opus Model" help="ANTHROPIC_DEFAULT_OPUS_MODEL (optional).">
+                            <field name="aidoo_custom_opus_model"/>
+                        </setting>
+                        <setting string="Sonnet Model" help="ANTHROPIC_DEFAULT_SONNET_MODEL (optional).">
+                            <field name="aidoo_custom_sonnet_model"/>
+                        </setting>
+                        <setting string="Haiku Model" help="ANTHROPIC_DEFAULT_HAIKU_MODEL (optional).">
+                            <field name="aidoo_custom_haiku_model"/>
+                        </setting>
+                        <setting string="Subagent Model" help="CLAUDE_CODE_SUBAGENT_MODEL (optional).">
+                            <field name="aidoo_custom_subagent_model"/>
+                        </setting>
+                        <setting string="CLI Path" help="Claude CLI binary. Empty = auto-detect.">
+                            <field name="aidoo_custom_cli_path"/>
+                        </setting>
+                    </block>
+
                     <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
                         <setting string="Enable Antigravity"
                                  help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">

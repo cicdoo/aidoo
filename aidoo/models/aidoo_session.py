@@ -170,6 +170,7 @@ PROVIDERS = [
     ("gemini", "Gemini"),
     ("grok", "Grok"),
     ("zai", "Z.AI (GLM)"),
+    ("custom", "Custom LLM"),
     ("antigravity", "Antigravity"),
 ]
 
