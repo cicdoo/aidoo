@@ -64,7 +64,7 @@
                 color: $o-gray-500;
                 opacity: 0;
 
-                &.fa-star {
+                &.o_ai_starred {
                     color: #f5b301;
                     opacity: 1;
                 }
@@ -236,7 +236,7 @@
             background-color: $o-gray-200;
             border-color: $o-gray-400;
         }
-        .fa-area-chart { color: $o-brand-primary; }
+        .oi[data-icon="show_chart"] { color: $o-brand-primary; }
     }
 
     // Collapsed-by-default tool calls.

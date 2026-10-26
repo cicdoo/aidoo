@@ -94,15 +94,15 @@ export class AiMessage extends Component {
 
     attachmentIcon(att) {
         const mt = att.mimetype || "";
-        if (mt.startsWith("image/")) return "fa-file-image-o";
-        if (mt === "application/pdf") return "fa-file-pdf-o";
-        return "fa-file-text-o";
+        if (mt.startsWith("image/")) return "image";
+        if (mt === "application/pdf") return "picture_as_pdf";
+        return "description";
     }
 
     statusIcon(call) {
-        if (call.status === "done") return "fa-check text-success";
-        if (call.status === "error") return "fa-times text-danger";
-        return "fa-spinner fa-spin text-muted";
+        if (call.status === "done") return "check";
+        if (call.status === "error") return "close";
+        return "autorenew";
     }
 
     summarizeInput(call) {

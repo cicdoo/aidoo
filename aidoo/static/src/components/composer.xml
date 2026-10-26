@@ -10,16 +10,16 @@
             <div t-if="this.state.files.length" class="o_ai_attachments d-flex flex-wrap gap-1 mb-2">
                 <div t-foreach="this.state.files" t-as="f" t-key="f.id"
                      class="o_ai_attachment_chip d-flex align-items-center small">
-                    <i class="fa fa-paperclip me-1"/>
-                    <span class="text-truncate" t-esc="f.name"/>
+                    <i class="oi me-1" data-icon="attach_file"/>
+                    <span class="text-truncate" t-out="f.name"/>
                     <button class="btn btn-sm o_ai_attachment_remove ms-1 p-0"
                             title="Remove" t-on-click="() => this.removeFile(f.id)">
-                        <i class="fa fa-times"/>
+                        <i class="oi" data-icon="close"/>
                     </button>
                 </div>
             </div>
 
-            <div t-if="this.state.error" class="text-danger small mb-1" t-esc="this.state.error"/>
+            <div t-if="this.state.error" class="text-danger small mb-1" t-out="this.state.error"/>
 
             <div class="d-flex align-items-end gap-2">
                 <input type="file" class="d-none" t-ref="this.fileRef" multiple="multiple"
@@ -29,17 +29,17 @@
                         title="Attach files (text, CSV, code, PDF, images, audio)"
                         t-att-disabled="this.props.disabled || this.state.uploading"
                         t-on-click="this.pickFiles">
-                    <i t-attf-class="fa {{ this.state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip' }}"/>
+                    <i t-attf-class="oi {{ this.state.uploading ? 'oi-spin' : '' }}" t-att-data-icon="this.state.uploading ? 'autorenew' : 'attach_file'"/>
                 </button>
                 <!-- Skill picker: opens a searchable dialog. The chosen skill's
                      instructions are followed every turn in this chat. -->
                 <button class="btn btn-light o_ai_skill_btn d-flex align-items-center"
                         t-att-title="this.currentSkillName ? ('Skill: ' + this.currentSkillName) : 'Pick an instruction skill'"
                         t-on-click="this.openSkillPicker">
-                    <i class="fa fa-magic"/>
+                    <i class="oi" data-icon="wand_stars"/>
                     <span t-if="this.currentSkillName"
                           class="ms-1 d-none d-md-inline text-truncate o_ai_skill_btn_label"
-                          t-esc="this.currentSkillName"/>
+                          t-out="this.currentSkillName"/>
                 </button>
                 <textarea t-ref="this.inputRef"
                           class="form-control o_ai_composer_input"
@@ -51,7 +51,7 @@
                 <button class="btn btn-primary o_ai_send"
                         t-att-disabled="!this.canSend"
                         t-on-click="this._send">
-                    <i class="fa fa-paper-plane"/>
+                    <i class="oi" data-icon="send"/>
                 </button>
             </div>
         </div>

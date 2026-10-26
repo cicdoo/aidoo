@@ -10,7 +10,7 @@
             <button class="btn btn-primary rounded-circle shadow o_aidoo_fab_btn"
                     t-att-title="this.panelOpen ? 'Hide Aidoo' : 'Ask Aidoo'"
                     t-on-click="this.toggle">
-                <i t-att-class="this.panelOpen ? 'fa fa-times' : 'fa fa-comments'"/>
+                <i class="oi" t-att-data-icon="this.panelOpen ? 'close' : 'chat'"/>
             </button>
         </div>
 
@@ -18,36 +18,36 @@
         <div t-if="this.panelOpen"
              t-att-class="'o_aidoo_panel d-flex flex-column shadow-lg ' + (this.state.expanded ? 'o_aidoo_panel--expanded' : '')">
             <div class="o_aidoo_panel_header d-flex align-items-center px-2 py-2">
-                <i class="fa fa-robot me-2"/>
+                <i class="oi me-2" data-icon="smart_toy"/>
                 <div class="flex-grow-1 text-truncate">
                     <span class="fw-bold">Aidoo</span>
                     <small t-if="this.state.contextLabel" class="ms-1 opacity-75 text-truncate">
-                        · <t t-esc="this.state.contextLabel"/>
+                        · <t t-out="this.state.contextLabel"/>
                     </small>
                 </div>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2" title="New chat"
-                        t-on-click="this.newChat"><i class="fa fa-plus"/></button>
+                        t-on-click="this.newChat"><i class="oi" data-icon="add"/></button>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2"
                         t-att-title="this.state.expanded ? 'Shrink' : 'Expand'"
                         t-on-click="this.toggleExpand">
-                    <i t-att-class="this.state.expanded ? 'fa fa-compress' : 'fa fa-expand'"/>
+                    <i class="oi" t-att-data-icon="this.state.expanded ? 'close_fullscreen' : 'expand_content'"/>
                 </button>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2" title="Minimize"
-                        t-on-click="this.minimize"><i class="fa fa-window-minimize"/></button>
+                        t-on-click="this.minimize"><i class="oi" data-icon="remove"/></button>
                 <button class="btn btn-sm btn-link text-reset p-0" title="Close"
-                        t-on-click="this.close"><i class="fa fa-times"/></button>
+                        t-on-click="this.close"><i class="oi" data-icon="close"/></button>
             </div>
 
             <div t-if="!this.state.ready"
                  class="flex-grow-1 d-flex align-items-center justify-content-center text-muted">
-                <i class="fa fa-spinner fa-spin me-2"/> Loading…
+                <i class="oi oi-spin me-2" data-icon="autorenew"/> Loading…
             </div>
 
             <t t-else="">
                 <AiMessageList messages="this.state.messages" running="this.state.running"
                                onOpenArtifact.bind="this.openArtifact"/>
                 <div t-if="this.state.authError" class="alert alert-warning m-2 p-2 small mb-0">
-                    <div t-esc="this.state.authError"/>
+                    <div t-out="this.state.authError"/>
                 </div>
                 <AiComposer onSend.bind="this.onSend" disabled="this.state.running"
                             sessionId="this.state.sessionId"/>

@@ -14,21 +14,21 @@
                     <button class="list-group-item list-group-item-action d-flex align-items-center"
                             t-att-class="{ active: !this.state.selected.size }"
                             t-on-click="() => this.clearAll()">
-                        <i class="fa fa-ban me-2 text-muted"/>
+                        <i class="oi me-2 text-muted" data-icon="block"/>
                         <span>No skill</span>
                     </button>
                     <t t-foreach="this.filtered" t-as="sk" t-key="sk.id">
                         <button class="list-group-item list-group-item-action d-flex align-items-start"
                                 t-att-class="{ active: this.state.selected.has(sk.id) }"
                                 t-on-click="() => this.toggle(sk.id)">
-                            <i class="fa me-2 mt-1"
-                               t-att-class="this.state.selected.has(sk.id) ? 'fa-check-square-o' : 'fa-square-o'"/>
+                            <i class="oi me-2 mt-1"
+                               t-att-data-icon="this.state.selected.has(sk.id) ? 'check_box' : 'check_box_outline_blank'"/>
                             <span>
                                 <span class="fw-bold d-block">
-                                    <i class="fa fa-magic me-2"/><t t-esc="sk.name"/>
+                                    <i class="oi me-2" data-icon="wand_stars"/><t t-out="sk.name"/>
                                 </span>
                                 <small t-if="sk.description" class="d-block"
-                                       t-esc="sk.description"/>
+                                       t-out="sk.description"/>
                             </span>
                         </button>
                     </t>

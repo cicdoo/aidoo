@@ -5,7 +5,7 @@
 <templates id="template" xml:space="preserve">
     <t t-name="aidoo.AskAidooMenu">
         <DropdownItem onSelected.bind="this.askAidoo">
-            <i class="fa fa-fw fa-comments me-1" aria-hidden="true"></i>Ask Aidoo
+            <i class="oi oi-fw me-1" data-icon="chat" aria-hidden="true"></i>Ask Aidoo
         </DropdownItem>
     </t>
 </templates>

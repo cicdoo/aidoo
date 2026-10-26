@@ -26,7 +26,7 @@
             <form>
                 <header>
                     <button name="action_open_chat" type="object" string="Chat"
-                            class="btn-primary" icon="fa-comments"
+                            class="btn-primary" icon="chat"
                             invisible="not bot_user_id"/>
                 </header>
                 <sheet>
@@ -117,7 +117,7 @@
                                   class="badge text-bg-primary">Default</span>
                         </div>
                         <div class="small text-muted mt-1">
-                            <i class="fa fa-microchip me-1"/><field name="provider"/>
+                            <i class="oi me-1" data-icon="memory"/><field name="provider"/>
                         </div>
                         <div class="mt-2">
                             <span t-if="record.authenticated.raw_value"

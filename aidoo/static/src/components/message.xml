@@ -9,12 +9,12 @@
         <div t-if="this.isDivider"
              class="o_ai_msg_divider d-flex align-items-center my-3 text-muted small">
             <span class="flex-grow-1 border-top"/>
-            <span class="px-2 text-uppercase" t-esc="this.props.message.body"/>
+            <span class="px-2 text-uppercase" t-out="this.props.message.body"/>
             <span class="flex-grow-1 border-top"/>
         </div>
         <div t-else="" t-attf-class="o_ai_msg o_ai_msg_{{this.props.message.role}} d-flex flex-column mb-3">
             <div class="o_ai_msg_role small text-muted mb-1">
-                <t t-esc="this.roleLabel"/>
+                <t t-out="this.roleLabel"/>
             </div>
 
             <!-- Tool calls: collapsed by default behind a toggle -->
@@ -23,17 +23,17 @@
                     <button type="button"
                             class="o_ai_tools_toggle btn btn-sm btn-link p-0 d-flex align-items-center small text-muted text-decoration-none"
                             t-on-click="this.toggleTools">
-                        <i t-attf-class="fa {{ this.ui.toolsOpen ? 'fa-caret-down' : 'fa-caret-right' }} me-1"/>
-                        <i t-if="this.toolsBusy" class="fa fa-spinner fa-spin me-1"/>
-                        <i t-else="" class="fa fa-wrench me-1"/>
-                        <span t-esc="this.toolCalls.length + (this.toolCalls.length === 1 ? ' tool call' : ' tool calls')"/>
+                        <i class="oi me-1" t-att-data-icon="this.ui.toolsOpen ? 'arrow_drop_down' : 'arrow_right'"/>
+                        <i t-if="this.toolsBusy" class="oi oi-spin me-1" data-icon="autorenew"/>
+                        <i t-else="" class="oi me-1" data-icon="build"/>
+                        <span t-out="this.toolCalls.length + (this.toolCalls.length === 1 ? ' tool call' : ' tool calls')"/>
                     </button>
                     <div t-if="this.ui.toolsOpen" class="o_ai_tools_list mt-1">
                         <div t-foreach="this.toolCalls" t-as="call" t-key="call.id"
                              class="o_ai_tool_chip d-flex align-items-center small">
-                            <i t-attf-class="fa {{this.statusIcon(call)}} me-1"/>
-                            <span class="fw-bold me-1" t-esc="call.name"/>
-                            <span class="text-muted text-truncate" t-esc="this.summarizeInput(call)"/>
+                            <i t-attf-class="oi me-1 {{ call.status === 'done' ? 'text-success' : call.status === 'error' ? 'text-danger' : 'oi-spin text-muted' }}" t-att-data-icon="this.statusIcon(call)"/>
+                            <span class="fw-bold me-1" t-out="call.name"/>
+                            <span class="text-muted text-truncate" t-out="this.summarizeInput(call)"/>
                         </div>
                     </div>
                 </div>
@@ -44,8 +44,8 @@
                 <div class="o_ai_attachments d-flex flex-wrap gap-1 mb-1">
                     <div t-foreach="this.attachments" t-as="att" t-key="att.id"
                          class="o_ai_attachment_chip d-flex align-items-center small">
-                        <i t-attf-class="fa {{ this.attachmentIcon(att) }} me-1"/>
-                        <span class="text-truncate" t-esc="att.name"/>
+                        <i class="oi me-1" t-att-data-icon="this.attachmentIcon(att)"/>
+                        <span class="text-truncate" t-out="att.name"/>
                     </div>
                 </div>
             </t>
@@ -55,16 +55,16 @@
                  the artifact panel, and the rest renders as markdown. -->
             <t t-if="this.props.message.body">
                 <div t-if="this.props.message.role === 'user'"
-                     class="o_ai_msg_body o_ai_msg_plain" t-esc="this.props.message.body"/>
+                     class="o_ai_msg_body o_ai_msg_plain" t-out="this.props.message.body"/>
                 <t t-else="">
                     <t t-foreach="this.segments" t-as="seg" t-key="seg_index">
                         <button t-if="seg.type === 'html'" type="button"
                                 class="o_ai_artifact_card d-flex align-items-center"
                                 t-on-click="() => this.openArtifact(seg)">
-                            <i class="fa fa-area-chart me-2"/>
+                            <i class="oi me-2" data-icon="show_chart"/>
                             <span class="fw-bold me-2">Chart</span>
                             <span class="text-muted small">Click to view</span>
-                            <i class="fa fa-chevron-right ms-auto"/>
+                            <i class="oi ms-auto" data-icon="chevron_forward"/>
                         </button>
                         <div t-else="" class="o_ai_msg_body o_ai_md" t-out="seg.html"/>
                     </t>

@@ -11,12 +11,12 @@
             <div t-if="this.props.hasMore" class="o_ai_load_more text-center mb-2">
                 <button class="btn btn-sm btn-link text-decoration-none"
                         t-on-click="() => this.loadMore()">
-                    <i class="fa fa-history me-1"/> Load earlier messages
+                    <i class="oi me-1" data-icon="history"/> Load earlier messages
                 </button>
             </div>
             <t t-if="!this.props.messages.length and !this.props.hasMore">
                 <div class="o_ai_empty text-center text-muted mt-5">
-                    <i class="fa fa-comments fa-3x mb-3 d-block"/>
+                    <i class="oi oi-3x mb-3 d-block" data-icon="chat"/>
                     <div>Ask me to query data or build a report.</div>
                 </div>
             </t>
@@ -24,7 +24,7 @@
                 <AiMessage message="msg" onOpenArtifact="this.props.onOpenArtifact"/>
             </t>
             <div t-if="this.props.running" class="o_ai_typing small text-muted">
-                <i class="fa fa-spinner fa-spin me-1"/> Assistant is working…
+                <i class="oi oi-spin me-1" data-icon="autorenew"/> Assistant is working…
             </div>
         </div>
     </t>

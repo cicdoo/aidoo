@@ -19,20 +19,20 @@
                         <button class="btn btn-sm btn-link text-decoration-none ms-auto p-0"
                                 title="Close" aria-label="Close"
                                 t-on-click="() => this.state.sidebarOpen = false">
-                            <i class="fa fa-times"/>
+                            <i class="oi" data-icon="close"/>
                         </button>
                     </div>
                     <select class="form-select form-select-sm mb-2"
                             t-on-change="(ev) => this.state.selectedProvider = ev.target.value">
                         <t t-foreach="this.state.providers" t-as="p" t-key="p.code">
-                            <option t-att-value="p.code" t-att-selected="p.code === this.state.selectedProvider" t-esc="p.label"/>
+                            <option t-att-value="p.code" t-att-selected="p.code === this.state.selectedProvider" t-out="p.label"/>
                         </t>
                     </select>
                     <button class="btn btn-primary w-100" t-on-click="this._newSession">
-                        <i class="fa fa-plus me-1"/> New chat
+                        <i class="oi me-1" data-icon="add"/> New chat
                     </button>
                     <div class="o_ai_search input-group input-group-sm mt-2">
-                        <span class="input-group-text"><i class="fa fa-search"/></span>
+                        <span class="input-group-text"><i class="oi" data-icon="search"/></span>
                         <input type="text" class="form-control"
                                placeholder="Search conversations"
                                t-att-value="this.state.searchQuery"
@@ -40,7 +40,7 @@
                         <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ this.state.favoritesOnly ? 'active' : '' }}"
                                 title="Show favorites only"
                                 t-on-click="() => this.state.favoritesOnly = !this.state.favoritesOnly">
-                            <i t-attf-class="fa {{ this.state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
+                            <i class="oi" t-att-class="{ 'oi-filled': this.state.favoritesOnly }" data-icon="star"/>
                         </button>
                     </div>
                 </div>
@@ -53,13 +53,13 @@
                                  t-att-alt="this._provider(s.provider).label"
                                  t-att-title="this._provider(s.provider).label"
                                  class="o_ai_session_icon me-2"/>
-                            <i t-else="" class="fa fa-comment-o me-2 text-muted"
+                            <i t-else="" class="oi me-2 text-muted" data-icon="chat"
                                t-att-title="this._provider(s.provider).label"/>
-                            <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
-                            <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
+                            <span class="o_ai_session_name text-truncate" t-out="s.name"/>
+                            <i t-attf-class="oi o_ai_session_star ms-auto {{ s.is_favorite ? 'oi-filled o_ai_starred' : '' }}" data-icon="star"
                                title="Favorite"
                                t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
-                            <i class="fa fa-trash-o o_ai_session_del ms-1"
+                            <i class="oi o_ai_session_del ms-1" data-icon="delete"
                                title="Delete conversation"
                                t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
                         </div>
@@ -75,20 +75,20 @@
                     <button class="btn btn-sm btn-link text-decoration-none px-1"
                             title="Conversations" aria-label="Conversations"
                             t-on-click="this.toggleSidebar">
-                        <i class="fa fa-bars"/>
+                        <i class="oi" data-icon="menu"/>
                     </button>
                     <span class="o_ai_mobile_title text-truncate ms-1 fw-bold"
-                          t-esc="this.currentSessionName"/>
+                          t-out="this.currentSessionName"/>
                 </div>
 
                 <!-- Auth gate: shown until the current conversation's provider is connected -->
                 <div t-if="!this.isAuthed"
                      class="o_ai_auth d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
                     <div class="o_ai_auth_card p-4">
-                        <i class="fa fa-robot fa-3x text-primary mb-3"/>
-                        <h3 class="mb-2">Connect <t t-esc="this.currentProvider.label"/></h3>
+                        <i class="oi oi-3x text-primary mb-3" data-icon="smart_toy"/>
+                        <h3 class="mb-2">Connect <t t-out="this.currentProvider.label"/></h3>
                         <p class="text-muted mb-4">
-                            This conversation runs on <b><t t-esc="this.currentProvider.label"/></b>.
+                            This conversation runs on <b><t t-out="this.currentProvider.label"/></b>.
                             Connect once to start chatting.
                         </p>
 
@@ -96,7 +96,7 @@
                         <t t-if="this.currentProvider.auth_mode === 'oauth_code'">
                             <button t-if="this.state.authStep === 'idle'"
                                     class="btn btn-primary btn-lg" t-on-click="this._startAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="this.currentProvider.label"/>
+                                <i class="oi me-2" data-icon="login"/> Login with <t t-out="this.currentProvider.label"/>
                             </button>
                             <div t-if="this.state.authStep !== 'idle'" class="text-start">
                                 <p class="mb-2">
@@ -126,7 +126,7 @@
                         <t t-if="this.currentProvider.auth_mode === 'device_poll'">
                             <button t-if="!this.state.polling"
                                     class="btn btn-primary btn-lg" t-on-click="this._startDeviceAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="this.currentProvider.label"/>
+                                <i class="oi me-2" data-icon="login"/> Login with <t t-out="this.currentProvider.label"/>
                             </button>
                             <div t-if="this.state.polling" class="text-start">
                                 <p class="mb-2">
@@ -136,9 +136,9 @@
                                     2. Enter this code there:
                                 </p>
                                 <div t-if="this.state.deviceCode" class="fs-4 fw-bold mb-2"
-                                     t-esc="this.state.deviceCode"/>
+                                     t-out="this.state.deviceCode"/>
                                 <div class="text-muted">
-                                    <i class="fa fa-spinner fa-spin me-1"/> Waiting for you to finish…
+                                    <i class="oi oi-spin me-1" data-icon="autorenew"/> Waiting for you to finish…
                                 </div>
                             </div>
                         </t>
@@ -150,7 +150,7 @@
                                 <div t-if="this.currentProvider.auth_import_help"
                                      class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
                                      style="white-space: pre-line;"
-                                     t-esc="this.currentProvider.auth_import_help"/>
+                                     t-out="this.currentProvider.auth_import_help"/>
                                 <textarea class="form-control mb-1" rows="4"
                                           t-att-placeholder="this.currentProvider.auth_import_placeholder"
                                           t-att-value="this.state.credsInput"
@@ -173,7 +173,7 @@
                         </t>
 
                         <div t-if="this.state.authError" class="alert alert-danger mt-3 mb-0"
-                             t-esc="this.state.authError"/>
+                             t-out="this.state.authError"/>
                     </div>
                 </div>
 
@@ -181,17 +181,17 @@
                 <t t-if="this.isAuthed">
                     <div t-if="this.state.contextLabel"
                          class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
-                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="this.state.contextLabel"/>
+                        <i class="oi me-1" data-icon="link"/> Discussing: <b t-out="this.state.contextLabel"/>
                     </div>
                     <AiMessageList messages="this.state.messages" running="this.state.running"
                                    hasMore="this.state.hasMore" onLoadMore.bind="this.loadMore"
                                    onOpenArtifact.bind="this.openArtifact"/>
                     <div t-if="this.state.running" class="px-2 pb-1">
                         <div t-if="this.state.notice" class="small text-muted fst-italic mb-1">
-                            <i class="fa fa-clock-o me-1"/><t t-esc="this.state.notice"/>
+                            <i class="oi me-1" data-icon="schedule"/><t t-out="this.state.notice"/>
                         </div>
                         <button class="btn btn-sm btn-link text-danger" t-on-click="this.onStop">
-                            <i class="fa fa-stop me-1"/> Stop
+                            <i class="oi me-1" data-icon="stop"/> Stop
                         </button>
                     </div>
                     <AiComposer onSend.bind="this.onSend" disabled="this.state.running"
@@ -205,25 +205,25 @@
             <div t-if="this.state.artifactOpen and this.state.artifact"
                  class="o_ai_artifact d-flex flex-column border-start">
                 <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
-                    <i class="fa fa-area-chart me-2"/>
+                    <i class="oi me-2" data-icon="show_chart"/>
                     <span class="fw-bold">Preview</span>
                     <button t-if="this.state.artifact.attachmentId and !this.state.artifact.shared"
                             class="btn btn-sm btn-link ms-auto p-0 me-2"
                             title="Copy share link" t-on-click="this.shareArtifact">
-                        <i class="fa fa-share-alt"/>
+                        <i class="oi" data-icon="share"/>
                     </button>
                     <button t-if="this.state.artifact.attachmentId and this.state.artifact.shared"
                             class="btn btn-sm btn-link ms-auto p-0 me-2 text-danger"
                             title="Revoke share link" t-on-click="this.revokeArtifact">
-                        <i class="fa fa-chain-broken"/>
+                        <i class="oi" data-icon="link_off"/>
                     </button>
                     <button t-attf-class="btn btn-sm btn-link p-0 me-2 {{ this.state.artifact.attachmentId ? '' : 'ms-auto' }}"
                             title="Open in new tab" t-on-click="this.openArtifactNewTab">
-                        <i class="fa fa-external-link"/>
+                        <i class="oi" data-icon="open_in_new"/>
                     </button>
                     <button class="btn btn-sm btn-link p-0" title="Close"
                             t-on-click="this.closeArtifact">
-                        <i class="fa fa-times"/>
+                        <i class="oi" data-icon="close"/>
                     </button>
                 </div>
                 <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3">

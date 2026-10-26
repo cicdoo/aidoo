@@ -29,7 +29,7 @@
             <form>
                 <header>
                     <button name="action_run_now" type="object" string="Run Now"
-                            class="btn-primary" icon="fa-play"/>
+                            class="btn-primary" icon="play_arrow"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
@@ -107,14 +107,14 @@
                             </span>
                         </div>
                         <div class="text-muted small mt-1">
-                            <i class="fa fa-clock-o me-1" title="Schedule"/>Every
+                            <i class="oi me-1" data-icon="schedule" title="Schedule"/>Every
                             <field name="interval_number"/>
                             <field name="interval_type"/>
                         </div>
                         <div class="small mt-1">
-                            <i class="fa fa-paper-plane-o me-1" title="Delivery"/><field name="delivery"/>
+                            <i class="oi me-1" data-icon="send" title="Delivery"/><field name="delivery"/>
                             <span class="ms-2">
-                                <i class="fa fa-user-o me-1" title="Run as"/><field name="user_id"/>
+                                <i class="oi me-1" data-icon="person" title="Run as"/><field name="user_id"/>
                             </span>
                         </div>
                         <div class="small text-muted mt-1"
