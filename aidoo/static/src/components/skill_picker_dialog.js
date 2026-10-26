@@ -2,7 +2,7 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState, useRef, onMounted } from "@odoo/owl";
+import { Component, proxy, signal, t, useProps, onMounted } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 
 // A searchable multi-select picker for the conversation's instruction skills.
@@ -11,20 +11,21 @@ import { Dialog } from "@web/core/dialog/dialog";
 export class SkillPickerDialog extends Component {
     static template = "aidoo.SkillPickerDialog";
     static components = { Dialog };
-    static props = {
-        skills: { type: Array },
-        currentIds: { type: Array, optional: true },
-        onSelect: { type: Function },
-        close: { type: Function },   // injected by the dialog service
-    };
+    props = useProps({
+        skills: t.array(),
+        currentIds: t.array().optional(),
+        onSelect: t.function(),
+        close: t.function(),   // injected by the dialog service
+    });
+
+    searchRef = signal.ref();
 
     setup() {
-        this.state = useState({
+        this.state = proxy({
             query: "",
             selected: new Set(this.props.currentIds || []),
         });
-        this.searchRef = useRef("search");
-        onMounted(() => this.searchRef.el && this.searchRef.el.focus());
+        onMounted(() => this.searchRef() && this.searchRef().focus());
     }
 
     get filtered() {

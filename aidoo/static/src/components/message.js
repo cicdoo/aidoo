@@ -2,21 +2,21 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState } from "@odoo/owl";
+import { Component, proxy, t, useProps } from "@odoo/owl";
 import { renderMarkdown } from "../markdown";
 import { splitSegments } from "../artifacts";
 
 export class AiMessage extends Component {
     static template = "aidoo.Message";
-    static props = {
-        message: Object,
+    props = useProps({
+        message: t.object(),
         // Called with an HTML string to display it in the artifact panel.
-        onOpenArtifact: { type: Function, optional: true },
-    };
+        onOpenArtifact: t.function().optional(),
+    });
 
     setup() {
         // Tool calls are collapsed by default; this toggles the per-message view.
-        this.ui = useState({ toolsOpen: false });
+        this.ui = proxy({ toolsOpen: false });
     }
 
     get roleLabel() {

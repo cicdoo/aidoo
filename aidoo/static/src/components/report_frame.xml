@@ -5,13 +5,13 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.ReportFrame">
-        <iframe t-if="props.src" t-ref="frame"
+        <iframe t-if="this.props.src" t-ref="this.frame"
                 class="o_ai_report_frame o_ai_report_frame_src"
                 sandbox="allow-same-origin"
-                t-att-src="props.src" t-on-load="onLoad"/>
-        <iframe t-else="" t-ref="frame" class="o_ai_report_frame"
+                t-att-src="this.props.src" t-on-load="this.onLoad"/>
+        <iframe t-else="" t-ref="this.frame" class="o_ai_report_frame"
                 sandbox="allow-same-origin"
-                t-att-srcdoc="props.html" t-on-load="onLoad"/>
+                t-att-srcdoc="this.props.html" t-on-load="this.onLoad"/>
     </t>
 
 </templates>

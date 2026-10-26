@@ -2,7 +2,7 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState, onWillStart, onWillDestroy } from "@odoo/owl";
+import { Component, proxy, onWillStart, onWillDestroy } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
@@ -20,14 +20,13 @@ import { AiComposer } from "./components/composer";
 export class FloatingAidoo extends Component {
     static template = "aidoo.FloatingButton";
     static components = { AiMessageList, AiComposer };
-    static props = {};
 
     setup() {
         this.action = useService("action");
         this.aiBus = useService("aidoo");
         // Reactive: re-renders when the current view changes.
-        this.view = useState(useService("aidoo_view_context").state);
-        this.state = useState({
+        this.view = useService("aidoo_view_context").state;
+        this.state = proxy({
             open: false,
             expanded: false,
             ready: false,

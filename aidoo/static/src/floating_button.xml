@@ -5,52 +5,52 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.FloatingButton">
-      <div class="o_aidoo_root" t-if="showFab">
+      <div class="o_aidoo_root" t-if="this.showFab">
         <div class="o_aidoo_fab_wrap">
             <button class="btn btn-primary rounded-circle shadow o_aidoo_fab_btn"
-                    t-att-title="panelOpen ? 'Hide Aidoo' : 'Ask Aidoo'"
-                    t-on-click="toggle">
-                <i t-att-class="panelOpen ? 'fa fa-times' : 'fa fa-comments'"/>
+                    t-att-title="this.panelOpen ? 'Hide Aidoo' : 'Ask Aidoo'"
+                    t-on-click="this.toggle">
+                <i t-att-class="this.panelOpen ? 'fa fa-times' : 'fa fa-comments'"/>
             </button>
         </div>
 
         <!-- Floating chat panel (overlays the view, which stays visible behind) -->
-        <div t-if="panelOpen"
-             t-att-class="'o_aidoo_panel d-flex flex-column shadow-lg ' + (state.expanded ? 'o_aidoo_panel--expanded' : '')">
+        <div t-if="this.panelOpen"
+             t-att-class="'o_aidoo_panel d-flex flex-column shadow-lg ' + (this.state.expanded ? 'o_aidoo_panel--expanded' : '')">
             <div class="o_aidoo_panel_header d-flex align-items-center px-2 py-2">
                 <i class="fa fa-robot me-2"/>
                 <div class="flex-grow-1 text-truncate">
                     <span class="fw-bold">Aidoo</span>
-                    <small t-if="state.contextLabel" class="ms-1 opacity-75 text-truncate">
-                        · <t t-esc="state.contextLabel"/>
+                    <small t-if="this.state.contextLabel" class="ms-1 opacity-75 text-truncate">
+                        · <t t-esc="this.state.contextLabel"/>
                     </small>
                 </div>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2" title="New chat"
-                        t-on-click="newChat"><i class="fa fa-plus"/></button>
+                        t-on-click="this.newChat"><i class="fa fa-plus"/></button>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2"
-                        t-att-title="state.expanded ? 'Shrink' : 'Expand'"
-                        t-on-click="toggleExpand">
-                    <i t-att-class="state.expanded ? 'fa fa-compress' : 'fa fa-expand'"/>
+                        t-att-title="this.state.expanded ? 'Shrink' : 'Expand'"
+                        t-on-click="this.toggleExpand">
+                    <i t-att-class="this.state.expanded ? 'fa fa-compress' : 'fa fa-expand'"/>
                 </button>
                 <button class="btn btn-sm btn-link text-reset p-0 me-2" title="Minimize"
-                        t-on-click="minimize"><i class="fa fa-window-minimize"/></button>
+                        t-on-click="this.minimize"><i class="fa fa-window-minimize"/></button>
                 <button class="btn btn-sm btn-link text-reset p-0" title="Close"
-                        t-on-click="close"><i class="fa fa-times"/></button>
+                        t-on-click="this.close"><i class="fa fa-times"/></button>
             </div>
 
-            <div t-if="!state.ready"
+            <div t-if="!this.state.ready"
                  class="flex-grow-1 d-flex align-items-center justify-content-center text-muted">
                 <i class="fa fa-spinner fa-spin me-2"/> Loading…
             </div>
 
             <t t-else="">
-                <AiMessageList messages="state.messages" running="state.running"
-                               onOpenArtifact.bind="openArtifact"/>
-                <div t-if="state.authError" class="alert alert-warning m-2 p-2 small mb-0">
-                    <div t-esc="state.authError"/>
+                <AiMessageList messages="this.state.messages" running="this.state.running"
+                               onOpenArtifact.bind="this.openArtifact"/>
+                <div t-if="this.state.authError" class="alert alert-warning m-2 p-2 small mb-0">
+                    <div t-esc="this.state.authError"/>
                 </div>
-                <AiComposer onSend.bind="onSend" disabled="state.running"
-                            sessionId="state.sessionId"/>
+                <AiComposer onSend.bind="this.onSend" disabled="this.state.running"
+                            sessionId="this.state.sessionId"/>
             </t>
         </div>
       </div>

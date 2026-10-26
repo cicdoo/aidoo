@@ -2,7 +2,7 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useRef } from "@odoo/owl";
+import { Component, signal, t, useProps } from "@odoo/owl";
 
 // Renders generated HTML (e.g. a chart/report) inside a sandboxed iframe,
 // either inline (srcdoc, streaming/historical fallback) or from the server
@@ -17,18 +17,16 @@ import { Component, useRef } from "@odoo/owl";
 // the CSS height.
 export class ReportFrame extends Component {
     static template = "aidoo.ReportFrame";
-    static props = {
-        html: { type: String, optional: true },
-        src: { type: String, optional: true },
-    };
+    props = useProps({
+        html: t.string().optional(),
+        src: t.string().optional(),
+    });
 
-    setup() {
-        this.frame = useRef("frame");
-    }
+    frame = signal.ref();
 
     // srcdoc loads asynchronously, so resize on the iframe's load event.
     onLoad() {
-        const el = this.frame.el;
+        const el = this.frame();
         if (!el) {
             return;
         }

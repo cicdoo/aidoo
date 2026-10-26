@@ -17,7 +17,6 @@ const cogMenuRegistry = registry.category("cogMenu");
 export class AskAidooMenu extends Component {
     static template = "aidoo.AskAidooMenu";
     static components = { DropdownItem };
-    static props = {};
 
     setup() {
         this.action = useService("action");

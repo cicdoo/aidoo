@@ -2,7 +2,7 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState, onWillStart, onWillUnmount } from "@odoo/owl";
+import { Component, proxy, useProps, onWillStart, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
@@ -21,13 +21,14 @@ const MESSAGE_PAGE = 30;
 export class AiChatAction extends Component {
     static template = "aidoo.ChatAction";
     static components = { AiMessageList, AiComposer, ReportFrame };
-    static props = ["*"];
+    // Client actions receive action/actionId/className/params/...: accept any prop.
+    props = useProps();
 
     setup() {
         this.aiBus = useService("aidoo");
         this.notification = useService("notification");
         this.dialog = useService("dialog");
-        this.state = useState({
+        this.state = proxy({
             providers: [],          // [{code,label,accent,auth_mode,authenticated}]
             selectedProvider: "claude",  // provider for the next new conversation
             skills: [],             // [{id, name, description}] the user may use

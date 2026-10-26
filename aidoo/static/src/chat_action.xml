@@ -5,47 +5,48 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.ChatAction">
-        <div t-if="state.ready" class="o_ai_chat d-flex h-100">
+        <div t-if="this.state.ready" class="o_ai_chat d-flex h-100">
             <!-- Mobile-only backdrop: tap outside the drawer to close it. -->
-            <div t-if="state.sidebarOpen" class="o_ai_sidebar_backdrop d-md-none"
-                 t-on-click="() => state.sidebarOpen = false"/>
+            <div t-if="this.state.sidebarOpen" class="o_ai_sidebar_backdrop d-md-none"
+                 t-on-click="() => this.state.sidebarOpen = false"/>
             <!-- Sidebar: provider picker + conversation list. On mobile it is an
                  off-canvas drawer toggled by state.sidebarOpen. -->
-            <div t-attf-class="o_ai_sidebar d-flex flex-column border-end {{ state.sidebarOpen ? 'o_ai_sidebar--open' : '' }}">
+            <div t-attf-class="o_ai_sidebar d-flex flex-column border-end {{ this.state.sidebarOpen ? 'o_ai_sidebar--open' : '' }}">
                 <div class="p-2 border-bottom">
                     <!-- Mobile-only drawer header with a close control. -->
                     <div class="o_ai_sidebar_close d-md-none d-flex align-items-center mb-2">
                         <span class="fw-bold">Conversations</span>
                         <button class="btn btn-sm btn-link text-decoration-none ms-auto p-0"
                                 title="Close" aria-label="Close"
-                                t-on-click="() => state.sidebarOpen = false">
+                                t-on-click="() => this.state.sidebarOpen = false">
                             <i class="fa fa-times"/>
                         </button>
                     </div>
                     <select class="form-select form-select-sm mb-2"
-                            t-model="state.selectedProvider">
-                        <t t-foreach="state.providers" t-as="p" t-key="p.code">
-                            <option t-att-value="p.code" t-esc="p.label"/>
+                            t-on-change="(ev) => this.state.selectedProvider = ev.target.value">
+                        <t t-foreach="this.state.providers" t-as="p" t-key="p.code">
+                            <option t-att-value="p.code" t-att-selected="p.code === this.state.selectedProvider" t-esc="p.label"/>
                         </t>
                     </select>
-                    <button class="btn btn-primary w-100" t-on-click="_newSession">
+                    <button class="btn btn-primary w-100" t-on-click="this._newSession">
                         <i class="fa fa-plus me-1"/> New chat
                     </button>
                     <div class="o_ai_search input-group input-group-sm mt-2">
                         <span class="input-group-text"><i class="fa fa-search"/></span>
                         <input type="text" class="form-control"
                                placeholder="Search conversations"
-                               t-model="state.searchQuery"/>
-                        <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ state.favoritesOnly ? 'active' : '' }}"
+                               t-att-value="this.state.searchQuery"
+                               t-on-input="(ev) => this.state.searchQuery = ev.target.value"/>
+                        <button t-attf-class="btn btn-outline-secondary o_ai_fav_filter {{ this.state.favoritesOnly ? 'active' : '' }}"
                                 title="Show favorites only"
-                                t-on-click="() => state.favoritesOnly = !state.favoritesOnly">
-                            <i t-attf-class="fa {{ state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
+                                t-on-click="() => this.state.favoritesOnly = !this.state.favoritesOnly">
+                            <i t-attf-class="fa {{ this.state.favoritesOnly ? 'fa-star' : 'fa-star-o' }}"/>
                         </button>
                     </div>
                 </div>
                 <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
+                    <t t-foreach="this.filteredSessions" t-as="s" t-key="s.id">
+                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === this.state.currentId ? 'active' : '' }}"
                              t-on-click="() => this._openSession(s.id)">
                             <img t-if="this._provider(s.provider).icon"
                                  t-att-src="this._provider(s.provider).icon"
@@ -73,31 +74,31 @@
                 <div class="o_ai_mobile_bar d-md-none d-flex align-items-center border-bottom px-2 py-1">
                     <button class="btn btn-sm btn-link text-decoration-none px-1"
                             title="Conversations" aria-label="Conversations"
-                            t-on-click="toggleSidebar">
+                            t-on-click="this.toggleSidebar">
                         <i class="fa fa-bars"/>
                     </button>
                     <span class="o_ai_mobile_title text-truncate ms-1 fw-bold"
-                          t-esc="currentSessionName"/>
+                          t-esc="this.currentSessionName"/>
                 </div>
 
                 <!-- Auth gate: shown until the current conversation's provider is connected -->
-                <div t-if="!isAuthed"
+                <div t-if="!this.isAuthed"
                      class="o_ai_auth d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
                     <div class="o_ai_auth_card p-4">
                         <i class="fa fa-robot fa-3x text-primary mb-3"/>
-                        <h3 class="mb-2">Connect <t t-esc="currentProvider.label"/></h3>
+                        <h3 class="mb-2">Connect <t t-esc="this.currentProvider.label"/></h3>
                         <p class="text-muted mb-4">
-                            This conversation runs on <b><t t-esc="currentProvider.label"/></b>.
+                            This conversation runs on <b><t t-esc="this.currentProvider.label"/></b>.
                             Connect once to start chatting.
                         </p>
 
                         <!-- oauth_code (Claude): open URL, paste code back -->
-                        <t t-if="currentProvider.auth_mode === 'oauth_code'">
-                            <button t-if="state.authStep === 'idle'"
-                                    class="btn btn-primary btn-lg" t-on-click="_startAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
+                        <t t-if="this.currentProvider.auth_mode === 'oauth_code'">
+                            <button t-if="this.state.authStep === 'idle'"
+                                    class="btn btn-primary btn-lg" t-on-click="this._startAuth">
+                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="this.currentProvider.label"/>
                             </button>
-                            <div t-if="state.authStep !== 'idle'" class="text-start">
+                            <div t-if="this.state.authStep !== 'idle'" class="text-start">
                                 <p class="mb-2">
                                     1. Authorize in the tab that just opened.<br/>
                                     2. Copy the code shown and paste it below.
@@ -105,36 +106,37 @@
                                 <div class="input-group mb-2">
                                     <input type="text" class="form-control"
                                            placeholder="Paste authorization code here"
-                                           t-model="state.authCode"
+                                           t-att-value="this.state.authCode"
+                                           t-on-input="(ev) => this.state.authCode = ev.target.value"
                                            t-on-keydown="(ev) => ev.key === 'Enter' &amp;&amp; this._completeAuth()"/>
                                     <button class="btn btn-primary"
-                                            t-att-disabled="state.authStep === 'exchanging'"
-                                            t-on-click="_completeAuth">
-                                        <t t-if="state.authStep === 'exchanging'">Connecting…</t>
+                                            t-att-disabled="this.state.authStep === 'exchanging'"
+                                            t-on-click="this._completeAuth">
+                                        <t t-if="this.state.authStep === 'exchanging'">Connecting…</t>
                                         <t t-else="">Connect</t>
                                     </button>
                                 </div>
-                                <button class="btn btn-link btn-sm p-0" t-on-click="_startAuth">
+                                <button class="btn btn-link btn-sm p-0" t-on-click="this._startAuth">
                                     Re-open the login
                                 </button>
                             </div>
                         </t>
 
                         <!-- device_poll (Codex): show URL + code, poll until done -->
-                        <t t-if="currentProvider.auth_mode === 'device_poll'">
-                            <button t-if="!state.polling"
-                                    class="btn btn-primary btn-lg" t-on-click="_startDeviceAuth">
-                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
+                        <t t-if="this.currentProvider.auth_mode === 'device_poll'">
+                            <button t-if="!this.state.polling"
+                                    class="btn btn-primary btn-lg" t-on-click="this._startDeviceAuth">
+                                <i class="fa fa-sign-in me-2"/> Login with <t t-esc="this.currentProvider.label"/>
                             </button>
-                            <div t-if="state.polling" class="text-start">
+                            <div t-if="this.state.polling" class="text-start">
                                 <p class="mb-2">
                                     1. A verification page was opened
-                                    <a t-if="state.deviceUrl" t-att-href="state.deviceUrl"
+                                    <a t-if="this.state.deviceUrl" t-att-href="this.state.deviceUrl"
                                        target="_blank" rel="noopener noreferrer">(re-open)</a>.<br/>
                                     2. Enter this code there:
                                 </p>
-                                <div t-if="state.deviceCode" class="fs-4 fw-bold mb-2"
-                                     t-esc="state.deviceCode"/>
+                                <div t-if="this.state.deviceCode" class="fs-4 fw-bold mb-2"
+                                     t-esc="this.state.deviceCode"/>
                                 <div class="text-muted">
                                     <i class="fa fa-spinner fa-spin me-1"/> Waiting for you to finish…
                                 </div>
@@ -142,25 +144,27 @@
                         </t>
 
                         <!-- import_or_key (Gemini / Grok): paste creds OR API key -->
-                        <t t-if="currentProvider.auth_mode === 'import_or_key'">
+                        <t t-if="this.currentProvider.auth_mode === 'import_or_key'">
                             <div class="text-start">
                                 <label class="form-label fw-bold">Import credentials</label>
-                                <div t-if="currentProvider.auth_import_help"
+                                <div t-if="this.currentProvider.auth_import_help"
                                      class="o_ai_auth_help alert alert-info py-2 px-3 mb-2 small"
                                      style="white-space: pre-line;"
-                                     t-esc="currentProvider.auth_import_help"/>
+                                     t-esc="this.currentProvider.auth_import_help"/>
                                 <textarea class="form-control mb-1" rows="4"
-                                          t-att-placeholder="currentProvider.auth_import_placeholder"
-                                          t-model="state.credsInput"/>
-                                <button class="btn btn-primary mb-3" t-on-click="_submitImport">
+                                          t-att-placeholder="this.currentProvider.auth_import_placeholder"
+                                          t-att-value="this.state.credsInput"
+                                          t-on-input="(ev) => this.state.credsInput = ev.target.value"/>
+                                <button class="btn btn-primary mb-3" t-on-click="this._submitImport">
                                     Import &amp; connect
                                 </button>
-                                <t t-if="currentProvider.auth_key">
+                                <t t-if="this.currentProvider.auth_key">
                                     <label class="form-label fw-bold">…or use an API key</label>
                                     <div class="input-group">
                                         <input type="password" class="form-control"
-                                               placeholder="Paste API key" t-model="state.apiKeyInput"/>
-                                        <button class="btn btn-outline-primary" t-on-click="_submitKey">
+                                               placeholder="Paste API key" t-att-value="this.state.apiKeyInput"
+                                               t-on-input="(ev) => this.state.apiKeyInput = ev.target.value"/>
+                                        <button class="btn btn-outline-primary" t-on-click="this._submitKey">
                                             Save key
                                         </button>
                                     </div>
@@ -168,62 +172,62 @@
                             </div>
                         </t>
 
-                        <div t-if="state.authError" class="alert alert-danger mt-3 mb-0"
-                             t-esc="state.authError"/>
+                        <div t-if="this.state.authError" class="alert alert-danger mt-3 mb-0"
+                             t-esc="this.state.authError"/>
                     </div>
                 </div>
 
                 <!-- Chat surface (current provider connected) -->
-                <t t-if="isAuthed">
-                    <div t-if="state.contextLabel"
+                <t t-if="this.isAuthed">
+                    <div t-if="this.state.contextLabel"
                          class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
-                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="state.contextLabel"/>
+                        <i class="fa fa-link me-1"/> Discussing: <b t-esc="this.state.contextLabel"/>
                     </div>
-                    <AiMessageList messages="state.messages" running="state.running"
-                                   hasMore="state.hasMore" onLoadMore.bind="loadMore"
-                                   onOpenArtifact.bind="openArtifact"/>
-                    <div t-if="state.running" class="px-2 pb-1">
-                        <div t-if="state.notice" class="small text-muted fst-italic mb-1">
-                            <i class="fa fa-clock-o me-1"/><t t-esc="state.notice"/>
+                    <AiMessageList messages="this.state.messages" running="this.state.running"
+                                   hasMore="this.state.hasMore" onLoadMore.bind="this.loadMore"
+                                   onOpenArtifact.bind="this.openArtifact"/>
+                    <div t-if="this.state.running" class="px-2 pb-1">
+                        <div t-if="this.state.notice" class="small text-muted fst-italic mb-1">
+                            <i class="fa fa-clock-o me-1"/><t t-esc="this.state.notice"/>
                         </div>
-                        <button class="btn btn-sm btn-link text-danger" t-on-click="onStop">
+                        <button class="btn btn-sm btn-link text-danger" t-on-click="this.onStop">
                             <i class="fa fa-stop me-1"/> Stop
                         </button>
                     </div>
-                    <AiComposer onSend.bind="onSend" disabled="state.running"
-                                sessionId="state.currentId"
-                                skills="state.skills" skillIds="state.currentSkillIds"
-                                onSelectSkills.bind="setSkills"/>
+                    <AiComposer onSend.bind="this.onSend" disabled="this.state.running"
+                                sessionId="this.state.currentId"
+                                skills="this.state.skills" skillIds="this.state.currentSkillIds"
+                                onSelectSkills.bind="this.setSkills"/>
                 </t>
             </div>
 
             <!-- Artifact panel: rendered charts/reports, on the far right -->
-            <div t-if="state.artifactOpen and state.artifact"
+            <div t-if="this.state.artifactOpen and this.state.artifact"
                  class="o_ai_artifact d-flex flex-column border-start">
                 <div class="o_ai_artifact_header d-flex align-items-center px-3 py-2 border-bottom">
                     <i class="fa fa-area-chart me-2"/>
                     <span class="fw-bold">Preview</span>
-                    <button t-if="state.artifact.attachmentId and !state.artifact.shared"
+                    <button t-if="this.state.artifact.attachmentId and !this.state.artifact.shared"
                             class="btn btn-sm btn-link ms-auto p-0 me-2"
-                            title="Copy share link" t-on-click="shareArtifact">
+                            title="Copy share link" t-on-click="this.shareArtifact">
                         <i class="fa fa-share-alt"/>
                     </button>
-                    <button t-if="state.artifact.attachmentId and state.artifact.shared"
+                    <button t-if="this.state.artifact.attachmentId and this.state.artifact.shared"
                             class="btn btn-sm btn-link ms-auto p-0 me-2 text-danger"
-                            title="Revoke share link" t-on-click="revokeArtifact">
+                            title="Revoke share link" t-on-click="this.revokeArtifact">
                         <i class="fa fa-chain-broken"/>
                     </button>
-                    <button t-attf-class="btn btn-sm btn-link p-0 me-2 {{ state.artifact.attachmentId ? '' : 'ms-auto' }}"
-                            title="Open in new tab" t-on-click="openArtifactNewTab">
+                    <button t-attf-class="btn btn-sm btn-link p-0 me-2 {{ this.state.artifact.attachmentId ? '' : 'ms-auto' }}"
+                            title="Open in new tab" t-on-click="this.openArtifactNewTab">
                         <i class="fa fa-external-link"/>
                     </button>
                     <button class="btn btn-sm btn-link p-0" title="Close"
-                            t-on-click="closeArtifact">
+                            t-on-click="this.closeArtifact">
                         <i class="fa fa-times"/>
                     </button>
                 </div>
                 <div class="o_ai_artifact_body flex-grow-1 overflow-auto p-3">
-                    <ReportFrame html="state.artifact.html" src="state.artifact.url"/>
+                    <ReportFrame html="this.state.artifact.html" src="this.state.artifact.url"/>
                 </div>
             </div>
         </div>

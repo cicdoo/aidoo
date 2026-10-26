@@ -5,25 +5,25 @@
 <templates xml:space="preserve">
 
     <t t-name="aidoo.MessageList">
-        <div class="o_ai_message_list flex-grow-1 overflow-auto p-3" t-ref="scroll">
+        <div class="o_ai_message_list flex-grow-1 overflow-auto p-3" t-ref="this.scrollRef">
             <!-- Older history exists above the loaded window: scrolling up loads
                  it; this button is the fallback when the page doesn't overflow. -->
-            <div t-if="props.hasMore" class="o_ai_load_more text-center mb-2">
+            <div t-if="this.props.hasMore" class="o_ai_load_more text-center mb-2">
                 <button class="btn btn-sm btn-link text-decoration-none"
                         t-on-click="() => this.loadMore()">
                     <i class="fa fa-history me-1"/> Load earlier messages
                 </button>
             </div>
-            <t t-if="!props.messages.length and !props.hasMore">
+            <t t-if="!this.props.messages.length and !this.props.hasMore">
                 <div class="o_ai_empty text-center text-muted mt-5">
                     <i class="fa fa-comments fa-3x mb-3 d-block"/>
                     <div>Ask me to query data or build a report.</div>
                 </div>
             </t>
-            <t t-foreach="displayMessages" t-as="msg" t-key="msg.id">
-                <AiMessage message="msg" onOpenArtifact="props.onOpenArtifact"/>
+            <t t-foreach="this.displayMessages" t-as="msg" t-key="msg.id">
+                <AiMessage message="msg" onOpenArtifact="this.props.onOpenArtifact"/>
             </t>
-            <div t-if="props.running" class="o_ai_typing small text-muted">
+            <div t-if="this.props.running" class="o_ai_typing small text-muted">
                 <i class="fa fa-spinner fa-spin me-1"/> Assistant is working…
             </div>
         </div>

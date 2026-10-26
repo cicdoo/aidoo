@@ -7,21 +7,22 @@
     <t t-name="aidoo.SkillPickerDialog">
         <Dialog title="'Select skills'" size="'md'">
             <div class="o_ai_skill_dialog">
-                <input type="text" class="form-control mb-2" t-ref="search"
-                       placeholder="Search skills…" t-model="state.query"/>
+                <input type="text" class="form-control mb-2" t-ref="this.searchRef"
+                       placeholder="Search skills…" t-att-value="this.state.query"
+                       t-on-input="(ev) => this.state.query = ev.target.value"/>
                 <div class="list-group o_ai_skill_list">
                     <button class="list-group-item list-group-item-action d-flex align-items-center"
-                            t-att-class="{ active: !state.selected.size }"
+                            t-att-class="{ active: !this.state.selected.size }"
                             t-on-click="() => this.clearAll()">
                         <i class="fa fa-ban me-2 text-muted"/>
                         <span>No skill</span>
                     </button>
-                    <t t-foreach="filtered" t-as="sk" t-key="sk.id">
+                    <t t-foreach="this.filtered" t-as="sk" t-key="sk.id">
                         <button class="list-group-item list-group-item-action d-flex align-items-start"
-                                t-att-class="{ active: state.selected.has(sk.id) }"
+                                t-att-class="{ active: this.state.selected.has(sk.id) }"
                                 t-on-click="() => this.toggle(sk.id)">
                             <i class="fa me-2 mt-1"
-                               t-att-class="state.selected.has(sk.id) ? 'fa-check-square-o' : 'fa-square-o'"/>
+                               t-att-class="this.state.selected.has(sk.id) ? 'fa-check-square-o' : 'fa-square-o'"/>
                             <span>
                                 <span class="fw-bold d-block">
                                     <i class="fa fa-magic me-2"/><t t-esc="sk.name"/>
@@ -31,7 +32,7 @@
                             </span>
                         </button>
                     </t>
-                    <div t-if="!filtered.length"
+                    <div t-if="!this.filtered.length"
                          class="text-muted text-center p-3 small">
                         No skills found. Create one in the <b>Skills</b> menu.
                     </div>
@@ -41,7 +42,7 @@
                 <button class="btn btn-primary" t-on-click="() => this.apply()">
                     Apply
                 </button>
-                <button class="btn btn-secondary" t-on-click="() => props.close()">
+                <button class="btn btn-secondary" t-on-click="() => this.props.close()">
                     Close
                 </button>
             </t>

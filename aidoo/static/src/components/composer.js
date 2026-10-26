@@ -2,27 +2,28 @@
 // Copyright 2026 CICDoo (https://cicdoo.com)
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-import { Component, useState, useRef } from "@odoo/owl";
+import { Component, proxy, signal, t, useProps } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { SkillPickerDialog } from "./skill_picker_dialog";
 
 export class AiComposer extends Component {
     static template = "aidoo.Composer";
-    static props = {
-        onSend: Function,
-        disabled: Boolean,
-        sessionId: { type: Number, optional: true },
+    props = useProps({
+        onSend: t.function(),
+        disabled: t.boolean(),
+        sessionId: t.number().optional(),
         // Skill picker (sits next to the attach button).
-        skills: { type: Array, optional: true },
-        skillIds: { type: Array, optional: true },
-        onSelectSkills: { type: Function, optional: true },
-    };
+        skills: t.array().optional(),
+        skillIds: t.array().optional(),
+        onSelectSkills: t.function().optional(),
+    });
+
+    inputRef = signal.ref();
+    fileRef = signal.ref();
 
     setup() {
         // files: [{ id, name, mimetype }] already uploaded and ready to attach.
-        this.state = useState({ text: "", files: [], uploading: false, error: "" });
-        this.inputRef = useRef("input");
-        this.fileRef = useRef("file");
+        this.state = proxy({ text: "", files: [], uploading: false, error: "" });
         this.dialog = useService("dialog");
     }
 
@@ -64,8 +65,8 @@ export class AiComposer extends Component {
     }
 
     pickFiles() {
-        if (this.fileRef.el) {
-            this.fileRef.el.click();
+        if (this.fileRef()) {
+            this.fileRef().click();
         }
     }
 
@@ -115,9 +116,14 @@ export class AiComposer extends Component {
         this.state.text = "";
         this.state.files = [];
         this.state.error = "";
-        if (this.inputRef.el) {
-            this.inputRef.el.style.height = "auto";
+        if (this.inputRef()) {
+            this.inputRef().style.height = "auto";
         }
+    }
+
+    onInput(ev) {
+        this.state.text = ev.target.value;
+        this.autoGrow(ev);
     }
 
     autoGrow(ev) {

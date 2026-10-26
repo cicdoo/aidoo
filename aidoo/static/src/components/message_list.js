@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 // Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import {
-    Component, useRef, onPatched, onWillPatch, onMounted, onWillUnmount,
+    Component, signal, t, useProps, onPatched, onWillPatch, onMounted, onWillUnmount,
 } from "@odoo/owl";
 import { AiMessage } from "./message";
 
@@ -15,33 +15,34 @@ const STICK_BOTTOM_THRESHOLD = 40;
 export class AiMessageList extends Component {
     static template = "aidoo.MessageList";
     static components = { AiMessage };
-    static props = {
-        messages: Array,
-        running: Boolean,
-        hasMore: { type: Boolean, optional: true },
-        onLoadMore: { type: Function, optional: true },
-        onOpenArtifact: { type: Function, optional: true },
-    };
+    props = useProps({
+        messages: t.array(),
+        running: t.boolean(),
+        hasMore: t.boolean().optional(),
+        onLoadMore: t.function().optional(),
+        onOpenArtifact: t.function().optional(),
+    });
+
+    scrollRef = signal.ref();
 
     setup() {
-        this.scrollRef = useRef("scroll");
         this._stickBottom = true;    // keep pinned to the latest message
         this._loadingMore = false;   // a page fetch is in flight
         this._restoreScroll = false; // preserve viewport after prepending older
         this._onScroll = this._onScroll.bind(this);
         onMounted(() => {
             this._scrollToBottom();
-            this.scrollRef.el?.addEventListener("scroll", this._onScroll, {
+            this.scrollRef()?.addEventListener("scroll", this._onScroll, {
                 passive: true,
             });
         });
         onWillUnmount(() => {
-            this.scrollRef.el?.removeEventListener("scroll", this._onScroll);
+            this.scrollRef()?.removeEventListener("scroll", this._onScroll);
         });
         // Capture pre-patch geometry so we can keep the viewport stable when
         // older messages are prepended (otherwise the content jumps).
         onWillPatch(() => {
-            const el = this.scrollRef.el;
+            const el = this.scrollRef();
             if (el) {
                 this._prevHeight = el.scrollHeight;
                 this._prevTop = el.scrollTop;
@@ -51,7 +52,7 @@ export class AiMessageList extends Component {
     }
 
     _onScroll() {
-        const el = this.scrollRef.el;
+        const el = this.scrollRef();
         if (!el) {
             return;
         }
@@ -77,7 +78,7 @@ export class AiMessageList extends Component {
     }
 
     _afterPatch() {
-        const el = this.scrollRef.el;
+        const el = this.scrollRef();
         if (!el) {
             return;
         }
@@ -113,7 +114,7 @@ export class AiMessageList extends Component {
     }
 
     _scrollToBottom() {
-        const el = this.scrollRef.el;
+        const el = this.scrollRef();
         if (el) {
             el.scrollTop = el.scrollHeight;
         }
