@@ -117,7 +117,7 @@
                                   class="badge text-bg-primary">Default</span>
                         </div>
                         <div class="small text-muted mt-1">
-                            <i class="oi me-1" data-icon="memory"/><field name="provider"/>
+                            <i class="oi me-1" data-icon="memory" title="Provider"/><field name="provider"/>
                         </div>
                         <div class="mt-2">
                             <span t-if="record.authenticated.raw_value"
