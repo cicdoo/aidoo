@@ -88,10 +88,9 @@ class AidooPersona(models.Model):
         string="Login Instructions", readonly=True, copy=False,
         help="URL / device code returned by the provider's login start step.")
 
-    _sql_constraints = [
-        ("bot_user_uniq", "unique(bot_user_id)",
-         "Each persona must have its own dedicated service account."),
-    ]
+    _bot_user_uniq = models.Constraint(
+        "unique(bot_user_id)",
+        "Each persona must have its own dedicated service account.")
 
     @api.constrains("name", "active")
     def _check_unique_name(self):
@@ -126,7 +125,7 @@ class AidooPersona(models.Model):
         """Open (creating if needed) the caller's 1:1 Discuss chat with this
         persona. Same URL pattern core uses to open a channel."""
         self.ensure_one()
-        channel = self.env["discuss.channel"].channel_get([self.partner_id.id])
+        channel = self.env["discuss.channel"]._get_or_create_chat([self.partner_id.id])
         return {
             "type": "ir.actions.act_url",
             "url": "/odoo/action-mail.action_discuss?active_id=%s" % channel.id,
@@ -189,7 +188,7 @@ class AidooPersona(models.Model):
             "name": name or _("Persona"),
             "login": self._unique_login(name),
             "active": True,
-            "groups_id": [(6, 0, self.env.ref("base.group_portal").ids)],
+            "group_ids": [(6, 0, self.env.ref("base.group_portal").ids)],
             "notification_type": "email",
         }
         if partner:
@@ -207,7 +206,7 @@ class AidooPersona(models.Model):
         bots = self.sudo().search([]).bot_user_id.filtered(
             lambda u: u.has_group("base.group_user"))
         if bots:
-            bots.sudo().write({"groups_id": [(3, internal.id), (4, portal.id)]})
+            bots.sudo().write({"group_ids": [(3, internal.id), (4, portal.id)]})
 
     def _check_manager(self):
         if not (self.env.su or self.env.user.has_group("aidoo.group_ai_manager")):

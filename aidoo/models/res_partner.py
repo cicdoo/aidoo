@@ -10,14 +10,14 @@ seat), which core's Discuss hides in two ways this file undoes:
 * ``_compute_im_status`` would show them offline — mirror OdooBot
   (``base.partner_root``, hardcoded to ``'bot'``) so every persona shows the bot
   indicator in the Discuss members list instead of an offline dot.
-* The "New message" (``im_search``) and "Invite people"
-  (``search_for_channel_invite``) searches only return internal users
+* The "New message" (``/discuss/search``) and "Invite people"
+  (``search_for_channel_invite``) searches (both built on
+  ``_search_for_channel_invite``) only return internal users
   (``share = False``), so a persona could never be DM'd or invited from the UI.
   Both are extended to surface persona partners; the DM itself needs no mention
   (``aidoo.session._maybe_handle_discuss`` answers every message in a 1:1 chat
   with a persona member)."""
 from odoo import api, models
-from odoo.addons.mail.tools.discuss import Store
 
 
 class ResPartner(models.Model):
@@ -54,41 +54,28 @@ class ResPartner(models.Model):
             lambda p: p.id not in excluded
             and (not needle or needle in (p.name or "").lower()))
 
-    @staticmethod
-    def _aidoo_merge_store_result(res, extra):
-        """Merge a second ``Store().get_result()`` payload into ``res`` in
-        place, skipping records already present (the web client store upserts
-        by id, so plain appending is safe)."""
-        for key, values in extra.items():
-            if not isinstance(values, list):
-                res.setdefault(key, values)
-                continue
-            bucket = res.setdefault(key, [])
-            seen = {v.get("id") for v in bucket if isinstance(v, dict)}
-            bucket.extend(
-                v for v in values
-                if not isinstance(v, dict) or v.get("id") not in seen)
-
+    @api.readonly
     @api.model
-    def im_search(self, name, limit=20, excluded_ids=None):
-        res = super().im_search(name, limit=limit, excluded_ids=excluded_ids)
-        bots = self._aidoo_persona_partners_matching(name, excluded_ids)
-        if bots:
-            self._aidoo_merge_store_result(res, Store(bots.sudo()).get_result())
-        return res
-
-    @api.model
-    def search_for_channel_invite(self, search_term, channel_id=None, limit=30):
-        res = super().search_for_channel_invite(
-            search_term, channel_id=channel_id, limit=limit)
+    def _search_for_channel_invite(
+        self, store, search_term, channel_id=None, limit=30,
+        with_portal_users=False,
+    ):
+        """Shared by Discuss's "New message" search (``/discuss/search``) and
+        the "Invite people" panel: append the persona partners to the
+        internal-user results."""
+        partner_ids = super()._search_for_channel_invite(
+            store, search_term, channel_id=channel_id, limit=limit,
+            with_portal_users=with_portal_users)
         bots = self._aidoo_persona_partners_matching(search_term)
-        channel = self.env["discuss.channel"].sudo().browse(
-            int(channel_id)) if channel_id else self.env["discuss.channel"]
+        channel = self.env["discuss.channel"]
+        if channel_id:
+            channel = channel.sudo().browse(int(channel_id)).exists()
         if channel:
             bots -= channel.channel_partner_ids
         if bots:
-            store = Store()
-            bots.sudo()._search_for_channel_invite_to_store(store, channel)
-            self._aidoo_merge_store_result(res["data"], store.get_result())
-            res["count"] += len(bots)
-        return res
+            store.add(
+                bots.sudo(), "_store_channel_invite_fields",
+                fields_params={"channel": channel})
+            partner_ids = list(partner_ids) + [
+                pid for pid in bots.ids if pid not in partner_ids]
+        return partner_ids

@@ -77,7 +77,7 @@ class AidooProviderZai(AidooProvider):
         ``aidoo.base_url`` is the Odoo *host* URL, which would silently point the
         client at the local server. Read ``aidoo.zai.base_url`` directly and fall
         back to the z.ai coding endpoint constant."""
-        val = self.env["ir.config_parameter"].sudo().get_param(
+        val = self.env["ir.config_parameter"].sudo().get_str(
             "aidoo.zai.base_url")
         return val if val not in (None, False, "") else ZAI_CODING_BASE
 

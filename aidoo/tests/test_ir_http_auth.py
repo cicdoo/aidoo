@@ -18,7 +18,7 @@ class TestIrHttpAuth(HttpCase):
         self.user = self.env["res.users"].create({
             "name": "Bridge HTTP User",
             "login": "aidoo_http_user",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id,
             ])],

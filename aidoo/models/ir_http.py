@@ -15,7 +15,7 @@ class IrHttp(models.AbstractModel):
     _inherit = "ir.http"
 
     @classmethod
-    def _auth_method_ai_bridge(cls):
+    def _auth_method_ai_bridge(cls, routing):
         """Custom auth for the AI tool endpoints.
 
         Validates the per-session bridge token from the Authorization header,

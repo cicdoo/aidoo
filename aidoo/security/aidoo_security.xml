@@ -4,27 +4,27 @@
      Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
 <odoo noupdate="0">
 
-    <record id="module_category_aidoo" model="ir.module.category">
+    <record id="privilege_aidoo" model="res.groups.privilege">
         <field name="name">AI Assistant</field>
         <field name="sequence">90</field>
     </record>
 
     <record id="group_ai_user" model="res.groups">
         <field name="name">AI Assistant User</field>
-        <field name="category_id" ref="module_category_aidoo"/>
+        <field name="privilege_id" ref="privilege_aidoo"/>
         <field name="comment">Can use the AI Assistant chat.</field>
     </record>
 
     <record id="group_ai_sql_analyst" model="res.groups">
         <field name="name">AI SQL Analyst</field>
-        <field name="category_id" ref="module_category_aidoo"/>
+        <field name="privilege_id" ref="privilege_aidoo"/>
         <field name="implied_ids" eval="[(4, ref('group_ai_user'))]"/>
         <field name="comment">May run read-only SQL reports through the AI Assistant.</field>
     </record>
 
     <record id="group_ai_manager" model="res.groups">
         <field name="name">AI Assistant Manager</field>
-        <field name="category_id" ref="module_category_aidoo"/>
+        <field name="privilege_id" ref="privilege_aidoo"/>
         <field name="implied_ids" eval="[(4, ref('group_ai_sql_analyst'))]"/>
         <field name="comment">Can configure the assistant and view all audit logs.</field>
     </record>
@@ -34,109 +34,7 @@
         <field name="implied_ids" eval="[(4, ref('group_ai_manager'))]"/>
     </record>
 
-    <!-- A user only sees their own conversations. -->
-    <record id="rule_session_own" model="ir.rule">
-        <field name="name">AI sessions: own only</field>
-        <field name="model_id" ref="model_aidoo_session"/>
-        <field name="domain_force">[('user_id', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-    </record>
-
-    <!-- Managers see all sessions. -->
-    <record id="rule_session_manager" model="ir.rule">
-        <field name="name">AI sessions: manager all</field>
-        <field name="model_id" ref="model_aidoo_session"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
-    </record>
-
-    <!-- A user only sees/manages their own scheduled agents. -->
-    <record id="rule_scheduled_own" model="ir.rule">
-        <field name="name">AI scheduled agents: own only</field>
-        <field name="model_id" ref="model_aidoo_scheduled"/>
-        <field name="domain_force">[('user_id', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-    </record>
-
-    <!-- Managers see all scheduled agents. -->
-    <record id="rule_scheduled_manager" model="ir.rule">
-        <field name="name">AI scheduled agents: manager all</field>
-        <field name="model_id" ref="model_aidoo_scheduled"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
-    </record>
-
-    <!-- Skills: a user can READ their own skills plus any shared skill… -->
-    <record id="rule_skill_read" model="ir.rule">
-        <field name="name">AI skills: own or shared (read)</field>
-        <field name="model_id" ref="model_aidoo_skill"/>
-        <field name="domain_force">['|', ('user_id', '=', user.id), ('is_shared', '=', True)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-        <field name="perm_read" eval="True"/>
-        <field name="perm_write" eval="False"/>
-        <field name="perm_create" eval="False"/>
-        <field name="perm_unlink" eval="False"/>
-    </record>
-
-    <!-- …but only WRITE/CREATE/UNLINK their own (never another user's shared skill). -->
-    <record id="rule_skill_own_write" model="ir.rule">
-        <field name="name">AI skills: own only (write)</field>
-        <field name="model_id" ref="model_aidoo_skill"/>
-        <field name="domain_force">[('user_id', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-        <field name="perm_read" eval="False"/>
-        <field name="perm_write" eval="True"/>
-        <field name="perm_create" eval="True"/>
-        <field name="perm_unlink" eval="True"/>
-    </record>
-
-    <!-- Managers see and manage all skills. -->
-    <record id="rule_skill_manager" model="ir.rule">
-        <field name="name">AI skills: manager all</field>
-        <field name="model_id" ref="model_aidoo_skill"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
-    </record>
-
-    <!-- Personas: any AI user may READ active personas (needed to resolve the
-         mentioned persona and build its prompt); only managers create/manage. -->
-    <record id="rule_persona_read" model="ir.rule">
-        <field name="name">AI personas: readable to AI users</field>
-        <field name="model_id" ref="model_aidoo_persona"/>
-        <field name="domain_force">[('active', '=', True)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-        <field name="perm_read" eval="True"/>
-        <field name="perm_write" eval="False"/>
-        <field name="perm_create" eval="False"/>
-        <field name="perm_unlink" eval="False"/>
-    </record>
-
-    <!-- mail.mail is system-only in Odoo 18, but creating a mail.mail record is
-         the assistant's ONE sanctioned email-send path (send tools are blocked).
-         The ACL above grants AI users read+create; this rule fences reads to
-         mail they queued themselves, so the outgoing mail of other users
-         (password resets…) stays invisible. -->
-    <record id="rule_mail_mail_ai_own" model="ir.rule">
-        <field name="name">AI users: own queued outgoing mail only</field>
-        <field name="model_id" ref="mail.model_mail_mail"/>
-        <field name="domain_force">[('create_uid', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-    </record>
-
-    <!-- Admins imply group_ai_user (via the manager chain), so without this
-         companion rule the fence above would shrink THEIR mail.mail view too. -->
-    <record id="rule_mail_mail_system_all" model="ir.rule">
-        <field name="name">System: all outgoing mail</field>
-        <field name="model_id" ref="mail.model_mail_mail"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
-    </record>
-
-    <record id="rule_persona_manager" model="ir.rule">
-        <field name="name">AI personas: manager all</field>
-        <field name="model_id" ref="model_aidoo_persona"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
-    </record>
+    <!-- Record rules and ACLs live in ir.access.csv (ir.access replaces
+         ir.model.access and ir.rule in Odoo 20.0). -->
 
 </odoo>

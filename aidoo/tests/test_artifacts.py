@@ -55,7 +55,7 @@ class TestArtifactPersistence(TransactionCase):
         self.user = self.env["res.users"].create({
             "name": "Artifact Owner",
             "login": "aidoo_artifact_owner",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id,
             ])],
@@ -124,7 +124,7 @@ class TestArtifactPersistence(TransactionCase):
         lines = self.session._artifact_link_lines()
         self.assertIn("View: [artifact-", lines)
         self.assertIn("/aidoo/artifact/", lines)
-        base = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        base = self.env["ir.config_parameter"].sudo().get_str("web.base.url")
         self.assertIn("(%s/aidoo/artifact/" % base, lines)
 
 
@@ -140,10 +140,10 @@ class TestArtifactRoutes(HttpCase):
         ])]
         self.owner = self.env["res.users"].create({
             "name": "Artifact Owner", "login": "aidoo_art_owner",
-            "password": self.password, "groups_id": group_ids})
+            "password": self.password, "group_ids": group_ids})
         self.stranger = self.env["res.users"].create({
             "name": "Artifact Stranger", "login": "aidoo_art_stranger",
-            "password": self.password, "groups_id": group_ids})
+            "password": self.password, "group_ids": group_ids})
         self.conv = self.env["aidoo.session"].create(
             {"user_id": self.owner.id, "provider": "claude"})
         msg = self.env["aidoo.message"].with_user(self.owner).create({

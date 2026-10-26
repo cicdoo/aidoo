@@ -24,7 +24,7 @@ class TestToolExec(TransactionCase):
         self.user = self.env["res.users"].create({
             "name": "Aidoo Exec Tester",
             "login": "aidoo_exec_tester",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         self.Tool = self.env["aidoo.tool"]
@@ -113,7 +113,7 @@ class TestToolExec(TransactionCase):
         group = self.env.ref("mass_mailing.group_mass_mailing_user",
                              raise_if_not_found=False)
         if group:
-            self.user.sudo().groups_id = [(4, group.id)]
+            self.user.sudo().group_ids = [(4, group.id)]
         self._grant("orm_create")
 
     def test_orm_create_rejects_m2o_domain_violation(self):

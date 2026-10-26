@@ -222,8 +222,8 @@ class ResConfigSettings(models.TransientModel):
         super().set_values()
         names = ",".join(sorted(self.aidoo_excluded_model_ids.mapped("model")))
         ICP = self.env["ir.config_parameter"].sudo()
-        ICP.set_param("aidoo.excluded_models", names)
-        ICP.set_param("aidoo.server_action_ids",
+        ICP.set_str("aidoo.excluded_models", names)
+        ICP.set_str("aidoo.server_action_ids",
                       ",".join(map(str, sorted(self.aidoo_allowed_server_action_ids.ids))))
         # Push the dispatcher interval onto the real cron so it takes effect.
         minutes = max(int(self.aidoo_dispatch_interval_minutes or 15), 1)

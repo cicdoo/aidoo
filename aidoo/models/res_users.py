@@ -177,8 +177,8 @@ class ResUsers(models.Model):
         lines.append("Privilege level: %s" % priv)
 
         roles = sorted(
-            "%s / %s" % (g.category_id.name, g.name)
-            for g in self.groups_id if g.category_id
+            "%s / %s" % (g.privilege_id.name, g.name)
+            for g in self.group_ids if g.privilege_id
         )
         if roles:
             lines.append("Roles:")

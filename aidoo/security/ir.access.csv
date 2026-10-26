@@ -1,0 +1,16 @@
+id,name,model_id,group_id/id,operation,domain
+access_aidoo_session_user,aidoo.session.user,aidoo.session,aidoo.group_ai_user,crud,"[('user_id', '=', user.id)]"
+access_aidoo_session_manager,aidoo.session.manager,aidoo.session,aidoo.group_ai_manager,crud,
+access_aidoo_message_user,aidoo.message.user,aidoo.message,aidoo.group_ai_user,crud,
+access_aidoo_message_manager,aidoo.message.manager,aidoo.message,aidoo.group_ai_manager,crud,
+access_aidoo_toollog_manager,aidoo.toollog.manager,aidoo.tool_log,aidoo.group_ai_manager,r,
+access_aidoo_tool_user,aidoo.tool.user,aidoo.tool,aidoo.group_ai_user,r,
+access_aidoo_tool_manager,aidoo.tool.manager,aidoo.tool,aidoo.group_ai_manager,crud,
+access_aidoo_scheduled_user,aidoo.scheduled.user,aidoo.scheduled,aidoo.group_ai_user,crud,"[('user_id', '=', user.id)]"
+access_aidoo_scheduled_manager,aidoo.scheduled.manager,aidoo.scheduled,aidoo.group_ai_manager,crud,
+access_aidoo_skill_read,aidoo.skill.read,aidoo.skill,aidoo.group_ai_user,r,"['|', ('user_id', '=', user.id), ('is_shared', '=', True)]"
+access_aidoo_skill_own_write,aidoo.skill.own.write,aidoo.skill,aidoo.group_ai_user,cud,"[('user_id', '=', user.id)]"
+access_aidoo_skill_manager,aidoo.skill.manager,aidoo.skill,aidoo.group_ai_manager,crud,
+access_aidoo_persona_read,aidoo.persona.read,aidoo.persona,aidoo.group_ai_user,r,"[('active', '=', True)]"
+access_aidoo_persona_manager,aidoo.persona.manager,aidoo.persona,aidoo.group_ai_manager,crud,
+access_aidoo_mail_mail_ai_own,aidoo.mail.mail.ai.own,mail.mail,aidoo.group_ai_user,cr,"[('create_uid', '=', user.id)]"

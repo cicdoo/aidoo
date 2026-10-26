@@ -657,7 +657,7 @@ class AiAssistantSession(models.Model):
         path = os.path.join(self._uploads_dir(), disk_name)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
-            f.write(att.raw or b"")
+            f.write(getattr(att.raw, "content", att.raw) or b"")
         if self._is_audio_path(path):
             cached = self._cached_transcript(att)
             if cached is not None:
@@ -696,7 +696,7 @@ class AiAssistantSession(models.Model):
     @api.model
     def _config(self, key, default=None):
         """Read a shared system parameter ``aidoo.<key>``."""
-        val = self.env["ir.config_parameter"].sudo().get_param("aidoo.%s" % key)
+        val = self.env["ir.config_parameter"].sudo().get_str("aidoo.%s" % key)
         return val if val not in (None, False, "") else default
 
     @api.model
@@ -704,7 +704,7 @@ class AiAssistantSession(models.Model):
         """Read a provider-scoped parameter ``aidoo.<provider>.<key>``, falling
         back to the shared ``aidoo.<key>``, then ``default``."""
         ICP = self.env["ir.config_parameter"].sudo()
-        val = ICP.get_param("aidoo.%s.%s" % (provider, key))
+        val = ICP.get_str("aidoo.%s.%s" % (provider, key))
         if val not in (None, False, ""):
             return val
         return self._config(key, default)
@@ -768,7 +768,7 @@ class AiAssistantSession(models.Model):
     # ------------------------------------------------------------------
     def _signing_secret(self):
         self.ensure_one()
-        db_secret = self.env["ir.config_parameter"].sudo().get_param(
+        db_secret = self.env["ir.config_parameter"].sudo().get_str(
             "database.secret") or ""
         salt = self.sudo().bridge_salt or ""
         return (db_secret + "|" + salt).encode()
@@ -1177,7 +1177,7 @@ class AiAssistantSession(models.Model):
                        if d.get("kind") == "artifact"]
         if not descriptors:
             return ""
-        base = self.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        base = self.env["ir.config_parameter"].sudo().get_str("web.base.url")
         return "\n".join(
             "View: [%s](%s%s)" % (d.get("name"), base, d.get("url"))
             for d in descriptors)
@@ -1302,7 +1302,7 @@ class AiAssistantSession(models.Model):
 
         bot = persona.partner_id
         if bot.id not in member_ids:
-            channel.sudo().add_members(partner_ids=[bot.id])  # auto-join on mention
+            channel.sudo()._add_members(partners=bot)  # auto-join on mention
 
         body_text = html2plaintext(body_html or "").strip()
         body_text = self._strip_mentions(

@@ -140,7 +140,7 @@ class TestSqlGuard(TransactionCase):
             groups.append(self.env.ref("aidoo.group_ai_sql_analyst").id)
         u = self.env["res.users"].create({
             "name": login, "login": login,
-            "groups_id": [(6, 0, groups)],
+            "group_ids": [(6, 0, groups)],
         })
         if allowlist is not None:
             u.aidoo_sql_table_allowlist = allowlist
@@ -148,7 +148,7 @@ class TestSqlGuard(TransactionCase):
 
     def test_analyst_blocked_by_global_denylist(self):
         from odoo.exceptions import AccessError
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.sql_table_denylist", "account_*, hr_*")
         analyst = self._mk_user("aidoo_sql_analyst1", analyst=True)
         ex = self._exec_as(analyst)
@@ -178,10 +178,10 @@ class TestSqlGuard(TransactionCase):
 
     def test_sql_disabled_blocks_everyone(self):
         from odoo.exceptions import AccessError
-        self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "False")
+        self.env["ir.config_parameter"].sudo().set_str("aidoo.sql_enabled", "False")
         try:
             analyst = self._mk_user("aidoo_sql_analyst2", analyst=True)
             with self.assertRaises(AccessError):
                 self._exec_as(analyst)._check_sql_access("SELECT id FROM res_users")
         finally:
-            self.env["ir.config_parameter"].sudo().set_param("aidoo.sql_enabled", "True")
+            self.env["ir.config_parameter"].sudo().set_str("aidoo.sql_enabled", "True")

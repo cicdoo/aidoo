@@ -29,7 +29,7 @@ import time
 
 from odoo import models
 from odoo.exceptions import AccessError, UserError, ValidationError
-from odoo.osv import expression
+from odoo.fields import Domain
 from odoo.tools import str2bool
 
 _logger = logging.getLogger(__name__)
@@ -237,7 +237,7 @@ class AidooToolExec(models.AbstractModel):
 
     def _sql_table_denylist(self):
         """Admin-configured fnmatch patterns for tables the SQL tool may not read."""
-        raw = self.env["ir.config_parameter"].sudo().get_param(
+        raw = self.env["ir.config_parameter"].sudo().get_str(
             "aidoo.sql_table_denylist", "") or ""
         return [p.strip().lower() for p in re.split(r"[,\s]+", raw) if p.strip()]
 
@@ -252,7 +252,7 @@ class AidooToolExec(models.AbstractModel):
           you grant, say, accounting reads to one user without the full-database
           AI SQL Analyst role.
         """
-        if not str2bool(self.env["ir.config_parameter"].sudo().get_param(
+        if not str2bool(self.env["ir.config_parameter"].sudo().get_str(
                 "aidoo.sql_enabled", "True"), True):
             raise AccessError("SQL reporting is disabled on this instance.")
         user = self.env.user
@@ -443,7 +443,7 @@ class AidooToolExec(models.AbstractModel):
         cap = min(int(max_rows or 1000), SQL_MAX_ROWS)
         try:
             timeout_ms = max(1000, int(self.env["ir.config_parameter"].sudo()
-                                       .get_param("aidoo.sql_statement_timeout_ms",
+                                       .get_str("aidoo.sql_statement_timeout_ms",
                                                   10000)))
         except (TypeError, ValueError):
             timeout_ms = 10000
@@ -484,7 +484,7 @@ class AidooToolExec(models.AbstractModel):
                 continue
             try:
                 ok = self.env[field.comodel_name].search_count(
-                    expression.AND([[("id", "=", val)], list(domain)])) == 1
+                    Domain.AND([[("id", "=", val)], list(domain)])) == 1
             except Exception:
                 _logger.debug(
                     "aidoo: could not enforce domain %s on %s.%s",

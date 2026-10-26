@@ -378,7 +378,7 @@ class AidooProviderCodexCli(AidooProvider):
         except OSError as e:
             raise UserError(_("Could not start codex login: %s") % e)
 
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             _LOGIN_PID % user.id, str(proc.pid))
 
         raw = self._capture_login(proc, _LOGIN_CAPTURE_S)
@@ -442,13 +442,13 @@ class AidooProviderCodexCli(AidooProvider):
     def _reap_login(self, user):
         """Kill any in-flight login subprocess for this user and clear the pid."""
         ICP = self.env["ir.config_parameter"].sudo()
-        raw = ICP.get_param(_LOGIN_PID % user.id)
+        raw = ICP.get_str(_LOGIN_PID % user.id)
         if raw and raw.isdigit():
             try:
                 os.kill(int(raw), signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
-        ICP.set_param(_LOGIN_PID % user.id, "")
+        ICP.set_str(_LOGIN_PID % user.id, "")
 
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-authentication)."""

@@ -26,7 +26,7 @@ class TestAidooFeatures(TransactionCase):
             "name": "Aidoo Feature Tester",
             "login": "aidoo_feature_tester",
             "email": "feature.tester@example.com",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         # Pretend the (default) Claude provider is connected for this user.
@@ -303,7 +303,7 @@ class TestAidooFeatures(TransactionCase):
         partner = self.env["res.partner"].create({"name": "Acme Co"})
         # Chatter delivery posts as the run-as user, which needs write access
         # on the target record (standard mail posting rule).
-        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
         agent = self._agent(delivery="chatter", persona_id=persona.id,
                             res_model="res.partner", res_id=partner.id)
         session = agent._run_once()
@@ -319,7 +319,7 @@ class TestAidooFeatures(TransactionCase):
             "name": "MuteBot", "provider": "claude",
         })
         partner = self.env["res.partner"].create({"name": "Beta Co"})
-        self.user.groups_id += self.env.ref("base.group_partner_manager")
+        self.user.group_ids += self.env.ref("base.group_partner_manager")
         agent = self._agent(delivery="chatter", persona_id=persona.id,
                             res_model="res.partner", res_id=partner.id)
         session = agent._run_once()
@@ -345,7 +345,7 @@ class TestAidooFeatures(TransactionCase):
     # ------------------------------------------------------------------
     def _channel_with_bot(self):
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
-        return self.env["discuss.channel"].with_user(self.user).channel_get(
+        return self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
             [bot.id, self.user.partner_id.id])
 
     def test_user_message_spawns_session(self):
@@ -359,27 +359,24 @@ class TestAidooFeatures(TransactionCase):
         self.assertEqual(len(session), 1)
         self.assertEqual(session.state, "running")
 
-    def test_im_search_includes_personas(self):
-        """Persona partners show up in Discuss's "New message" search even
-        though their service users are portal (share) users."""
+    def test_search_includes_personas(self):
+        """Persona partners show up in Discuss's searches (``/discuss/search``
+        and the invite panel) though their service users are portal users."""
         persona = self.env["aidoo.persona"].create(
             {"name": "SearchBot", "provider": "claude"})
         Partner = self.env["res.partner"].with_user(self.user)
-        ids = [p["id"] for p in
-               Partner.im_search("SearchBot").get("res.partner", [])]
+        ids = Partner.search_for_channel_invite("SearchBot")["partner_ids"]
         self.assertIn(persona.partner_id.id, ids)
         # An empty search lists personas too.
-        ids = [p["id"] for p in
-               Partner.im_search("").get("res.partner", [])]
+        ids = Partner.search_for_channel_invite("")["partner_ids"]
         self.assertIn(persona.partner_id.id, ids)
         # Users outside the AI group are not offered personas.
         outsider = self.env["res.users"].create({
             "name": "No AI", "login": "aidoo_no_ai",
-            "groups_id": [(6, 0, [self.env.ref("base.group_user").id])],
+            "group_ids": [(6, 0, [self.env.ref("base.group_user").id])],
         })
-        ids = [p["id"] for p in
-               self.env["res.partner"].with_user(outsider)
-               .im_search("SearchBot").get("res.partner", [])]
+        ids = (self.env["res.partner"].with_user(outsider)
+               .search_for_channel_invite("SearchBot")["partner_ids"])
         self.assertNotIn(persona.partner_id.id, ids)
 
     def test_channel_invite_search_includes_personas(self):
@@ -387,23 +384,21 @@ class TestAidooFeatures(TransactionCase):
             {"name": "InviteBot", "provider": "claude"})
         Partner = self.env["res.partner"].with_user(self.user)
         res = Partner.search_for_channel_invite("InviteBot")
-        ids = [p["id"] for p in res["data"].get("res.partner", [])]
-        self.assertIn(persona.partner_id.id, ids)
+        self.assertIn(persona.partner_id.id, res["partner_ids"])
         # A persona already in the channel is not suggested again.
         channel = self.env["discuss.channel"].sudo().create(
             {"name": "Grp", "channel_type": "channel"})
-        channel.sudo().add_members(partner_ids=[persona.partner_id.id])
+        channel.sudo()._add_members(partners=persona.partner_id)
         res = Partner.search_for_channel_invite(
             "InviteBot", channel_id=channel.id)
-        ids = [p["id"] for p in res["data"].get("res.partner", [])]
-        self.assertNotIn(persona.partner_id.id, ids)
+        self.assertNotIn(persona.partner_id.id, res["partner_ids"])
 
     def test_dm_with_persona_answers_without_mention(self):
         """A 1:1 chat with a persona spawns a session on a plain message —
         no @mention required."""
         persona = self.env["aidoo.persona"].create(
             {"name": "DmBot", "provider": "claude"})
-        channel = self.env["discuss.channel"].with_user(self.user).channel_get(
+        channel = self.env["discuss.channel"].with_user(self.user)._get_or_create_chat(
             [persona.partner_id.id])
         channel.with_user(self.user).message_post(
             body="hello there", message_type="comment",
@@ -462,11 +457,11 @@ class TestAidooFeatures(TransactionCase):
         """A human without the AI Assistant group gets no turn."""
         outsider = self.env["res.users"].create({
             "name": "No AI Grant", "login": "aidoo_no_grant",
-            "groups_id": [(4, self.env.ref("base.group_user").id)],
+            "group_ids": [(4, self.env.ref("base.group_user").id)],
         })
         bot = self.env["aidoo.session"]._aidoo_bot_partner()
         channel = self.env["discuss.channel"].with_user(
-            outsider).channel_get([bot.id, outsider.partner_id.id])
+            outsider)._get_or_create_chat([bot.id, outsider.partner_id.id])
         channel.with_user(outsider).message_post(
             body="help me", message_type="comment",
             author_id=outsider.partner_id.id, subtype_xmlid="mail.mt_comment")
@@ -514,7 +509,7 @@ class TestAidooAudioUploads(TransactionCase):
             "name": "Aidoo Audio Tester",
             "login": "aidoo_audio_tester",
             "email": "audio.tester@example.com",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         self.session = self.env["aidoo.session"].with_user(self.user).create({
@@ -555,7 +550,7 @@ class TestAidooAudioUploads(TransactionCase):
         self.assertFalse(self.session._pending_audio_jobs(paths, atts))
 
     def test_transcription_failure_writes_note_and_never_raises(self):
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.whisper_python", "/nonexistent/python-binary")
         desc = self.session.with_user(self.user)._store_upload(
             "broken.mp3", b"\xff\xfbnot-really-audio")

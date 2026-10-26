@@ -485,7 +485,7 @@ class TestProviders(TransactionCase):
         user = self.env["res.users"].create({
             "name": "Native Loop Tester %s" % provider,
             "login": "aidoo_native_%s" % provider,
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         user_env = self.env(user=user)
@@ -502,7 +502,7 @@ class TestProviders(TransactionCase):
     def test_zai_native_tool_loop(self):
         from odoo.addons.aidoo.models.providers import zai_client
         user, user_env, session, adapter, ctx = self._native_user_env("zai")
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.zai.api_key", "test-key")
         args = ('{"model": "res.users", "ids": [%s], "fields": ["login"]}'
                 % user.id)
@@ -545,7 +545,7 @@ class TestProviders(TransactionCase):
         from odoo.addons.aidoo.models.providers import zai_client
         user, user_env, session, adapter, ctx = self._native_user_env("zai")
         ctx["max_turns"] = 3
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.zai.api_key", "test-key")
         args = '{"model": "res.users", "ids": [%s]}' % user.id
         calls = {"n": 0}

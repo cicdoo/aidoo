@@ -19,22 +19,28 @@ _logger = logging.getLogger(__name__)
 class DiscussChannel(models.Model):
     _inherit = "discuss.channel"
 
-    def _message_post_after_hook(self, message, msg_values):
-        res = super()._message_post_after_hook(message, msg_values)
+    def _message_post_after_hook(self, message):
+        res = super()._message_post_after_hook(message)
         try:
-            self.env["aidoo.session"]._maybe_handle_discuss(self, msg_values, message=message)
+            self.env["aidoo.session"]._maybe_handle_discuss(
+                self, {
+                    "message_type": message.message_type,
+                    "author_id": message.author_id.id,
+                    "partner_ids": message.partner_ids.ids,
+                    "body": message.body,
+                }, message=message)
         except Exception:  # noqa: BLE001
             # Never let assistant handling break a normal message post.
             _logger.exception("aidoo: discuss bot handling failed")
         return res
 
-    def _notify_get_recipients(self, message, msg_vals=False, **kwargs):
+    def _notify_get_recipients(self, message, **kwargs):
         """Never notify persona bots. Their service users are portal (email-only)
         with no real inbox, so @mentioning one would try to email a bot address
         and fail — leaving the sender's message greyed out with an error. Personas
         pick up the message through ``_maybe_handle_discuss`` instead, so they need
         no mail notification at all."""
-        recipients = super()._notify_get_recipients(message, msg_vals=msg_vals, **kwargs)
+        recipients = super()._notify_get_recipients(message, **kwargs)
         if not recipients:
             return recipients
         bot_ids = set(self.env["aidoo.persona"].sudo().search([]).partner_id.ids)

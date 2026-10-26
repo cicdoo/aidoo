@@ -39,59 +39,59 @@ class AiAssistantTools(http.Controller):
             session, tool, arguments or {}, client_ip=ip)
 
     # --- read tools ---------------------------------------------------
-    @http.route("/aidoo/tool/model_introspect", type="json",
+    @http.route("/aidoo/tool/model_introspect", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def model_introspect(self, **kw):
         return self._dispatch("model_introspect", kw)
 
-    @http.route("/aidoo/tool/orm_search_read", type="json",
+    @http.route("/aidoo/tool/orm_search_read", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_search_read(self, **kw):
         return self._dispatch("orm_search_read", kw)
 
-    @http.route("/aidoo/tool/orm_read", type="json",
+    @http.route("/aidoo/tool/orm_read", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_read(self, **kw):
         return self._dispatch("orm_read", kw)
 
-    @http.route("/aidoo/tool/orm_call", type="json",
+    @http.route("/aidoo/tool/orm_call", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_call(self, **kw):
         return self._dispatch("orm_call", kw)
 
-    @http.route("/aidoo/tool/sql_select", type="json",
+    @http.route("/aidoo/tool/sql_select", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def sql_select(self, **kw):
         return self._dispatch("sql_select", kw)
 
     # --- write tools --------------------------------------------------
-    @http.route("/aidoo/tool/orm_create", type="json",
+    @http.route("/aidoo/tool/orm_create", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_create(self, **kw):
         return self._dispatch("orm_create", kw)
 
-    @http.route("/aidoo/tool/orm_write", type="json",
+    @http.route("/aidoo/tool/orm_write", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_write(self, **kw):
         return self._dispatch("orm_write", kw)
 
-    @http.route("/aidoo/tool/orm_unlink", type="json",
+    @http.route("/aidoo/tool/orm_unlink", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_unlink(self, **kw):
         return self._dispatch("orm_unlink", kw)
 
     # --- action tools -------------------------------------------------
-    @http.route("/aidoo/tool/orm_action", type="json",
+    @http.route("/aidoo/tool/orm_action", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_action(self, **kw):
         return self._dispatch("orm_action", kw)
 
-    @http.route("/aidoo/tool/run_wizard", type="json",
+    @http.route("/aidoo/tool/run_wizard", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def run_wizard(self, **kw):
         return self._dispatch("run_wizard", kw)
 
-    @http.route("/aidoo/tool/run_server_action", type="json",
+    @http.route("/aidoo/tool/run_server_action", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def run_server_action(self, **kw):
         return self._dispatch("run_server_action", kw)

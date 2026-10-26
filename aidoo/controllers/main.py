@@ -31,7 +31,7 @@ class AiAssistantChat(http.Controller):
     # ------------------------------------------------------------------
     # Provider catalogue (drives the picker + auth panel)
     # ------------------------------------------------------------------
-    @http.route("/aidoo/providers", type="json", auth="user")
+    @http.route("/aidoo/providers", type="jsonrpc", auth="user")
     def providers(self):
         user = request.env.user
         # Ensure the Discuss bot partner exists so users can DM it. Done from a
@@ -58,35 +58,35 @@ class AiAssistantChat(http.Controller):
     # ------------------------------------------------------------------
     # Per-user, per-provider authentication
     # ------------------------------------------------------------------
-    @http.route("/aidoo/auth/status", type="json", auth="user")
+    @http.route("/aidoo/auth/status", type="jsonrpc", auth="user")
     def auth_status(self, provider=None):
         return self._adapter(provider)._auth_status(request.env.user)
 
-    @http.route("/aidoo/auth/start", type="json", auth="user")
+    @http.route("/aidoo/auth/start", type="jsonrpc", auth="user")
     def auth_start(self, provider=None):
         """oauth_code: returns {url}. device_poll: returns {url, code}."""
         return self._adapter(provider)._auth_start(request.env.user)
 
-    @http.route("/aidoo/auth/complete", type="json", auth="user")
+    @http.route("/aidoo/auth/complete", type="jsonrpc", auth="user")
     def auth_complete(self, provider=None, code=None):
         return self._adapter(provider)._auth_complete(request.env.user, code)
 
-    @http.route("/aidoo/auth/import", type="json", auth="user")
+    @http.route("/aidoo/auth/import", type="jsonrpc", auth="user")
     def auth_import(self, provider=None, creds=None):
         return self._adapter(provider)._auth_import(request.env.user, creds)
 
-    @http.route("/aidoo/auth/key", type="json", auth="user")
+    @http.route("/aidoo/auth/key", type="jsonrpc", auth="user")
     def auth_key(self, provider=None, key=None):
         return self._adapter(provider)._auth_set_key(request.env.user, key)
 
-    @http.route("/aidoo/auth/logout", type="json", auth="user")
+    @http.route("/aidoo/auth/logout", type="jsonrpc", auth="user")
     def auth_logout(self, provider=None):
         return self._adapter(provider)._auth_logout(request.env.user)
 
     # ------------------------------------------------------------------
     # Conversations
     # ------------------------------------------------------------------
-    @http.route("/aidoo/sessions", type="json", auth="user")
+    @http.route("/aidoo/sessions", type="jsonrpc", auth="user")
     def sessions(self):
         # Clean up empty conversations left behind by chats that were opened but
         # never used (e.g. the floating bubble opened and closed without typing).
@@ -97,7 +97,7 @@ class AiAssistantChat(http.Controller):
                  "provider": s.provider, "is_favorite": s.is_favorite}
                 for s in recs]
 
-    @http.route("/aidoo/favorite", type="json", auth="user")
+    @http.route("/aidoo/favorite", type="jsonrpc", auth="user")
     def favorite(self, session_id=None, is_favorite=None):
         session = self._session(session_id)
         session.is_favorite = bool(is_favorite)
@@ -112,7 +112,7 @@ class AiAssistantChat(http.Controller):
             return request.env["aidoo.skill"]
         return request.env["aidoo.skill"].search([("id", "in", ids)])
 
-    @http.route("/aidoo/skill", type="json", auth="user")
+    @http.route("/aidoo/skill", type="jsonrpc", auth="user")
     def set_skill(self, session_id=None, skill_ids=None, skill_id=None):
         """Set (or clear) the instruction skills on a conversation. Takes
         effect on the next turn. ``skill_id`` is a legacy single-id alias."""
@@ -122,7 +122,7 @@ class AiAssistantChat(http.Controller):
         session.skill_ids = [(6, 0, self._readable_skills(skill_ids).ids)]
         return {"id": session.id, "skill_ids": session.skill_ids.ids}
 
-    @http.route("/aidoo/discard", type="json", auth="user")
+    @http.route("/aidoo/discard", type="jsonrpc", auth="user")
     def discard(self, session_id=None):
         """Delete a session only if it is empty (no messages, not running).
         Used when a chat surface is closed without any interaction."""
@@ -132,7 +132,7 @@ class AiAssistantChat(http.Controller):
             return {"deleted": True}
         return {"deleted": False}
 
-    @http.route("/aidoo/delete", type="json", auth="user")
+    @http.route("/aidoo/delete", type="jsonrpc", auth="user")
     def delete(self, session_id=None):
         """Delete one of the caller's own conversations and all its messages.
 
@@ -145,7 +145,7 @@ class AiAssistantChat(http.Controller):
         session.unlink()
         return {"deleted": True}
 
-    @http.route("/aidoo/new", type="json", auth="user")
+    @http.route("/aidoo/new", type="jsonrpc", auth="user")
     def new(self, provider=None, skill_ids=None, skill_id=None,
             context_model=None,
             context_res_id=None, context_domain=None, context_view_type=None,
@@ -217,7 +217,7 @@ class AiAssistantChat(http.Controller):
                 "skill_ids": session.skill_ids.ids,
                 "context_label": session._context_label()}
 
-    @http.route("/aidoo/messages", type="json", auth="user")
+    @http.route("/aidoo/messages", type="jsonrpc", auth="user")
     def messages(self, session_id=None, limit=None, before_id=None):
         """Conversation header + a page of messages.
 
@@ -297,7 +297,7 @@ class AiAssistantChat(http.Controller):
             return request.not_found()
         if token:
             try:
-                request.env["ir.attachment"].browse(att.id).validate_access(token)
+                att._can_return_content(access_token=token)
             except AccessError:
                 return request.not_found()
         else:
@@ -310,7 +310,7 @@ class AiAssistantChat(http.Controller):
                 and user.partner_id in session.discuss_channel_id.channel_partner_ids)
             if not allowed:
                 return request.not_found()
-        return request.make_response(att.raw or b"", [
+        return request.make_response(getattr(att.raw, "content", att.raw) or b"", [
             ("Content-Type", "text/html; charset=utf-8"),
             ("Content-Security-Policy",
              "sandbox; default-src 'none'; style-src 'unsafe-inline'; "
@@ -320,28 +320,28 @@ class AiAssistantChat(http.Controller):
             ("Cache-Control", "private, no-store"),
         ])
 
-    @http.route("/aidoo/artifact/share", type="json", auth="user")
+    @http.route("/aidoo/artifact/share", type="jsonrpc", auth="user")
     def artifact_share(self, attachment_id=None):
         """Mint (or return) the public share link. Session owner only."""
         att = self._own_artifact(attachment_id)
         token = att.generate_access_token()[0]
-        base = request.env["ir.config_parameter"].sudo().get_param("web.base.url")
+        base = request.env["ir.config_parameter"].sudo().get_str("web.base.url")
         return {"url": "%s/aidoo/artifact/%d?token=%s" % (base, att.id, token),
                 "shared": True}
 
-    @http.route("/aidoo/artifact/revoke", type="json", auth="user")
+    @http.route("/aidoo/artifact/revoke", type="jsonrpc", auth="user")
     def artifact_revoke(self, attachment_id=None):
         """Kill the public share link. Session owner only."""
         att = self._own_artifact(attachment_id)
         att.access_token = False
         return {"shared": False}
 
-    @http.route("/aidoo/send", type="json", auth="user")
+    @http.route("/aidoo/send", type="jsonrpc", auth="user")
     def send(self, session_id=None, body=None, attachment_ids=None):
         session = self._session(session_id)
         return session.send_message(body, attachment_ids=attachment_ids)
 
-    @http.route("/aidoo/stop", type="json", auth="user")
+    @http.route("/aidoo/stop", type="jsonrpc", auth="user")
     def stop(self, session_id=None):
         session = self._session(session_id)
         session.action_stop()

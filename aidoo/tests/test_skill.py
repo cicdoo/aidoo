@@ -24,17 +24,17 @@ class TestAidooSkill(TransactionCase):
         super().setUp()
         self.user = self.env["res.users"].create({
             "name": "Skill User", "login": "aidoo_skill_user",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         self.other = self.env["res.users"].create({
             "name": "Other User", "login": "aidoo_skill_other",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         self.manager = self.env["res.users"].create({
             "name": "Skill Manager", "login": "aidoo_skill_manager",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_manager").id)],
         })
 

@@ -78,13 +78,13 @@ class TestToolAccess(TransactionCase):
                          self.user._ai_effective_tools())
 
     def test_excluded_models_config(self):
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.excluded_models", "res.users, ir.config_parameter")
         excluded = self.env["aidoo.session"]._ai_excluded_models()
         self.assertEqual(excluded, {"res.users", "ir.config_parameter"})
 
     def test_per_user_excluded_models_union(self):
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             "aidoo.excluded_models", "ir.config_parameter")
         hr_model = self.env["ir.model"].search(
             [("model", "=", "res.partner")], limit=1)

@@ -22,7 +22,7 @@ class TestAidooRoutes(HttpCase):
             "name": "Aidoo Routes User",
             "login": "aidoo_routes_user",
             "password": self.password,
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id,
             ])],
@@ -59,7 +59,7 @@ class TestAidooRoutes(HttpCase):
         other = self.env["res.users"].create({
             "name": "Other", "login": "aidoo_routes_other",
             "password": "x",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id])],
         })
@@ -118,7 +118,7 @@ class TestAidooRoutes(HttpCase):
         """A private skill owned by another user can't be attached."""
         other = self.env["res.users"].create({
             "name": "SkillOwner", "login": "aidoo_skillowner",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id])],
         })
@@ -154,7 +154,7 @@ class TestAidooRoutes(HttpCase):
     def test_delete_rejects_other_users_session(self):
         other = self.env["res.users"].create({
             "name": "Owner2", "login": "aidoo_owner2",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id])],
         })

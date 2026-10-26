@@ -308,7 +308,7 @@ class AidooProviderClaude(AidooProvider):
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         state = secrets.token_urlsafe(32)
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_str(
             _PKCE_PARAM % user.id, json.dumps({"verifier": verifier, "state": state}))
         from urllib.parse import urlencode
         params = {
@@ -323,7 +323,7 @@ class AidooProviderClaude(AidooProvider):
         if not pasted_code:
             raise UserError(_("Paste the authorization code from Claude."))
         ICP = self.env["ir.config_parameter"].sudo()
-        raw = ICP.get_param(_PKCE_PARAM % user.id)
+        raw = ICP.get_str(_PKCE_PARAM % user.id)
         if not raw:
             raise UserError(_("No login in progress. Click “Login with Claude” first."))
         pkce = json.loads(raw)
@@ -361,7 +361,7 @@ class AidooProviderClaude(AidooProvider):
             "subscriptionType": data.get("subscription_type") or "",
         }}
         self._write_user_file(user, self._credentials_path(user), json.dumps(creds))
-        ICP.set_param(_PKCE_PARAM % user.id, "")
+        ICP.set_str(_PKCE_PARAM % user.id, "")
         return {"authenticated": True}
 
     def _auth_logout(self, user):
