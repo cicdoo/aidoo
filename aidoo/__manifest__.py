@@ -57,6 +57,7 @@ provider's backend directly from Python, no binary needed.
         'web.assets_backend': [
             'aidoo/static/src/scss/aidoo.scss',
             'aidoo/static/src/aidoo_service.js',
+            'aidoo/static/src/utils.js',
             'aidoo/static/src/markdown.js',
             'aidoo/static/src/artifacts.js',
             'aidoo/static/src/components/report_frame.js',
