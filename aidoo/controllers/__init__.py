@@ -5,3 +5,4 @@
 from . import main
 from . import tools
 from . import mcp
+from . import oauth

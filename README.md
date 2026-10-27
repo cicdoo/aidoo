@@ -167,6 +167,34 @@ curl -H "Authorization: Bearer <key>" -d '{"jsonrpc":"2.0","id":1,"method":"ping
 {"mcpServers":{"odoo":{"type":"http","url":"https://HOST/aidoo/mcp","headers":{"Authorization":"Bearer <key>"}}}}
 ```
 
+### Connect ChatGPT / Claude
+
+Add `https://<host>/aidoo/mcp` as a custom connector. The client discovers
+OAuth on its own (the endpoint answers `401` with a `WWW-Authenticate:
+Bearer resource_metadata=...` challenge), registers itself, and sends you to
+Odoo: sign in, review the consent page and approve. Users need the *AI
+Assistant User* group. API keys remain an alternative (above).
+
+| Endpoint | Purpose |
+|---|---|
+| `/.well-known/oauth-protected-resource` (also `.../aidoo/mcp`) | RFC 9728 resource metadata |
+| `/.well-known/oauth-authorization-server` | RFC 8414 server metadata |
+| `POST /aidoo/oauth/register` | RFC 7591 dynamic client registration |
+| `/aidoo/oauth/authorize` | authorization code + PKCE (`S256` only), consent page |
+| `POST /aidoo/oauth/token` | code exchange and refresh-token rotation |
+
+Access tokens are ordinary Odoo API keys (scope `aidoo_mcp`, 1 hour); refresh
+tokens last 30 days and are rotated on each use (replaying an old one revokes
+the grant). Revoke access any time under *Preferences → Account Security*
+(delete the "Aidoo OAuth: ..." key). The OAuth routes follow the same
+`aidoo.mcp_enabled` switch and return `403` when MCP is disabled.
+
+```
+curl -s https://HOST/.well-known/oauth-protected-resource
+curl -s https://HOST/.well-known/oauth-authorization-server
+curl -si -X POST https://HOST/aidoo/mcp   # 401 + resource_metadata
+```
+
 ---
 
 ## 🧪 Tests

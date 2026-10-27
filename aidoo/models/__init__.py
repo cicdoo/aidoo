@@ -15,5 +15,6 @@ from . import aidoo_runner
 from . import res_users
 from . import res_partner
 from . import res_config_settings
+from . import aidoo_oauth
 from . import ir_http
 from . import discuss_channel

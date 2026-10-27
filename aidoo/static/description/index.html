@@ -82,6 +82,8 @@
 <section class="oe_container">
   <h2 class="oe_slogan">Remote MCP server</h2>
   <p>It is enabled by default (Settings → Aidoo has a checkbox to disable it). Create an API key with scope <code>aidoo_mcp</code>, and point your MCP client at <code>/aidoo/mcp</code>. Same per-user tool grant and audit log as the chat.</p>
+  <h3>Connect ChatGPT / Claude</h3>
+  <p>Add <code>https://&lt;host&gt;/aidoo/mcp</code> as a custom connector, sign in to Odoo and approve. OAuth discovery, dynamic client registration and PKCE are built in (<code>/.well-known/oauth-protected-resource</code>, <code>/.well-known/oauth-authorization-server</code>, <code>/aidoo/oauth/register</code>, <code>/aidoo/oauth/authorize</code>, <code>/aidoo/oauth/token</code>). API keys remain an alternative. Revoke access under Preferences → Account Security.</p>
   <pre>{"mcpServers":{"odoo":{"type":"http","url":"https://HOST/aidoo/mcp","headers":{"Authorization":"Bearer &lt;key&gt;"}}}}</pre>
 </section>
 <section class="oe_container">

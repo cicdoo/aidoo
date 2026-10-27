@@ -20,3 +20,4 @@ from . import test_frontend
 from . import test_assets
 from . import test_routing_sid
 from . import test_mcp_server
+from . import test_mcp_oauth

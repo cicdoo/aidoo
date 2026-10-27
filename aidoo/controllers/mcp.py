@@ -4,8 +4,11 @@
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 """Remote MCP server (Streamable HTTP, JSON-only) at ``/aidoo/mcp``.
 
-External MCP clients authenticate with a user's own Odoo API key of scope
-``aidoo_mcp`` (Odoo's built-in ``bearer`` auth). Every ``tools/call`` goes through
+External MCP clients authenticate with a user's Odoo API key of scope
+``aidoo_mcp`` (``aidoo_mcp`` auth = Odoo's ``bearer`` plus an OAuth discovery
+challenge). Keys are either created by hand or issued through the OAuth 2.1
+flow in ``oauth.py`` (dynamic client registration + authorization code/PKCE),
+which is what ChatGPT and Claude custom connectors use. Every ``tools/call`` goes through
 the shared ``aidoo.tool.exec`` executor, so the per-user tool grant, model
 denylist, non-superuser execution and the ``aidoo.tool_log`` audit are identical
 to the in-chat path. Enabled by default; ``aidoo.mcp_enabled`` = False disables it.
@@ -43,7 +46,7 @@ def _enabled(icp):
 
 class AidooMcp(http.Controller):
 
-    @http.route("/aidoo/mcp", type="http", auth="bearer",
+    @http.route("/aidoo/mcp", type="http", auth="aidoo_mcp",
                 bearer_scope="aidoo_mcp", methods=["POST", "GET", "DELETE"],
                 csrf=False, readonly=False)
     def mcp(self, **kw):
@@ -69,7 +72,8 @@ class AidooMcp(http.Controller):
                 return request.make_json_response({
                     "name": "aidoo", "transport": "streamable-http",
                     "endpoint": "/aidoo/mcp",
-                    "auth": "Authorization: Bearer <API key, scope aidoo_mcp>",
+                    "auth": "Authorization: Bearer <API key or OAuth access token, "
+                            "scope aidoo_mcp>",
                 }, status=405, headers=[("Allow", "POST")])
             return request.make_response(
                 "", status=405, headers=[("Allow", "POST")])
