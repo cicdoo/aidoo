@@ -212,23 +212,35 @@ class AidooOauth(http.Controller):
         if (problem := self._authorize_problem(kw)):
             return _redirect_with(uri, {"error": problem, "state": state})
 
+        def consent(error=None):
+            return request.render("aidoo.oauth_consent", {
+                "client_name": client.name,
+                "redirect_host": urlsplit(uri).netloc,
+                "user_name": user.name,
+                "error": error,
+                "hidden": {k: kw.get(k) for k in (
+                    "client_id", "redirect_uri", "response_type", "state",
+                    "code_challenge", "code_challenge_method", "scope")
+                    if kw.get(k) is not None},
+            })
+
         if request.httprequest.method == "POST":
-            if kw.get("decision") != "allow":
+            decision = kw.get("decision")
+            _logger.info(
+                "Aidoo OAuth consent: client=%s user=%s decision=%s",
+                client.client_id, user.login,
+                decision if decision in ("allow", "deny") else "invalid")
+            if decision == "deny":
                 return _redirect_with(
                     uri, {"error": "access_denied", "state": state})
+            if decision != "allow":
+                return consent("No decision was received. Please choose "
+                               "Allow or Deny.")
             code = request.env["aidoo.oauth.grant"].sudo()._issue_code(
                 client, user, uri, kw["code_challenge"])
             return _redirect_with(uri, {"code": code, "state": state})
 
-        return request.render("aidoo.oauth_consent", {
-            "client_name": client.name,
-            "redirect_host": urlsplit(uri).netloc,
-            "user_name": user.name,
-            "hidden": {k: kw.get(k) for k in (
-                "client_id", "redirect_uri", "response_type", "state",
-                "code_challenge", "code_challenge_method", "scope")
-                if kw.get(k) is not None},
-        })
+        return consent()
 
     # --- token endpoint -------------------------------------------------
     @http.route("/aidoo/oauth/token", type="http", auth="none",

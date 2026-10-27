@@ -7,6 +7,9 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Fixed
+- **MCP OAuth consent `access_denied` fix** — the consent page no longer uses the login form class (whose script could drop the clicked button's value) and posts an explicit hidden `decision`; a missing decision re-renders the page instead of returning `access_denied`, and consent decisions are logged.
+
 ### Added
 - **MCP OAuth for ChatGPT / Claude connectors** — `/aidoo/mcp` now answers unauthenticated requests with a `WWW-Authenticate: Bearer resource_metadata=...` challenge and Aidoo serves an OAuth 2.1 authorization server (RFC 9728/8414 metadata, RFC 7591 dynamic client registration, authorization code + PKCE `S256`, rotating refresh tokens, consent page). Access tokens are Odoo API keys of scope `aidoo_mcp` (revocable under Preferences → Account Security); manual API keys keep working. OAuth follows `aidoo.mcp_enabled`.
 - **Remote MCP server** — `POST /aidoo/mcp` (Streamable HTTP, JSON-only) lets external MCP clients (Claude Desktop, Cursor, Claude Code `--transport http`) use the assistant's tools. Enabled by default; the Settings → Aidoo → Remote MCP Server checkbox (`aidoo.mcp_enabled`) disables it (disabled returns 403 with a hint; `GET` returns 405 with a JSON description). Authenticates with a user's own API key of scope `aidoo_mcp`; calls run through the shared `aidoo.tool.exec` pipeline (per-user tool grant, model denylist, non-superuser, `aidoo.tool_log` audit with empty session). Tool definitions are shared in `models/mcp_tools.py`; the stdio bridge is unchanged.

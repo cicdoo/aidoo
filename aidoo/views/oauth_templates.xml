@@ -3,26 +3,27 @@
     <template id="oauth_consent" name="Aidoo OAuth consent">
         <t t-call="web.login_layout">
             <t t-set="disable_database_manager" t-value="True"/>
-            <form method="post" action="/aidoo/oauth/authorize" class="oe_login_form">
-                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                <t t-foreach="hidden" t-as="name">
-                    <input type="hidden" t-att-name="name" t-att-value="hidden[name]"/>
-                </t>
-                <h4 class="text-center mb-3">Authorize access</h4>
-                <p>
-                    <strong t-out="client_name"/> wants to use Aidoo tools as
-                    <strong t-out="user_name"/>.
-                </p>
-                <p class="text-muted">
-                    After approval you will be sent back to
-                    <code t-out="redirect_host"/>. Only approve if you recognize this application.
-                    You can revoke access any time under Preferences → Account Security.
-                </p>
-                <div class="d-grid gap-2">
-                    <button type="submit" name="decision" value="allow" class="btn btn-primary">Allow</button>
-                    <button type="submit" name="decision" value="deny" class="btn btn-secondary">Deny</button>
-                </div>
-            </form>
+            <h4 class="text-center mb-3">Authorize access</h4>
+            <p t-if="error" class="alert alert-danger" t-out="error"/>
+            <p>
+                <strong t-out="client_name"/> wants to use Aidoo tools as
+                <strong t-out="user_name"/>.
+            </p>
+            <p class="text-muted">
+                After approval you will be sent back to
+                <code t-out="redirect_host"/>. Only approve if you recognize this application.
+                You can revoke access any time under Preferences → Account Security.
+            </p>
+            <t t-foreach="[('allow', 'Allow', 'btn-primary'), ('deny', 'Deny', 'btn-secondary')]" t-as="opt">
+                <form method="post" action="/aidoo/oauth/authorize" class="d-grid mb-2">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <t t-foreach="hidden" t-as="name">
+                        <input type="hidden" t-att-name="name" t-att-value="hidden[name]"/>
+                    </t>
+                    <input type="hidden" name="decision" t-att-value="opt[0]"/>
+                    <button type="submit" t-attf-class="btn {{opt[2]}} w-100" t-out="opt[1]"/>
+                </form>
+            </t>
         </t>
     </template>
 

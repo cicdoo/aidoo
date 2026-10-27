@@ -273,3 +273,46 @@ class TestAidooMcpOauth(HttpCase):
         key = self.env["res.users.apikeys"].with_user(self.user)._generate(
             "aidoo_mcp", "manual", datetime.now() + timedelta(days=1))
         self.assertEqual(self._mcp(key, "ping").status_code, 200)
+
+    def _consent_page(self, client):
+        self.authenticate(self.user.login, self.password)
+        page = self.opener.get(
+            self.base_url() + "/aidoo/oauth/authorize",
+            params=self._authorize_params(client), allow_redirects=False)
+        self.assertEqual(page.status_code, 200, page.text)
+        return page
+
+    def test_consent_forms_carry_explicit_decision(self):
+        client = self._client()
+        page = self._consent_page(client)
+        self.assertNotIn("oe_login_form", page.text)
+        forms = re.findall(r"<form\b.*?</form>", page.text, re.S)
+        self.assertEqual(len(forms), 2)
+        decisions = []
+        for form in forms:
+            fields = {}
+            for tag in re.findall(r"<input\b[^>]*>", form):
+                name = re.search(r'name="([^"]*)"', tag)
+                value = re.search(r'value="([^"]*)"', tag)
+                if name:
+                    fields[name.group(1)] = value.group(1) if value else ""
+            decisions.append(fields.get("decision"))
+            if fields.get("decision") == "allow":
+                allow_fields = fields
+        self.assertEqual(sorted(decisions), ["allow", "deny"])
+        res = self.opener.post(self.base_url() + "/aidoo/oauth/authorize",
+                               data=allow_fields, allow_redirects=False)
+        self.assertEqual(res.status_code, 302)
+        query = parse_qs(urlsplit(res.headers["Location"]).query)
+        self.assertIn("code", query)
+
+    def test_missing_decision_is_not_access_denied(self):
+        client = self._client()
+        page = self._consent_page(client)
+        csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+        data = dict(self._authorize_params(client), csrf_token=csrf)
+        res = self.opener.post(self.base_url() + "/aidoo/oauth/authorize",
+                               data=data, allow_redirects=False)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("No decision was received", res.text)
+        self.assertFalse(self.env["aidoo.oauth.grant"].sudo().search([]))
