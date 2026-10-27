@@ -13,6 +13,7 @@ import { AiMessageList } from "./components/message_list";
 import { AiComposer } from "./components/composer";
 import { ReportFrame } from "./components/report_frame";
 import { extractHtmlBlocks } from "./artifacts";
+import { rpcErrorMessage } from "./utils";
 
 // Load the conversation in newest-first pages; older messages stream in on
 // scroll-up. Keep in sync with AIDOO_MSG_PAGE on the server.
@@ -134,7 +135,7 @@ export class AiChatAction extends Component {
             window.open(url, "_blank", "noopener,noreferrer");
             this.state.authStep = "awaiting_code";
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not start the login.";
+            this.state.authError = rpcErrorMessage(e, "Could not start the login.");
         }
     }
 
@@ -153,7 +154,7 @@ export class AiChatAction extends Component {
             await this._onAuthSuccess();
         } catch (e) {
             this.state.authStep = "awaiting_code";
-            this.state.authError = e.message?.data?.message || "Authentication failed. Try again.";
+            this.state.authError = rpcErrorMessage(e, "Authentication failed. Try again.");
         }
     }
 
@@ -175,7 +176,7 @@ export class AiChatAction extends Component {
             }
             this._startPolling();
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not start the login.";
+            this.state.authError = rpcErrorMessage(e, "Could not start the login.");
         }
     }
 
@@ -218,7 +219,7 @@ export class AiChatAction extends Component {
             });
             await this._onAuthSuccess();
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Import failed.";
+            this.state.authError = rpcErrorMessage(e, "Import failed.");
         }
     }
 
@@ -239,7 +240,7 @@ export class AiChatAction extends Component {
                 this.state.authError = "The key was not accepted.";
             }
         } catch (e) {
-            this.state.authError = e.message?.data?.message || "Could not save the key.";
+            this.state.authError = rpcErrorMessage(e, "Could not save the key.");
         }
     }
 
@@ -474,7 +475,7 @@ export class AiChatAction extends Component {
             });
         } catch (e) {
             this.notification.add(
-                e.message?.data?.message || "Could not create the share link.",
+                rpcErrorMessage(e, "Could not create the share link."),
                 { type: "danger" });
         }
     }
@@ -493,7 +494,7 @@ export class AiChatAction extends Component {
             this.notification.add("Share link revoked.", { type: "success" });
         } catch (e) {
             this.notification.add(
-                e.message?.data?.message || "Could not revoke the share link.",
+                rpcErrorMessage(e, "Could not revoke the share link."),
                 { type: "danger" });
         }
     }
@@ -608,7 +609,7 @@ export class AiChatAction extends Component {
             });
         } catch (e) {
             this.state.running = false;
-            this.notification.add(e.message?.data?.message || "Failed to send.", {
+            this.notification.add(rpcErrorMessage(e, "Failed to send."), {
                 type: "danger",
             });
         }

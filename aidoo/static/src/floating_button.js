@@ -10,6 +10,7 @@ import { user } from "@web/core/user";
 import { _t } from "@web/core/l10n/translation";
 import { AiMessageList } from "./components/message_list";
 import { AiComposer } from "./components/composer";
+import { rpcErrorMessage } from "./utils";
 
 // Floating "Ask Aidoo" companion shown on form and list views. The button
 // (bottom-right) toggles a chat panel that floats over the current view — the
@@ -189,7 +190,7 @@ export class FloatingAidoo extends Component {
             });
         } catch (e) {
             this.state.running = false;
-            this.state.authError = e.message?.data?.message || _t("Failed to send.");
+            this.state.authError = rpcErrorMessage(e, _t("Failed to send."));
         }
     }
 

@@ -214,6 +214,24 @@ class AidooProvider(models.AbstractModel):
     # ------------------------------------------------------------------
     # CLI resolution
     # ------------------------------------------------------------------
+    _extra_bin_dirs = ("~/.local/bin", "/opt/odoo/.local/bin")
+
+    def _which(self, name):
+        """PATH lookup, then well-known user-bin dirs (the Odoo process PATH
+        often omits ~/.local/bin where CICDoo installs the CLIs)."""
+        import shutil
+        found = shutil.which(name)
+        if found:
+            return found
+        for d in self._extra_bin_dirs:
+            cand = os.path.join(os.path.expanduser(d), name)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+        return None
+
+    def _searched_dirs(self):
+        return ", ".join(os.path.expanduser(d) for d in self._extra_bin_dirs)
+
     def _resolve_cli_path(self):
         """Explicit config path, else first glob match, else error.
 
@@ -227,14 +245,14 @@ class AidooProvider(models.AbstractModel):
         if matches:
             return sorted(matches)[-1]
         # Fall back to PATH lookup by the bare binary name.
-        import shutil
-        which = shutil.which(os.path.basename(pattern))
+        which = self._which(os.path.basename(pattern))
         if which:
             return which
         raise UserError(_(
             "%(label)s CLI binary not found. Set the System Parameter "
-            "'aidoo.%(code)s.cli_path' or 'aidoo.%(code)s.cli_glob'. Tried: %(pat)s",
-            label=self._provider_label, code=self._provider_code, pat=pattern))
+            "'aidoo.%(code)s.cli_path' or 'aidoo.%(code)s.cli_glob'. Tried: %(pat)s, PATH, %(dirs)s",
+            label=self._provider_label, code=self._provider_code, pat=pattern,
+            dirs=self._searched_dirs()))
 
     # ------------------------------------------------------------------
     # Runtime environment for a CLI run (HOME + provider auth env)

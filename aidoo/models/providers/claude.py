@@ -82,12 +82,13 @@ class AidooProviderClaude(AidooProvider):
         # Fall back to PATH lookup, same as the base class, for standalone
         # installs (e.g. CICDoo's /opt/odoo/.local/bin/claude) that aren't
         # bundled as a code-server extension.
-        which = shutil.which(os.path.basename(pattern))
+        which = self._which(os.path.basename(pattern))
         if which:
             return which
         raise UserError(_(
             "Claude CLI binary not found. Set the System Parameter "
-            "'aidoo.claude.cli_path' or 'aidoo.claude.cli_glob'. Tried: %s") % pattern)
+            "'aidoo.claude.cli_path' or 'aidoo.claude.cli_glob'. Tried: %s, PATH, %s") % (
+            pattern, self._searched_dirs()))
 
     # ------------------------------------------------------------------
     # Runtime env: HOME + CLAUDE_CONFIG_DIR (per user)
