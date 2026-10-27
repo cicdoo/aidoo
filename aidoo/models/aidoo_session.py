@@ -741,9 +741,9 @@ class AiAssistantSession(models.Model):
     def _mint_routing_sid(self, db):
         """Create a short anonymous Odoo session pinned to ``db`` and return its
         sid, so the bridge's loopback calls resolve to this exact database."""
-        from odoo.http import root
+        from odoo.http.session import session_store
         try:
-            store = root.session_store
+            store = session_store()
             sess = store.new()
             sess.db = db
             store.save(sess)
@@ -756,9 +756,9 @@ class AiAssistantSession(models.Model):
     def _delete_routing_sid(self, sid):
         if not sid:
             return
-        from odoo.http import root
+        from odoo.http.session import session_store
         try:
-            store = root.session_store
+            store = session_store()
             store.delete(store.get(sid))
         except Exception:  # noqa: BLE001
             pass

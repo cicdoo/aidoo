@@ -18,3 +18,4 @@ from . import test_features
 from . import test_artifacts
 from . import test_frontend
 from . import test_assets
+from . import test_routing_sid
