@@ -45,6 +45,17 @@
                         </setting>
                     </block>
 
+                    <block title="Remote MCP Server" name="aidoo_mcp">
+                        <setting string="Enable Remote MCP Server"
+                                 help="Lets external MCP clients (Claude Desktop, Cursor, ...) call the assistant's tools over HTTP. Disabled by default.">
+                            <field name="aidoo_mcp_enabled"/>
+                            <div class="text-muted" invisible="not aidoo_mcp_enabled">
+                                Endpoint: <field name="aidoo_mcp_url" class="oe_inline" readonly="1"/>
+                                <br/>Each user creates an API key in Preferences → Account Security → New API Key with scope <code>aidoo_mcp</code> and sends it as <code>Authorization: Bearer &lt;key&gt;</code>. Users need the AI Assistant User group; tools follow their personal grant.
+                            </div>
+                        </setting>
+                    </block>
+
                     <block title="Claude" name="aidoo_claude">
                         <setting string="CLI Path" help="Empty = auto-detect.">
                             <field name="aidoo_claude_cli_path" placeholder="auto-detect"/>

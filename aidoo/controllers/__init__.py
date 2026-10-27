@@ -4,3 +4,4 @@
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 from . import main
 from . import tools
+from . import mcp

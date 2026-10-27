@@ -150,6 +150,21 @@ vulnerability.
 
 ---
 
+## 🔌 Remote MCP server
+
+Aidoo can also act as an MCP server for external clients. Enable it in
+**Settings → Aidoo → Remote MCP Server** (`aidoo.mcp_enabled`, off by default),
+then each user creates an API key under *Preferences → Account Security → New
+API Key* with scope `aidoo_mcp`. The endpoint is `POST /aidoo/mcp` (Streamable
+HTTP, JSON responses). Tools are exactly the user's granted tools and every call
+is audited in the tool log.
+
+```json
+{"mcpServers":{"odoo":{"type":"http","url":"https://HOST/aidoo/mcp","headers":{"Authorization":"Bearer <key>"}}}}
+```
+
+---
+
 ## 🧪 Tests
 
 ```bash

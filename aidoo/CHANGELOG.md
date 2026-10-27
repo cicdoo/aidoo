@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- **Remote MCP server** — `POST /aidoo/mcp` (Streamable HTTP, JSON-only) lets external MCP clients (Claude Desktop, Cursor, Claude Code `--transport http`) use the assistant's tools. Off by default (Settings → Aidoo → Remote MCP Server, `aidoo.mcp_enabled`). Authenticates with a user's own API key of scope `aidoo_mcp`; calls run through the shared `aidoo.tool.exec` pipeline (per-user tool grant, model denylist, non-superuser, `aidoo.tool_log` audit with empty session). Tool definitions are shared in `models/mcp_tools.py`; the stdio bridge is unchanged.
+
 ## 20.0.1.0.0
 - Frontend ported to Owl 3: `proxy`/`signal.ref()` replace `reactive`/`useState`/`useRef`, `useProps` replaces `static props`, templates use `this.` members, and `t-model` is replaced by `t-att-value` + `t-on-input`. Fixes `reactive is not a function` at web client start.
 - Port to Odoo 20.0: `res.groups.privilege` replaces the module category, `group_ids` replaces `groups_id`, `models.Constraint` replaces `_sql_constraints`, mail hook signatures (`_message_post_after_hook(message)`, `_notify_get_recipients(message, **kwargs)`), `type="jsonrpc"` routes, `Domain` replaces `odoo.osv.expression`.

@@ -80,6 +80,11 @@
 </section>
 
 <section class="oe_container">
+  <h2 class="oe_slogan">Remote MCP server</h2>
+  <p>Enable it in Settings, create an API key with scope <code>aidoo_mcp</code>, and point your MCP client at <code>/aidoo/mcp</code>. Same per-user tool grant and audit log as the chat.</p>
+  <pre>{"mcpServers":{"odoo":{"type":"http","url":"https://HOST/aidoo/mcp","headers":{"Authorization":"Bearer &lt;key&gt;"}}}}</pre>
+</section>
+<section class="oe_container">
   <div class="oe_row oe_spaced" style="text-align:center;">
     <h2 class="oe_slogan">Open source &amp; supported</h2>
     <p class="oe_mt16" style="max-width:720px;margin:0 auto;">

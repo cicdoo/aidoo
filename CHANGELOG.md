@@ -7,6 +7,9 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Remote MCP server** — `POST /aidoo/mcp` (Streamable HTTP, JSON-only) lets external MCP clients (Claude Desktop, Cursor, Claude Code `--transport http`) use the assistant's tools. Off by default (Settings → Aidoo → Remote MCP Server, `aidoo.mcp_enabled`). Authenticates with a user's own API key of scope `aidoo_mcp`; calls run through the shared `aidoo.tool.exec` pipeline (per-user tool grant, model denylist, non-superuser, `aidoo.tool_log` audit with empty session). Tool definitions are shared in `models/mcp_tools.py`; the stdio bridge is unchanged.
+
 ### Changed
 - **Codex is now a native in-process provider** — like the native Gemini and
   Z.AI adapters, `aidoo.provider.codex` no longer drives a CLI subprocess: it

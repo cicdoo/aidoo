@@ -9,6 +9,10 @@ NO database credentials and never imports Odoo: every tool call is forwarded ove
 loopback HTTP to the Odoo `ai_bridge` endpoints, authenticated with the short-lived
 per-session bearer token passed in the environment.
 
+For external MCP clients (Claude Desktop, Cursor, ...) Odoo also hosts a remote
+Streamable HTTP endpoint at ``/aidoo/mcp`` (see controllers/mcp.py); this stdio
+bridge is only used by the CLI providers.
+
 Protocol: MCP over stdio = newline-delimited JSON-RPC 2.0.
 """
 import json
