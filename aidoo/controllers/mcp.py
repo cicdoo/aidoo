@@ -8,7 +8,7 @@ External MCP clients authenticate with a user's own Odoo API key of scope
 ``aidoo_mcp`` (Odoo's built-in ``bearer`` auth). Every ``tools/call`` goes through
 the shared ``aidoo.tool.exec`` executor, so the per-user tool grant, model
 denylist, non-superuser execution and the ``aidoo.tool_log`` audit are identical
-to the in-chat path. Disabled unless ``aidoo.mcp_enabled`` is set.
+to the in-chat path. Enabled by default; ``aidoo.mcp_enabled`` = False disables it.
 """
 import json
 import logging
@@ -36,6 +36,11 @@ def _err(req_id, code, message):
             "error": {"code": code, "message": message}}
 
 
+def _enabled(icp):
+    """An unset ``aidoo.mcp_enabled`` parameter means enabled."""
+    return str2bool(icp.get_str("aidoo.mcp_enabled", "True"), True)
+
+
 class AidooMcp(http.Controller):
 
     @http.route("/aidoo/mcp", type="http", auth="bearer",
@@ -44,8 +49,10 @@ class AidooMcp(http.Controller):
     def mcp(self, **kw):
         env = request.env
         icp = env["ir.config_parameter"].sudo()
-        if not str2bool(icp.get_str("aidoo.mcp_enabled", ""), False):
-            return request.not_found()
+        if not _enabled(icp):
+            return request.make_json_response(
+                {"error": "MCP server disabled",
+                 "hint": "Enable it in Settings → Aidoo"}, status=403)
         if env.su:
             return request.make_json_response({"error": "forbidden"}, status=403)
         user = env.user
@@ -58,6 +65,12 @@ class AidooMcp(http.Controller):
 
         httpreq = request.httprequest
         if httpreq.method != "POST":
+            if httpreq.method == "GET":
+                return request.make_json_response({
+                    "name": "aidoo", "transport": "streamable-http",
+                    "endpoint": "/aidoo/mcp",
+                    "auth": "Authorization: Bearer <API key, scope aidoo_mcp>",
+                }, status=405, headers=[("Allow", "POST")])
             return request.make_response(
                 "", status=405, headers=[("Allow", "POST")])
         if (httpreq.content_length or 0) > MAX_BODY:

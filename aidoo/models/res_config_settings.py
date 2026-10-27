@@ -171,8 +171,8 @@ class ResConfigSettings(models.TransientModel):
         help="Host URL the MCP bridge connects back to (loopback by default).")
     aidoo_mcp_enabled = fields.Boolean(
         string="Enable Remote MCP Server",
-        config_parameter="aidoo.mcp_enabled", default=False,
-        help="Expose POST /aidoo/mcp so external MCP clients can use the "
+        config_parameter="aidoo.mcp_enabled", default=True,
+        help="Enabled by default. Exposes POST /aidoo/mcp so external MCP clients can use the "
              "assistant's tools with a user API key of scope 'aidoo_mcp'.")
     aidoo_mcp_url = fields.Char(
         string="MCP Endpoint URL", compute="_compute_aidoo_mcp_url")

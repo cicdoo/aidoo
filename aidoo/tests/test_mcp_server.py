@@ -47,9 +47,24 @@ class TestAidooMcp(HttpCase):
         return self._rpc("tools/call", {"name": name, "arguments": arguments},
                          **kw).json()["result"]
 
-    def test_disabled_returns_404(self):
-        self.env["ir.config_parameter"].sudo().set_str("aidoo.mcp_enabled", "0")
-        self.assertEqual(self._rpc("ping").status_code, 404)
+    def test_unset_parameter_means_enabled(self):
+        self.env["ir.config_parameter"].sudo().search(
+            [("key", "=", "aidoo.mcp_enabled")]).unlink()
+        self.assertEqual(self._rpc("initialize").status_code, 200)
+
+    def test_disabled_returns_403_with_hint(self):
+        self.env["ir.config_parameter"].sudo().set_str(
+            "aidoo.mcp_enabled", "False")
+        res = self._rpc("ping")
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("Settings", res.json()["hint"])
+
+    def test_get_describes_endpoint(self):
+        res = self.url_open("/aidoo/mcp",
+                            headers={"Authorization": "Bearer %s" % self.key})
+        self.assertEqual(res.status_code, 405)
+        self.assertEqual(res.headers.get("Allow"), "POST")
+        self.assertEqual(res.json()["endpoint"], "/aidoo/mcp")
 
     def test_auth(self):
         self.assertEqual(self._rpc("ping", key=False).status_code, 401)

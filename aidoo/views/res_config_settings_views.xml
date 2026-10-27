@@ -47,7 +47,7 @@
 
                     <block title="Remote MCP Server" name="aidoo_mcp">
                         <setting string="Enable Remote MCP Server"
-                                 help="Lets external MCP clients (Claude Desktop, Cursor, ...) call the assistant's tools over HTTP. Disabled by default.">
+                                 help="Lets external MCP clients (Claude Desktop, Cursor, ...) call the assistant's tools over HTTP. Enabled by default; untick to disable.">
                             <field name="aidoo_mcp_enabled"/>
                             <div class="text-muted" invisible="not aidoo_mcp_enabled">
                                 Endpoint: <field name="aidoo_mcp_url" class="oe_inline" readonly="1"/>
