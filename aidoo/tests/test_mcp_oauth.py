@@ -286,7 +286,8 @@ class TestAidooMcpOauth(HttpCase):
         client = self._client()
         page = self._consent_page(client)
         self.assertNotIn("oe_login_form", page.text)
-        forms = re.findall(r"<form\b.*?</form>", page.text, re.S)
+        forms = [f for f in re.findall(r"<form\b.*?</form>", page.text, re.S)
+                 if 'action="/aidoo/oauth/authorize"' in f]
         self.assertEqual(len(forms), 2)
         decisions = []
         for form in forms:
@@ -316,3 +317,16 @@ class TestAidooMcpOauth(HttpCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("No decision was received", res.text)
         self.assertFalse(self.env["aidoo.oauth.grant"].sudo().search([]))
+
+    def test_authorize_route_is_website_compatible(self):
+        from odoo.addons.aidoo.controllers.oauth import AidooOauth
+        routing = AidooOauth.authorize.original_routing
+        self.assertTrue(routing.get("website"))
+
+    def test_oauth_error_page_renders(self):
+        self.authenticate(self.user.login, self.password)
+        res = self.opener.get(
+            self.base_url() + "/aidoo/oauth/authorize?client_id=nope",
+            allow_redirects=False)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Cannot authorize", res.text)

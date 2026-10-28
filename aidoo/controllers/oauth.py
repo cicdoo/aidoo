@@ -189,7 +189,8 @@ class AidooOauth(http.Controller):
         return None
 
     @http.route("/aidoo/oauth/authorize", type="http", auth="public",
-                methods=["GET", "POST"], readonly=False)
+                methods=["GET", "POST"], readonly=False, website=True,
+                sitemap=False)
     def authorize(self, **kw):
         if (off := _disabled()):
             return off
