@@ -223,8 +223,15 @@ class AidooToolExec(models.AbstractModel):
         if self.env.su:
             raise AccessError("Tool execution running as superuser — aborting.")
 
+    def _effective_tools(self, session):
+        """Tools the caller may use: the session's user, or (remote MCP calls,
+        which have no ``aidoo.session``) the authenticated request user."""
+        if session:
+            return session._effective_tools()
+        return self.env.user.sudo()._ai_effective_tools()
+
     def _check_tool(self, session, tool):
-        if tool not in session._effective_tools():
+        if tool not in self._effective_tools(session):
             raise AccessError("Tool '%s' is not enabled for you." % tool)
 
     def _check_model(self, model):
@@ -478,7 +485,7 @@ class AidooToolExec(models.AbstractModel):
             "selection", "help"])
         access = {op: Model.has_access(op)
                   for op in ("read", "write", "create", "unlink")}
-        eff = session._effective_tools()
+        eff = self._effective_tools(session)
         tool_for = {"read": "orm_read", "write": "orm_write",
                     "create": "orm_create", "unlink": "orm_unlink"}
         effective_access = {op: bool(access[op] and tool_for[op] in eff)

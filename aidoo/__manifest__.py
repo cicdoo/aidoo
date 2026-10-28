@@ -35,7 +35,7 @@ directly from Python, no binary needed.
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '18.0.1.7.1',
+    'version': '18.0.1.8.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},
@@ -51,6 +51,7 @@ directly from Python, no binary needed.
         'views/aidoo_scheduled_views.xml',
         'views/aidoo_skill_views.xml',
         'views/aidoo_persona_views.xml',
+        'views/oauth_templates.xml',
     ],
     'post_init_hook': 'post_init_hook',
     'assets': {

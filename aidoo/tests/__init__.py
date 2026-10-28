@@ -17,3 +17,5 @@ from . import test_runner_stream
 from . import test_features
 from . import test_artifacts
 from . import test_tool_result_size
+from . import test_mcp_server
+from . import test_mcp_oauth

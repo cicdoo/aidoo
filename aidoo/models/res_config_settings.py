@@ -2,7 +2,7 @@
 # Copyright 2026 CICDoo (https://cicdoo.com)
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-from odoo import fields, models
+from odoo import api, fields, models
 
 from .aidoo_session import PROVIDERS
 
@@ -171,6 +171,16 @@ class ResConfigSettings(models.TransientModel):
         string="Odoo Host URL", config_parameter="aidoo.base_url",
         default="http://127.0.0.1:8069",
         help="Host URL the MCP bridge connects back to (loopback by default).")
+    aidoo_mcp_enabled = fields.Boolean(
+        string="Enable Remote MCP Server",
+        config_parameter="aidoo.mcp_enabled", default=True,
+        help="Enabled by default. Exposes POST /aidoo/mcp (with OAuth sign-in for ChatGPT/Claude "
+             "connectors) so external MCP clients can use the assistant's tools, or a user API "
+             "key of scope 'aidoo_mcp'.")
+    aidoo_mcp_url = fields.Char(
+        string="MCP Endpoint URL", compute="_compute_aidoo_mcp_url")
+    aidoo_oauth_metadata_url = fields.Char(
+        string="OAuth Metadata URL", compute="_compute_aidoo_mcp_url")
     aidoo_db_name = fields.Char(
         string="Odoo Database", config_parameter="aidoo.db_name",
         help="Database the assistant connects to. Empty = current database.")
@@ -233,3 +243,12 @@ class ResConfigSettings(models.TransientModel):
         if cron:
             cron.sudo().write({
                 "interval_number": minutes, "interval_type": "minutes"})
+
+    @api.depends("aidoo_mcp_enabled")
+    def _compute_aidoo_mcp_url(self):
+        base = (self.env["ir.config_parameter"].sudo()
+                .get_param("web.base.url", "") or "").rstrip("/")
+        for rec in self:
+            rec.aidoo_mcp_url = base + "/aidoo/mcp"
+            rec.aidoo_oauth_metadata_url = (
+                base + "/.well-known/oauth-authorization-server")
