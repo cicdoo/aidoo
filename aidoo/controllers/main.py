@@ -237,7 +237,69 @@ class AiAssistantChat(http.Controller):
             "context_label": session._context_label(),
             "messages": page["messages"],
             "has_more": page["has_more"],
+            "groups": session.group_ids._to_frontend(),
         }
+
+    # ------------------------------------------------------------------
+    # Message groups (collapsible buckets; moving never touches create_date)
+    # ------------------------------------------------------------------
+    def _group(self, group_id):
+        """Fetch a message group of a conversation the caller owns."""
+        try:
+            group = request.env["aidoo.message.group"].browse(int(group_id))
+        except (TypeError, ValueError):
+            raise UserError("Group not found.")
+        if not group.exists() or group.session_id.user_id != request.env.user:
+            raise UserError("Group not found.")
+        return group
+
+    @http.route("/aidoo/group/create", type="json", auth="user")
+    def group_create(self, session_id=None, name=None):
+        session = self._session(session_id)
+        last = session.group_ids[-1:].sequence if session.group_ids else 0
+        group = request.env["aidoo.message.group"].create({
+            "session_id": session.id,
+            "name": (name or "").strip()[:200] or "New group",
+            "sequence": last + 10,
+        })
+        return group._to_frontend()[0]
+
+    @http.route("/aidoo/group/update", type="json", auth="user")
+    def group_update(self, group_id=None, name=None, collapsed=None):
+        group = self._group(group_id)
+        vals = {}
+        if name is not None:
+            name = str(name).strip()[:200]
+            if name:
+                vals["name"] = name
+        if collapsed is not None:
+            vals["collapsed"] = bool(collapsed)
+        if vals:
+            group.write(vals)
+        return group._to_frontend()[0]
+
+    @http.route("/aidoo/group/delete", type="json", auth="user")
+    def group_delete(self, group_id=None):
+        """Remove the group only; its messages fall back to the turn groups."""
+        self._group(group_id).unlink()
+        return {"deleted": True}
+
+    @http.route("/aidoo/message/move", type="json", auth="user")
+    def message_move(self, message_id=None, group_id=None):
+        """Assign a message to a group (or ungroup it with a falsy group_id)."""
+        try:
+            msg = request.env["aidoo.message"].browse(int(message_id))
+        except (TypeError, ValueError):
+            raise UserError("Message not found.")
+        if not msg.exists() or msg.session_id.user_id != request.env.user:
+            raise UserError("Message not found.")
+        group = request.env["aidoo.message.group"]
+        if group_id:
+            group = self._group(group_id)
+            if group.session_id != msg.session_id:
+                raise UserError("Group not found.")
+        msg.group_id = group.id or False
+        return {"message_id": msg.id, "group_id": group.id or False}
 
     @http.route("/aidoo/upload", type="http", auth="user", methods=["POST"])
     def upload(self, session_id=None, ufile=None, **kw):

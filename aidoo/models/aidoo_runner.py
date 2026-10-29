@@ -27,10 +27,16 @@ try:
 except ImportError:  # non-Unix (dev only; production is Linux)
     resource = None
 
-from odoo import api, models
+from odoo import _, api, models
 from odoo.modules.registry import Registry
 
+from .aidoo_session import TITLE_CLOSE, TITLE_OPEN
+
 _logger = logging.getLogger(__name__)
+
+# A reply that opens a title tag but never closes it within this many
+# characters is not a title: the held text is released unchanged.
+_TITLE_MAX_CHARS = 300
 
 # Max delay before streamed text deltas are written/emitted to the chat.
 _STREAM_FLUSH_S = 0.15
@@ -197,6 +203,7 @@ class AiAssistantRunner(models.AbstractModel):
         # Streamed text deltas are coalesced so we don't commit + bus-send per
         # token: pending holds consecutive appends for one CLI message id.
         pending = {"msg_id": None, "text": "", "since": 0.0}
+        tstate = self._title_state(ctx)
 
         def _flush_pending():
             if not pending["text"]:
@@ -269,16 +276,21 @@ class AiAssistantRunner(models.AbstractModel):
                                   line)
                     continue
                 dirty = False
-                for op in adapter._normalize_event(evt, state):
-                    if self._feed_text_op(op, pending):
-                        continue
-                    _flush_pending()
-                    self._apply_op(env, session, op, msg_map, produced_text)
-                    dirty = True
+                for raw_op in adapter._normalize_event(evt, state):
+                    for op in self._title_filter(session, tstate, raw_op):
+                        if self._feed_text_op(op, pending):
+                            continue
+                        _flush_pending()
+                        self._apply_op(env, session, op, msg_map, produced_text)
+                        dirty = True
                 if pending["text"] and time.time() - pending["since"] >= _STREAM_FLUSH_S:
                     dirty = _flush_pending() or dirty
                 if dirty:
                     env.cr.commit()
+            for op in self._title_release(tstate, done=True):
+                if not self._feed_text_op(op, pending):
+                    _flush_pending()
+                    self._apply_op(env, session, op, msg_map, produced_text)
             if _flush_pending():
                 env.cr.commit()
             try:
@@ -308,7 +320,8 @@ class AiAssistantRunner(models.AbstractModel):
         # Fallback: some CLIs don't stream a final assistant message; recover it.
         fallback_rec = env["aidoo.message"]
         if not produced_text["any"] and session.state == "running":
-            fallback = adapter._post_run(ctx, rc, stderr)
+            fallback = self._title_strip(
+                session, tstate, adapter._post_run(ctx, rc, stderr))
             if fallback:
                 fallback_rec = env["aidoo.message"].create({
                     "session_id": session.id, "role": "assistant", "body": fallback})
@@ -365,6 +378,7 @@ class AiAssistantRunner(models.AbstractModel):
         # Same text coalescing as the CLI path: one write/commit/bus message per
         # _STREAM_FLUSH_S batch instead of per token.
         pending = {"msg_id": None, "text": "", "since": 0.0}
+        tstate = self._title_state(ctx)
 
         def _flush_pending():
             if not pending["text"]:
@@ -384,7 +398,7 @@ class AiAssistantRunner(models.AbstractModel):
                         session._discuss_set_typing(True)
                         next_typing = time.time() + 40
                         dirty = True
-                    if op:
+                    for op in (self._title_filter(session, tstate, op) if op else ()):
                         if self._feed_text_op(op, pending):
                             if time.time() - pending["since"] >= _STREAM_FLUSH_S:
                                 _flush_pending()
@@ -397,6 +411,10 @@ class AiAssistantRunner(models.AbstractModel):
                         env.cr.commit()
             finally:
                 # Also on error/timeout, so partial output is not lost.
+                for op in self._title_release(tstate, done=True):
+                    if not self._feed_text_op(op, pending):
+                        _flush_pending()
+                        self._apply_op(env, session, op, msg_map, produced_text)
                 if _flush_pending():
                     env.cr.commit()
         finally:
@@ -420,6 +438,91 @@ class AiAssistantRunner(models.AbstractModel):
             session._deliver_result(not errored)
         except Exception:  # noqa: BLE001
             _logger.exception("AI assistant: result delivery failed")
+
+    # ------------------------------------------------------------------
+    # Model-written conversation title (first turn only)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _title_state(ctx):
+        first = bool(ctx.get("is_first"))
+        # ``active``: strip a title tag from complete text; ``hold``: still
+        # inspecting the start of the stream.
+        return {"active": first, "hold": first, "buf": "", "msg_id": None}
+
+    def _title_set(self, session, title):
+        """Rename the session from the model's title while it still carries the
+        default name, and tell the open chat."""
+        title = " ".join((title or "").split())[:80]
+        if not title or session.name not in (_("New conversation"), False):
+            return
+        session.name = title
+        self._emit(session, {"kind": "title", "name": title})
+
+    def _title_strip(self, session, tstate, text):
+        """Remove a leading title tag from complete (non-streamed) text."""
+        if not tstate["active"] or not text:
+            return text
+        stripped = text.lstrip()
+        if not stripped.startswith(TITLE_OPEN) or TITLE_CLOSE not in stripped:
+            return text
+        head, rest = stripped[len(TITLE_OPEN):].split(TITLE_CLOSE, 1)
+        self._title_set(session, head)
+        return rest.lstrip()
+
+    def _title_filter(self, session, tstate, op):
+        """Yield the ops to apply for ``op``, with the title tag consumed.
+
+        Streamed text is held back only while it could still turn out to be the
+        title tag (blank, a prefix of the opening tag, or an unclosed tag shorter
+        than ``_TITLE_MAX_CHARS``); everything else passes through untouched, so
+        the stored body and the streamed deltas never contain the tag."""
+        if not tstate["active"]:
+            yield op
+            return
+        kind = op.get("op")
+        if kind != "text":
+            yield from self._title_release(tstate)
+            if kind == "done" and op.get("text"):
+                op = dict(op, text=self._title_strip(session, tstate, op["text"]))
+            yield op
+            return
+        if op.get("replace"):
+            tstate["buf"] = ""
+            yield dict(op, text=self._title_strip(session, tstate, op.get("text") or ""))
+            return
+        if not tstate["hold"] or not op.get("text"):
+            yield op
+            return
+        if tstate["buf"] and tstate["msg_id"] != op.get("msg_id"):
+            yield from self._title_release(tstate)
+        tstate["msg_id"] = op.get("msg_id")
+        tstate["buf"] += op["text"]
+        stripped = tstate["buf"].lstrip()
+        if not stripped or (len(stripped) < len(TITLE_OPEN)
+                            and TITLE_OPEN.startswith(stripped)):
+            return  # could still become the tag
+        if stripped.startswith(TITLE_OPEN):
+            if TITLE_CLOSE in stripped:
+                head, rest = stripped[len(TITLE_OPEN):].split(TITLE_CLOSE, 1)
+                self._title_set(session, head)
+                tstate["buf"] = ""
+                tstate["hold"] = False
+                rest = rest.lstrip()
+                if rest:
+                    yield {"op": "text", "msg_id": op.get("msg_id"), "text": rest}
+                return
+            if len(stripped) <= _TITLE_MAX_CHARS:
+                return  # tag still open
+        yield from self._title_release(tstate, done=True)
+
+    @staticmethod
+    def _title_release(tstate, done=False):
+        """Flush held text unchanged (a held prefix was not a title after all)."""
+        if tstate["buf"]:
+            yield {"op": "text", "msg_id": tstate["msg_id"], "text": tstate["buf"]}
+            tstate["buf"] = ""
+        if done:
+            tstate["hold"] = False
 
     # ------------------------------------------------------------------
     # Apply one normalized op to the DB + bus
