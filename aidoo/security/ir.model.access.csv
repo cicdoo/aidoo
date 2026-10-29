@@ -5,6 +5,8 @@ access_ai_toollog_manager,ai.toollog.manager,model_aidoo_tool_log,group_ai_manag
 access_ai_session_manager,ai.session.manager,model_aidoo_session,group_ai_manager,1,1,1,1
 access_ai_message_group_user,ai.message.group.user,model_aidoo_message_group,group_ai_user,1,1,1,1
 access_ai_message_group_manager,ai.message.group.manager,model_aidoo_message_group,group_ai_manager,1,1,1,1
+access_ai_session_folder_user,ai.session.folder.user,model_aidoo_session_folder,group_ai_user,1,1,1,1
+access_ai_session_folder_manager,ai.session.folder.manager,model_aidoo_session_folder,group_ai_manager,1,1,1,1
 access_ai_message_manager,ai.message.manager,model_aidoo_message,group_ai_manager,1,1,1,1
 access_ai_tool_user,ai.tool.user,model_aidoo_tool,group_ai_user,1,0,0,0
 access_ai_tool_manager,ai.tool.manager,model_aidoo_tool,group_ai_manager,1,1,1,1

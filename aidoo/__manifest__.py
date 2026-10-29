@@ -35,7 +35,7 @@ directly from Python, no binary needed.
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '18.0.1.9.0',
+    'version': '18.0.1.10.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},

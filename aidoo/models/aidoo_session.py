@@ -340,6 +340,10 @@ class AiAssistantSession(models.Model):
         "aidoo.persona", string="Persona", ondelete="set null",
         copy=False, index=True)
 
+    folder_id = fields.Many2one(
+        "aidoo.session.folder", string="Folder", ondelete="set null",
+        copy=False, index=True)
+
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
     group_ids = fields.One2many(

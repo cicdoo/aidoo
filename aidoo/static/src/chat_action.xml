@@ -31,6 +31,10 @@
                     <button class="btn btn-primary w-100" t-on-click="_newSession">
                         <i class="fa fa-plus me-1"/> New chat
                     </button>
+                    <button class="btn btn-outline-secondary btn-sm w-100 mt-1 o_ai_new_folder"
+                            t-on-click="createFolder">
+                        <i class="fa fa-folder-o me-1"/> New folder
+                    </button>
                     <div class="o_ai_search input-group input-group-sm mt-2">
                         <span class="input-group-text"><i class="fa fa-search"/></span>
                         <input type="text" class="form-control"
@@ -44,24 +48,48 @@
                     </div>
                 </div>
                 <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="filteredSessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }}"
-                             t-on-click="() => this._openSession(s.id)">
-                            <img t-if="this._provider(s.provider).icon"
-                                 t-att-src="this._provider(s.provider).icon"
-                                 t-att-alt="this._provider(s.provider).label"
-                                 t-att-title="this._provider(s.provider).label"
-                                 class="o_ai_session_icon me-2"/>
-                            <i t-else="" class="fa fa-comment-o me-2 text-muted"
-                               t-att-title="this._provider(s.provider).label"/>
-                            <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
-                            <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
-                               title="Favorite"
-                               t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
-                            <i class="fa fa-trash-o o_ai_session_del ms-1"
-                               title="Delete conversation"
-                               t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
+                    <t t-foreach="sidebarSections" t-as="sec" t-key="sec.key">
+                        <div t-attf-class="o_ai_sidebar_section_header d-flex align-items-center px-2 py-1 {{ state.dragOver === sec.key ? 'o_ai_drop_target' : '' }}"
+                             t-on-click="() => this.toggleSection(sec)"
+                             t-on-dragover="(ev) => this.onSectionDragOver(ev, sec)"
+                             t-on-dragleave="() => state.dragOver = null"
+                             t-on-drop="(ev) => this.onSectionDrop(ev, sec)">
+                            <i t-attf-class="fa fa-caret-down o_ai_section_caret me-1 {{ sec.collapsed ? 'o_ai_section_caret--collapsed' : '' }}"/>
+                            <i t-if="sec.folder" class="fa fa-folder-o me-1"/>
+                            <span class="o_ai_section_label text-truncate" t-esc="sec.label"
+                                  t-on-dblclick.stop="() => sec.folder and this.renameFolder(sec.folder)"/>
+                            <span class="o_ai_section_count text-muted ms-1" t-esc="sec.sessions.length"/>
+                            <t t-if="sec.folder">
+                                <i class="fa fa-pencil ms-auto o_ai_folder_action" title="Rename folder"
+                                   t-on-click.stop="() => this.renameFolder(sec.folder)"/>
+                                <i class="fa fa-trash-o ms-1 o_ai_folder_action" title="Delete folder"
+                                   t-on-click.stop="() => this.deleteFolder(sec.folder)"/>
+                            </t>
                         </div>
+                        <t t-if="!sec.collapsed">
+                            <t t-foreach="sec.sessions" t-as="s" t-key="s.id">
+                            <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === state.currentId ? 'active' : '' }} {{ s.id === state.draggingId ? 'o_ai_dragging' : '' }}"
+                                 draggable="true"
+                                 t-on-dragstart="(ev) => this.onSessionDragStart(ev, s)"
+                                 t-on-dragend="onSessionDragEnd"
+                                 t-on-click="() => this._openSession(s.id)">
+                                <img t-if="this._provider(s.provider).icon"
+                                     t-att-src="this._provider(s.provider).icon"
+                                     t-att-alt="this._provider(s.provider).label"
+                                     t-att-title="this._provider(s.provider).label"
+                                     class="o_ai_session_icon me-2"/>
+                                <i t-else="" class="fa fa-comment-o me-2 text-muted"
+                                   t-att-title="this._provider(s.provider).label"/>
+                                <span class="o_ai_session_name text-truncate" t-esc="s.name"/>
+                                <i t-attf-class="fa o_ai_session_star ms-auto {{ s.is_favorite ? 'fa-star' : 'fa-star-o' }}"
+                                   title="Favorite"
+                                   t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
+                                <i class="fa fa-trash-o o_ai_session_del ms-1"
+                                   title="Delete conversation"
+                                   t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
+                            </div>
+                            </t>
+                        </t>
                     </t>
                 </div>
             </div>
