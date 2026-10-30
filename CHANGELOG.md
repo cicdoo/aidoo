@@ -7,6 +7,9 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Removed
+- **Chat message grouping** — the "New group" button, collapsible turn/group headers, drag-to-group, rename and delete are gone from the chat transcript, together with the `aidoo.message.group` model, its `/aidoo/group/*` and `/aidoo/message/move` routes and `aidoo.message.group_id`. The transcript is now a flat chronological list. Sidebar folders and date sections are unchanged. On existing databases the orphaned `aidoo_message_group` table and `aidoo_message.group_id` column are left in place.
+
 ### Fixed
 - **OAuth authorize pages work with the `website` module** — `/aidoo/oauth/authorize` is now a `website=True` route (not in the sitemap) so the consent and error pages render inside the website layout.
 - **MCP OAuth consent `access_denied` fix** — the consent page no longer uses the login form class (whose script could drop the clicked button's value) and posts an explicit hidden `decision`; a missing decision re-renders the page instead of returning `access_denied`, and consent decisions are logged.

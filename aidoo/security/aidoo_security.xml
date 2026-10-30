@@ -50,21 +50,6 @@
         <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
     </record>
 
-    <!-- Message groups follow their conversation's owner. -->
-    <record id="rule_message_group_own" model="ir.rule">
-        <field name="name">AI message groups: own only</field>
-        <field name="model_id" ref="model_aidoo_message_group"/>
-        <field name="domain_force">[('session_id.user_id', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_user'))]"/>
-    </record>
-
-    <record id="rule_message_group_manager" model="ir.rule">
-        <field name="name">AI message groups: manager all</field>
-        <field name="model_id" ref="model_aidoo_message_group"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_ai_manager'))]"/>
-    </record>
-
     <!-- Sidebar folders belong to one user. -->
     <record id="rule_session_folder_own" model="ir.rule">
         <field name="name">AI conversation folders: own only</field>
