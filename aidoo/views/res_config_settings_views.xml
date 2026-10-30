@@ -166,6 +166,11 @@
                             <field name="aidoo_action_method_patterns"
                                    placeholder="action_*,button_*"/>
                         </setting>
+                        <setting string="AI Denied Action Methods"
+                                 help="Patterns orm_action/run_wizard may never call, even when allowlisted. A change request can still propose them for a person to approve.">
+                            <field name="aidoo_action_method_deny_patterns"
+                                   placeholder="action_archive,action_unarchive"/>
+                        </setting>
                         <setting string="AI-Runnable Server Actions"
                                  help="Only these server actions may be run via run_server_action. Empty = none. Code actions run arbitrary Python; allowlist only what you trust.">
                             <field name="aidoo_allowed_server_action_ids" widget="many2many_tags"/>

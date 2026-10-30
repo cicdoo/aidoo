@@ -206,6 +206,13 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="aidoo.action_methods", default="action_*,button_*",
         help="Comma-separated fnmatch patterns for methods orm_action/run_wizard "
              "may call. Private/dunder methods are always blocked.")
+    aidoo_action_method_deny_patterns = fields.Char(
+        string="AI Denied Action Methods",
+        config_parameter="aidoo.action_methods_deny",
+        default="action_archive,action_unarchive",
+        help="Comma-separated fnmatch patterns orm_action/run_wizard may never "
+             "call, even when the allowlist matches. A change request can still "
+             "propose them for a person to approve. Empty = the default.")
     # Non-stored: persisted as CSV in aidoo.excluded_models (see get/set_values).
     aidoo_excluded_model_ids = fields.Many2many(
         "ir.model", string="Models Hidden from AI",

@@ -71,6 +71,10 @@ class TestAidooMcp(HttpCase):
         self.assertEqual(self._rpc("ping", key="bogus").status_code, 401)
         rpc_key = self._key(self.user, "rpc")
         self.assertEqual(self._rpc("ping", key=rpc_key).status_code, 401)
+        # An unscoped key passes Odoo's own check (scope IS NULL) but must not
+        # open the MCP tools.
+        unscoped = self._key(self.user, None)
+        self.assertEqual(self._rpc("ping", key=unscoped).status_code, 401)
 
     def test_user_without_group_forbidden(self):
         other = self.env["res.users"].create({
