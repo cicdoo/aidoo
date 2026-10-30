@@ -103,9 +103,10 @@ class ResConfigSettings(models.TransientModel):
 
     aidoo_grok_cli_path = fields.Char(
         string="Grok CLI Path", config_parameter="aidoo.grok.cli_path",
-        help="Absolute path to the grok binary. Empty = auto-detect (PATH).")
+        help="Legacy CLI adapter only. Absolute path to the grok binary.")
     aidoo_grok_model = fields.Char(
-        string="Grok Model", config_parameter="aidoo.grok.model", default="")
+        string="Grok Model", config_parameter="aidoo.grok.model", default="",
+        help="xAI model id. Empty = grok-4.7.")
     aidoo_grok_auth_mode = fields.Selection(
         [("oauth_import", "Import Grok auth.json"),
          ("api_key", "xAI API key")],
@@ -116,7 +117,8 @@ class ResConfigSettings(models.TransientModel):
     aidoo_grok_output_format = fields.Selection(
         [("streaming-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Grok Output Format",
-        config_parameter="aidoo.grok.output_format", default="streaming-json")
+        config_parameter="aidoo.grok.output_format", default="streaming-json",
+        help="Legacy CLI adapter only.")
 
     aidoo_zai_model = fields.Char(
         string="Z.AI Model", config_parameter="aidoo.zai.model",
@@ -204,6 +206,13 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="aidoo.action_methods", default="action_*,button_*",
         help="Comma-separated fnmatch patterns for methods orm_action/run_wizard "
              "may call. Private/dunder methods are always blocked.")
+    aidoo_action_method_deny_patterns = fields.Char(
+        string="AI Denied Action Methods",
+        config_parameter="aidoo.action_methods_deny",
+        default="action_archive,action_unarchive",
+        help="Comma-separated fnmatch patterns orm_action/run_wizard may never "
+             "call, even when the allowlist matches. A change request can still "
+             "propose them for a person to approve. Empty = the default.")
     # Non-stored: persisted as CSV in aidoo.excluded_models (see get/set_values).
     aidoo_excluded_model_ids = fields.Many2many(
         "ir.model", string="Models Hidden from AI",
@@ -249,4 +258,4 @@ class ResConfigSettings(models.TransientModel):
         for rec in self:
             rec.aidoo_mcp_url = base + "/aidoo/mcp"
             rec.aidoo_oauth_metadata_url = (
-                base + "/.well-known/oauth-authorization-server")
+                base + "/.well-known/oauth-authorization-server/aidoo")

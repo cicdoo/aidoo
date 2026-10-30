@@ -27,10 +27,19 @@ try:
 except ImportError:  # non-Unix (dev only; production is Linux)
     resource = None
 
-from odoo import api, models
+from odoo import _, api, models
 from odoo.modules.registry import Registry
 
+from .aidoo_session import TITLE_CLOSE, TITLE_OPEN
+
 _logger = logging.getLogger(__name__)
+
+# A reply that opens a title tag but never closes it within this many
+# characters is not a title: the held text is released unchanged.
+_TITLE_MAX_CHARS = 300
+
+# Max delay before streamed text deltas are written/emitted to the chat.
+_STREAM_FLUSH_S = 0.15
 
 
 def _lift_rlimit_as():
@@ -191,6 +200,18 @@ class AiAssistantRunner(models.AbstractModel):
         state = {}            # adapter scratchpad for stream parsing
         produced_text = {"any": False}
         line_q = queue.Queue()
+        # Streamed text deltas are coalesced so we don't commit + bus-send per
+        # token: pending holds consecutive appends for one CLI message id.
+        pending = {"msg_id": None, "text": "", "since": 0.0}
+        tstate = self._title_state(ctx)
+
+        def _flush_pending():
+            if not pending["text"]:
+                return False
+            op = {"op": "text", "msg_id": pending["msg_id"], "text": pending["text"]}
+            pending["text"] = ""
+            self._apply_op(env, session, op, msg_map, produced_text)
+            return True
 
         def _pump(pipe, q):
             try:
@@ -232,9 +253,14 @@ class AiAssistantRunner(models.AbstractModel):
                 if remaining <= 0:
                     proc.kill()
                     raise TimeoutError("Run exceeded timeout")
+                wait = min(remaining, 5)
+                if pending["text"]:
+                    wait = min(wait, max(0.0, pending["since"] + _STREAM_FLUSH_S - time.time()))
                 try:
-                    line = line_q.get(timeout=max(0.05, min(remaining, 5)))
+                    line = line_q.get(timeout=max(0.01, wait))
                 except queue.Empty:
+                    if _flush_pending():
+                        env.cr.commit()
                     if proc.poll() is not None:
                         break
                     continue
@@ -249,8 +275,23 @@ class AiAssistantRunner(models.AbstractModel):
                     _logger.debug("AI assistant: dropping non-JSON line: %.200s",
                                   line)
                     continue
-                for op in adapter._normalize_event(evt, state):
+                dirty = False
+                for raw_op in adapter._normalize_event(evt, state):
+                    for op in self._title_filter(session, tstate, raw_op):
+                        if self._feed_text_op(op, pending):
+                            continue
+                        _flush_pending()
+                        self._apply_op(env, session, op, msg_map, produced_text)
+                        dirty = True
+                if pending["text"] and time.time() - pending["since"] >= _STREAM_FLUSH_S:
+                    dirty = _flush_pending() or dirty
+                if dirty:
+                    env.cr.commit()
+            for op in self._title_release(tstate, done=True):
+                if not self._feed_text_op(op, pending):
+                    _flush_pending()
                     self._apply_op(env, session, op, msg_map, produced_text)
+            if _flush_pending():
                 env.cr.commit()
             try:
                 rc = proc.wait(timeout=10)
@@ -279,7 +320,8 @@ class AiAssistantRunner(models.AbstractModel):
         # Fallback: some CLIs don't stream a final assistant message; recover it.
         fallback_rec = env["aidoo.message"]
         if not produced_text["any"] and session.state == "running":
-            fallback = adapter._post_run(ctx, rc, stderr)
+            fallback = self._title_strip(
+                session, tstate, adapter._post_run(ctx, rc, stderr))
             if fallback:
                 fallback_rec = env["aidoo.message"].create({
                     "session_id": session.id, "role": "assistant", "body": fallback})
@@ -333,16 +375,47 @@ class AiAssistantRunner(models.AbstractModel):
         next_typing = time.time() + 40  # refresh the Discuss "typing…" indicator
         msg_map = {}
         produced_text = {"any": False}
+        # Same text coalescing as the CLI path: one write/commit/bus message per
+        # _STREAM_FLUSH_S batch instead of per token.
+        pending = {"msg_id": None, "text": "", "since": 0.0}
+        tstate = self._title_state(ctx)
+
+        def _flush_pending():
+            if not pending["text"]:
+                return False
+            op = {"op": "text", "msg_id": pending["msg_id"], "text": pending["text"]}
+            pending["text"] = ""
+            self._apply_op(env, session, op, msg_map, produced_text)
+            return True
+
         try:
-            for op in adapter._run_stream(env, session, ctx):
-                if time.time() > deadline:
-                    raise TimeoutError("Run exceeded timeout")
-                if session.discuss_channel_id and time.time() > next_typing:
-                    session._discuss_set_typing(True)
-                    next_typing = time.time() + 40
-                    env.cr.commit()
-                if op:
-                    self._apply_op(env, session, op, msg_map, produced_text)
+            try:
+                for op in adapter._run_stream(env, session, ctx):
+                    if time.time() > deadline:
+                        raise TimeoutError("Run exceeded timeout")
+                    dirty = False
+                    if session.discuss_channel_id and time.time() > next_typing:
+                        session._discuss_set_typing(True)
+                        next_typing = time.time() + 40
+                        dirty = True
+                    for op in (self._title_filter(session, tstate, op) if op else ()):
+                        if self._feed_text_op(op, pending):
+                            if time.time() - pending["since"] >= _STREAM_FLUSH_S:
+                                _flush_pending()
+                                dirty = True
+                        else:
+                            _flush_pending()
+                            self._apply_op(env, session, op, msg_map, produced_text)
+                            dirty = True
+                    if dirty:
+                        env.cr.commit()
+            finally:
+                # Also on error/timeout, so partial output is not lost.
+                for op in self._title_release(tstate, done=True):
+                    if not self._feed_text_op(op, pending):
+                        _flush_pending()
+                        self._apply_op(env, session, op, msg_map, produced_text)
+                if _flush_pending():
                     env.cr.commit()
         finally:
             if ctx.get("routing_sid"):
@@ -367,8 +440,105 @@ class AiAssistantRunner(models.AbstractModel):
             _logger.exception("AI assistant: result delivery failed")
 
     # ------------------------------------------------------------------
+    # Model-written conversation title (first turn only)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _title_state(ctx):
+        first = bool(ctx.get("is_first"))
+        # ``active``: strip a title tag from complete text; ``hold``: still
+        # inspecting the start of the stream.
+        return {"active": first, "hold": first, "buf": "", "msg_id": None}
+
+    def _title_set(self, session, title):
+        """Rename the session from the model's title while it still carries the
+        default name, and tell the open chat."""
+        title = " ".join((title or "").split())[:80]
+        if not title or session.name not in (_("New conversation"), False):
+            return
+        session.name = title
+        self._emit(session, {"kind": "title", "name": title})
+
+    def _title_strip(self, session, tstate, text):
+        """Remove a leading title tag from complete (non-streamed) text."""
+        if not tstate["active"] or not text:
+            return text
+        stripped = text.lstrip()
+        if not stripped.startswith(TITLE_OPEN) or TITLE_CLOSE not in stripped:
+            return text
+        head, rest = stripped[len(TITLE_OPEN):].split(TITLE_CLOSE, 1)
+        self._title_set(session, head)
+        return rest.lstrip()
+
+    def _title_filter(self, session, tstate, op):
+        """Yield the ops to apply for ``op``, with the title tag consumed.
+
+        Streamed text is held back only while it could still turn out to be the
+        title tag (blank, a prefix of the opening tag, or an unclosed tag shorter
+        than ``_TITLE_MAX_CHARS``); everything else passes through untouched, so
+        the stored body and the streamed deltas never contain the tag."""
+        if not tstate["active"]:
+            yield op
+            return
+        kind = op.get("op")
+        if kind != "text":
+            yield from self._title_release(tstate)
+            if kind == "done" and op.get("text"):
+                op = dict(op, text=self._title_strip(session, tstate, op["text"]))
+            yield op
+            return
+        if op.get("replace"):
+            tstate["buf"] = ""
+            yield dict(op, text=self._title_strip(session, tstate, op.get("text") or ""))
+            return
+        if not tstate["hold"] or not op.get("text"):
+            yield op
+            return
+        if tstate["buf"] and tstate["msg_id"] != op.get("msg_id"):
+            yield from self._title_release(tstate)
+        tstate["msg_id"] = op.get("msg_id")
+        tstate["buf"] += op["text"]
+        stripped = tstate["buf"].lstrip()
+        if not stripped or (len(stripped) < len(TITLE_OPEN)
+                            and TITLE_OPEN.startswith(stripped)):
+            return  # could still become the tag
+        if stripped.startswith(TITLE_OPEN):
+            if TITLE_CLOSE in stripped:
+                head, rest = stripped[len(TITLE_OPEN):].split(TITLE_CLOSE, 1)
+                self._title_set(session, head)
+                tstate["buf"] = ""
+                tstate["hold"] = False
+                rest = rest.lstrip()
+                if rest:
+                    yield {"op": "text", "msg_id": op.get("msg_id"), "text": rest}
+                return
+            if len(stripped) <= _TITLE_MAX_CHARS:
+                return  # tag still open
+        yield from self._title_release(tstate, done=True)
+
+    @staticmethod
+    def _title_release(tstate, done=False):
+        """Flush held text unchanged (a held prefix was not a title after all)."""
+        if tstate["buf"]:
+            yield {"op": "text", "msg_id": tstate["msg_id"], "text": tstate["buf"]}
+            tstate["buf"] = ""
+        if done:
+            tstate["hold"] = False
+
+    # ------------------------------------------------------------------
     # Apply one normalized op to the DB + bus
     # ------------------------------------------------------------------
+    @staticmethod
+    def _feed_text_op(op, pending):
+        """Absorb a streamed text append into ``pending``; True if absorbed."""
+        if (op.get("op") == "text" and not op.get("replace") and op.get("text")
+                and (not pending["text"] or pending["msg_id"] == op.get("msg_id"))):
+            if not pending["text"]:
+                pending["msg_id"] = op.get("msg_id")
+                pending["since"] = time.time()
+            pending["text"] += op["text"]
+            return True
+        return False
+
     def _apply_op(self, env, session, op, msg_map, produced_text):
         kind = op.get("op")
         if kind == "session_id":
@@ -378,9 +548,14 @@ class AiAssistantRunner(models.AbstractModel):
             rec = self._get_msg(env, session, op.get("msg_id"), msg_map)
             text = op.get("text") or ""
             if text:
+                # UTF-16 units, to match JS string length on the client.
+                len_before = len((rec.body or "").encode("utf-16-le")) // 2
                 rec.body = text if op.get("replace") else (rec.body or "") + text
                 produced_text["any"] = True
-                self._emit_message(session, rec)
+                if op.get("replace"):
+                    self._emit_message(session, rec)
+                else:
+                    self._emit_message(session, rec, delta=text, base_len=len_before)
         elif kind == "tool_use":
             rec = self._get_msg(env, session, op.get("msg_id"), msg_map)
             calls = list(rec.tool_calls or [])
@@ -489,8 +664,15 @@ class AiAssistantRunner(models.AbstractModel):
         payload = dict(payload, session_id=session.id)
         session.user_id.partner_id._bus_send("aidoo", payload)
 
-    def _emit_message(self, session, rec):
-        self._emit(session, {"kind": "message", "message": rec._to_frontend()[0]})
+    def _emit_message(self, session, rec, delta=None, base_len=0):
+        msg = rec._to_frontend()[0]
+        if delta is not None:
+            # Streamed append: ship only the new text; the client checks
+            # base_len against its copy and the `done` reload restores the rest.
+            msg = {k: v for k, v in msg.items() if k != "body"}
+            msg["delta"] = delta
+            msg["base_len"] = base_len
+        self._emit(session, {"kind": "message", "message": msg})
 
     def _emit_notice(self, ctx, text):
         """Emit a transient ``notice`` bus event on its OWN committed cursor.

@@ -20,8 +20,65 @@
                     <div>Ask me to query data or build a report.</div>
                 </div>
             </t>
-            <t t-foreach="this.displayMessages" t-as="msg" t-key="msg.id">
-                <AiMessage message="msg" onOpenArtifact="this.props.onOpenArtifact"/>
+            <div t-if="this.groupsEnabled and this.props.messages.length"
+                 class="o_ai_group_toolbar d-flex align-items-center gap-2 mb-2">
+                <button class="btn btn-sm btn-link text-decoration-none p-0"
+                        t-on-click="this.addGroup">
+                    <i class="oi me-1" data-icon="add"/> New group
+                </button>
+                <div t-if="this.ui.dragging"
+                     t-attf-class="o_ai_ungroup_zone small text-muted {{ this.ui.dragOver === 'ungroup' ? 'o_ai_drop_over' : '' }}"
+                     t-on-dragover="(ev) => this.onDragOver(ev, 'ungroup')"
+                     t-on-dragleave="(ev) => this.onDragLeave(ev, 'ungroup')"
+                     t-on-drop="(ev) => this.onDrop(ev, null)">
+                    <i class="oi me-1" data-icon="arrow_upward"/> Drop here to ungroup
+                </div>
+            </div>
+            <t t-foreach="this.groupedMessages" t-as="bucket" t-key="bucket.key">
+                <div t-attf-class="o_ai_group {{ bucket.header ? 'o_ai_group_boxed' : '' }} {{ this.ui.dragOver === bucket.key ? 'o_ai_drop_over' : '' }}"
+                     t-on-dragover="(ev) => bucket.header and this.onDragOver(ev, bucket.key)"
+                     t-on-dragleave="(ev) => this.onDragLeave(ev, bucket.key)"
+                     t-on-drop="(ev) => bucket.header and this.onDrop(ev, bucket)">
+                    <div t-if="bucket.header"
+                         class="o_ai_group_header d-flex align-items-center small">
+                        <button type="button"
+                                class="btn btn-sm btn-link p-0 me-1 text-muted"
+                                t-on-click="() => this.toggleBucket(bucket)">
+                            <i class="oi" t-att-data-icon="bucket.open ? 'arrow_drop_down' : 'arrow_right'"/>
+                        </button>
+                        <input t-if="this.ui.editing === bucket.key" t-ref="this.renameRef"
+                               class="o_ai_group_name_input form-control form-control-sm"
+                               t-att-value="bucket.name"
+                               t-on-blur="(ev) => this.finishRename(bucket, ev)"
+                               t-on-keydown="(ev) => this.onRenameKey(bucket, ev)"/>
+                        <span t-else="" class="o_ai_group_name fw-bold text-truncate"
+                              t-att-title="bucket.id ? 'Double-click to rename' : ''"
+                              t-on-click="() => this.toggleBucket(bucket)"
+                              t-on-dblclick="() => this.startRename(bucket)"
+                              t-out="bucket.name"/>
+                        <span class="o_ai_group_count text-muted ms-2"
+                              t-out="'(' + bucket.messages.length + ')'"/>
+                        <button t-if="bucket.id" type="button"
+                                class="btn btn-sm btn-link p-0 ms-auto text-muted"
+                                title="Delete group (keeps the messages)"
+                                t-on-click="() => this.props.onDeleteGroup?.(bucket.id)">
+                            <i class="oi" data-icon="close"/>
+                        </button>
+                    </div>
+                    <div t-if="bucket.open" class="o_ai_group_body">
+                        <t t-foreach="bucket.messages" t-as="msg" t-key="msg.id">
+                            <div t-att-draggable="this.isDraggable(msg) ? 'true' : 'false'"
+                                 t-on-dragstart="(ev) => this.onDragStart(ev, msg)"
+                                 t-on-dragend="this.onDragEnd">
+                                <AiMessage message="msg" onOpenArtifact="this.props.onOpenArtifact"/>
+                            </div>
+                        </t>
+                        <div t-if="bucket.header and !bucket.messages.length"
+                             class="o_ai_group_empty small text-muted">
+                            Drag messages here
+                        </div>
+                    </div>
+                </div>
             </t>
             <div t-if="this.props.running" class="o_ai_typing small text-muted">
                 <i class="oi oi-spin me-1" data-icon="autorenew"/> Assistant is working…

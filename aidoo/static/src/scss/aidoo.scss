@@ -37,6 +37,45 @@
             border-color: #f5b301;
         }
 
+        .o_ai_sidebar_section_header {
+            cursor: pointer;
+            user-select: none;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: $o-gray-600;
+            border-radius: 4px;
+            margin: 2px 6px;
+
+            &:hover {
+                background-color: $o-gray-200;
+            }
+
+            .o_ai_section_caret {
+                transition: transform 0.15s;
+
+                &.o_ai_section_caret--collapsed {
+                    transform: rotate(-90deg);
+                }
+            }
+
+            .o_ai_folder_action {
+                opacity: 0;
+            }
+
+            &:hover .o_ai_folder_action {
+                opacity: 1;
+            }
+
+            &.o_ai_drop_target {
+                background-color: rgba($o-brand-primary, 0.15);
+                outline: 1px dashed $o-brand-primary;
+            }
+        }
+
+        .o_ai_session_item.o_ai_dragging {
+            opacity: 0.4;
+        }
+
         .o_ai_session_item {
             cursor: pointer;
             border-radius: 4px;
@@ -110,6 +149,41 @@
     .o_ai_msg_divider {
         max-width: 820px;
         letter-spacing: 0.03em;
+    }
+
+    .o_ai_msg_time {
+        font-size: .75em;
+        opacity: .75;
+    }
+
+    .o_ai_group_boxed {
+        max-width: 820px;
+        margin-bottom: .5rem;
+        padding: .25rem .5rem 0;
+        border: 1px solid transparent;
+        border-radius: 6px;
+
+        .o_ai_group_header {
+            padding: .25rem 0;
+            border-bottom: 1px solid $o-gray-200;
+            margin-bottom: .5rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .o_ai_group_name_input { max-width: 320px; }
+        .o_ai_group_empty { padding: .5rem 0 1rem; }
+    }
+
+    .o_ai_drop_over {
+        border-color: $o-brand-primary;
+        background-color: rgba($o-brand-primary, .06);
+    }
+
+    .o_ai_ungroup_zone {
+        flex-grow: 1;
+        padding: .25rem .5rem;
+        border: 1px dashed $o-gray-400;
+        border-radius: 6px;
     }
 
     .o_ai_msg {

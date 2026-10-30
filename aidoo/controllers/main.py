@@ -4,7 +4,7 @@
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import json
 
-from odoo import http
+from odoo import fields, http
 from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
@@ -92,10 +92,73 @@ class AiAssistantChat(http.Controller):
         # never used (e.g. the floating bubble opened and closed without typing).
         request.env["aidoo.session"]._prune_empty()
         recs = request.env["aidoo.session"].search(
-            [("user_id", "=", request.env.uid)], limit=50)
+            [("user_id", "=", request.env.uid)], limit=200)
         return [{"id": s.id, "name": s.name, "state": s.state,
-                 "provider": s.provider, "is_favorite": s.is_favorite}
+                 "provider": s.provider, "is_favorite": s.is_favorite,
+                 "folder_id": s.folder_id.id or False,
+                 "write_date": fields.Datetime.to_string(s.write_date)}
                 for s in recs]
+
+    # ------------------------------------------------------------------
+    # Sidebar folders (per user; deleting one ungroups, never deletes chats)
+    # ------------------------------------------------------------------
+    def _folder(self, folder_id):
+        """Fetch a folder owned by the current user."""
+        try:
+            folder = request.env["aidoo.session.folder"].search([
+                ("id", "=", int(folder_id)),
+                ("user_id", "=", request.env.uid)], limit=1)
+        except (TypeError, ValueError):
+            folder = None
+        if not folder:
+            raise UserError("Folder not found.")
+        return folder
+
+    @http.route("/aidoo/folders", type="jsonrpc", auth="user")
+    def folders(self):
+        return request.env["aidoo.session.folder"].search(
+            [("user_id", "=", request.env.uid)], order="sequence, id"
+        )._to_frontend()
+
+    @http.route("/aidoo/folder/create", type="jsonrpc", auth="user")
+    def folder_create(self, name=None):
+        Folder = request.env["aidoo.session.folder"]
+        last = Folder.search(
+            [("user_id", "=", request.env.uid)], order="sequence desc, id desc", limit=1)
+        folder = Folder.create({
+            "name": (name or "").strip()[:200] or "New folder",
+            "user_id": request.env.uid,
+            "sequence": last.sequence + 10 if last else 10,
+        })
+        return folder._to_frontend()[0]
+
+    @http.route("/aidoo/folder/update", type="jsonrpc", auth="user")
+    def folder_update(self, folder_id=None, name=None, collapsed=None):
+        folder = self._folder(folder_id)
+        vals = {}
+        if name is not None:
+            name = str(name).strip()[:200]
+            if name:
+                vals["name"] = name
+        if collapsed is not None:
+            vals["collapsed"] = bool(collapsed)
+        if vals:
+            folder.write(vals)
+        return folder._to_frontend()[0]
+
+    @http.route("/aidoo/folder/delete", type="jsonrpc", auth="user")
+    def folder_delete(self, folder_id=None):
+        """Remove the folder only; its conversations become ungrouped."""
+        self._folder(folder_id).unlink()
+        return {"deleted": True}
+
+    @http.route("/aidoo/session/move", type="jsonrpc", auth="user")
+    def session_move(self, session_id=None, folder_id=None):
+        """File a conversation into a folder (or ungroup it with a falsy id)."""
+        session = self._session(session_id)
+        folder = self._folder(folder_id) if folder_id else request.env["aidoo.session.folder"]
+        session.folder_id = folder.id or False
+        return {"session_id": session.id, "folder_id": folder.id or False}
 
     @http.route("/aidoo/favorite", type="jsonrpc", auth="user")
     def favorite(self, session_id=None, is_favorite=None):
@@ -237,7 +300,69 @@ class AiAssistantChat(http.Controller):
             "context_label": session._context_label(),
             "messages": page["messages"],
             "has_more": page["has_more"],
+            "groups": session.group_ids._to_frontend(),
         }
+
+    # ------------------------------------------------------------------
+    # Message groups (collapsible buckets; moving never touches create_date)
+    # ------------------------------------------------------------------
+    def _group(self, group_id):
+        """Fetch a message group of a conversation the caller owns."""
+        try:
+            group = request.env["aidoo.message.group"].browse(int(group_id))
+        except (TypeError, ValueError):
+            raise UserError("Group not found.")
+        if not group.exists() or group.session_id.user_id != request.env.user:
+            raise UserError("Group not found.")
+        return group
+
+    @http.route("/aidoo/group/create", type="jsonrpc", auth="user")
+    def group_create(self, session_id=None, name=None):
+        session = self._session(session_id)
+        last = session.group_ids[-1:].sequence if session.group_ids else 0
+        group = request.env["aidoo.message.group"].create({
+            "session_id": session.id,
+            "name": (name or "").strip()[:200] or "New group",
+            "sequence": last + 10,
+        })
+        return group._to_frontend()[0]
+
+    @http.route("/aidoo/group/update", type="jsonrpc", auth="user")
+    def group_update(self, group_id=None, name=None, collapsed=None):
+        group = self._group(group_id)
+        vals = {}
+        if name is not None:
+            name = str(name).strip()[:200]
+            if name:
+                vals["name"] = name
+        if collapsed is not None:
+            vals["collapsed"] = bool(collapsed)
+        if vals:
+            group.write(vals)
+        return group._to_frontend()[0]
+
+    @http.route("/aidoo/group/delete", type="jsonrpc", auth="user")
+    def group_delete(self, group_id=None):
+        """Remove the group only; its messages fall back to the turn groups."""
+        self._group(group_id).unlink()
+        return {"deleted": True}
+
+    @http.route("/aidoo/message/move", type="jsonrpc", auth="user")
+    def message_move(self, message_id=None, group_id=None):
+        """Assign a message to a group (or ungroup it with a falsy group_id)."""
+        try:
+            msg = request.env["aidoo.message"].browse(int(message_id))
+        except (TypeError, ValueError):
+            raise UserError("Message not found.")
+        if not msg.exists() or msg.session_id.user_id != request.env.user:
+            raise UserError("Message not found.")
+        group = request.env["aidoo.message.group"]
+        if group_id:
+            group = self._group(group_id)
+            if group.session_id != msg.session_id:
+                raise UserError("Group not found.")
+        msg.group_id = group.id or False
+        return {"message_id": msg.id, "group_id": group.id or False}
 
     @http.route("/aidoo/upload", type="http", auth="user", methods=["POST"])
     def upload(self, session_id=None, ufile=None, **kw):

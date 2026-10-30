@@ -106,20 +106,14 @@
                     </block>
 
                     <block title="Grok (xAI)" name="aidoo_grok">
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_grok_cli_path" placeholder="auto-detect"/>
-                        </setting>
                         <setting string="Model">
-                            <field name="aidoo_grok_model"/>
+                            <field name="aidoo_grok_model" placeholder="grok-4.7"/>
                         </setting>
                         <setting string="Authentication Mode">
                             <field name="aidoo_grok_auth_mode"/>
                         </setting>
                         <setting string="Shared xAI API Key">
                             <field name="aidoo_grok_api_key" password="True"/>
-                        </setting>
-                        <setting string="Output Format">
-                            <field name="aidoo_grok_output_format"/>
                         </setting>
                     </block>
 
@@ -171,6 +165,11 @@
                                  help="fnmatch patterns for methods orm_action/run_wizard may call. Private/dunder methods are always blocked.">
                             <field name="aidoo_action_method_patterns"
                                    placeholder="action_*,button_*"/>
+                        </setting>
+                        <setting string="AI Denied Action Methods"
+                                 help="Patterns orm_action/run_wizard may never call, even when allowlisted. A change request can still propose them for a person to approve.">
+                            <field name="aidoo_action_method_deny_patterns"
+                                   placeholder="action_archive,action_unarchive"/>
                         </setting>
                         <setting string="AI-Runnable Server Actions"
                                  help="Only these server actions may be run via run_server_action. Empty = none. Code actions run arbitrary Python; allowlist only what you trust.">

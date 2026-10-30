@@ -6,6 +6,6 @@ from . import base
 from . import claude
 from . import codex
 from . import gemini
-from . import grok
 from . import zai
+from . import grok  # inherits aidoo.provider.zai: import after it
 from . import antigravity

@@ -28,14 +28,14 @@ code, Gemini/Grok by importing credentials or an API key — stored privately in
 per-user, per-provider config dir. Chatting is gated until the conversation's
 provider is connected.
 
-Claude and Grok drive the provider's CLI on the server (binary required);
-Codex, Gemini and Z.AI are native in-process providers — they talk to the
-provider's backend directly from Python, no binary needed.
+Claude drives its CLI on the server (binary required); Codex, Gemini, Grok
+and Z.AI are native in-process providers — they talk to the provider's backend
+directly from Python, no binary needed.
 """,
     'author': "CICDoo",
     'website': "https://cicdoo.com",
     'category': 'Productivity/AI',
-    'version': '20.0.1.0.0',
+    'version': '20.0.1.1.0',
     'license': 'LGPL-3',
     'depends': ['web', 'bus', 'mail'],
     'external_dependencies': {'python': ['requests']},
@@ -51,6 +51,7 @@ provider's backend directly from Python, no binary needed.
         'views/aidoo_scheduled_views.xml',
         'views/aidoo_skill_views.xml',
         'views/aidoo_persona_views.xml',
+        'views/aidoo_change_request_views.xml',
         'views/oauth_templates.xml',
     ],
     'post_init_hook': 'post_init_hook',

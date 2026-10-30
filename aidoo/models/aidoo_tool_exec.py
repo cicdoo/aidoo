@@ -32,12 +32,21 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.fields import Domain
 from odoo.tools import str2bool
 
+from .aidoo_guard import CTX_SESSION_ID, CTX_TOOL_CALL
+
 _logger = logging.getLogger(__name__)
 
 # Hard caps on rows returned to the model (oversized results bloat the model's
 # context and were a primary driver of out-of-memory crashes for CLI providers).
 MAX_LIMIT = 50
 SQL_MAX_ROWS = 1000
+
+# Hard cap on the SIZE of a result, which a row cap does not bound: a single
+# row can be arbitrarily large. A mail loop on cicdoo.mail produced individual
+# mail.message bodies of 3.6 MB, and the inbox sweep reads message bodies, so
+# one row was enough to blow past any sane context budget. Rows and bytes are
+# independent limits and both are needed.
+MAX_RESULT_BYTES = 256 * 1024
 
 # Read-only model methods callable via orm_call.
 SAFE_METHODS = {
@@ -173,6 +182,10 @@ class AidooToolExec(models.AbstractModel):
         Returns a JSON-safe result dict (the tool's payload, or ``{"error": ...}``
         for any denial/validation/error — never raises)."""
         self._guard()
+        # Mark everything this call runs as a tool call, so methods that record a
+        # human decision can refuse it (see aidoo_guard.require_human).
+        self = self.with_context(**{
+            CTX_TOOL_CALL: True, CTX_SESSION_ID: session.id if session else False})
         arguments = self._coerce_json_args(arguments)
         handler = getattr(self, "_t_%s" % tool, None)
         base_vals = dict(self._base_vals(tool, arguments), )
@@ -234,13 +247,22 @@ class AidooToolExec(models.AbstractModel):
             raise AccessError(
                 "Model '%s' is not accessible to the AI Assistant." % model)
 
-    def _check_action_method(self, method):
+    def _check_action_method(self, method, allow_denied=False):
+        """``allow_denied`` skips the denylist: a change request may *propose* a
+        denied method, because a person runs it on approval."""
         if not method or method.startswith("_"):
             raise ValidationError("Private/dunder methods are not callable.")
-        patterns = self.env["aidoo.session"]._ai_action_method_patterns()
+        session = self.env["aidoo.session"]
+        patterns = session._ai_action_method_patterns()
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
             raise ValidationError(
                 "Method '%s' is not in the AI action allowlist." % method)
+        if not allow_denied and any(
+                fnmatch.fnmatchcase(method, p)
+                for p in session._ai_action_method_deny_patterns()):
+            raise ValidationError(
+                "Method '%s' is denied to AI tools; propose it as a change "
+                "request instead." % method)
 
     def _sql_table_denylist(self):
         """Admin-configured fnmatch patterns for tables the SQL tool may not read."""
@@ -348,7 +370,7 @@ class AidooToolExec(models.AbstractModel):
     def _run(self, session, tool, fn, base_vals, client_ip=None):
         started = time.time()
         try:
-            result = fn()
+            result = self._cap_result(fn())
             self._audit(session, started, client_ip,
                         dict(base_vals, tool=tool, outcome="success",
                              result_count=self._count(result)))
@@ -369,6 +391,89 @@ class AidooToolExec(models.AbstractModel):
                         dict(base_vals, tool=tool, outcome="error",
                              error_message=str(e)))
             return {"error": "%s: %s" % (type(e).__name__, e)}
+
+    @staticmethod
+    def _result_bytes(result):
+        try:
+            return len(json.dumps(result, default=str).encode("utf-8", "ignore"))
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @staticmethod
+    def _clip_row(row, limit):
+        """Clip oversized string values in one row. Returns (row, clipped)."""
+        if not isinstance(row, dict):
+            return row, []
+        clipped, out = [], {}
+        for key, value in row.items():
+            if isinstance(value, str) and len(value) > limit:
+                out[key] = "%s... [clipped, %s of %s chars omitted]" % (
+                    value[:limit], len(value) - limit, len(value))
+                clipped.append(key)
+            else:
+                out[key] = value
+        return out, clipped
+
+    @classmethod
+    def _cap_result(cls, result):
+        """Keep a tool result inside MAX_RESULT_BYTES.
+
+        MAX_LIMIT bounds how many rows come back but says nothing about how big
+        one row can be, and the two failure modes are unrelated: a single
+        mail.message body from the cicdoo.mail loop reached 3.6 MB, so an
+        inbox sweep reading one row could exceed any context budget on its own.
+
+        Clips the long string fields first and drops rows only if that is not
+        enough, because a caller asking for 40 records usually wants to know
+        what is there rather than to read any one of them in full. Always says
+        plainly what it did: silent truncation would be worse than the size,
+        since the model would draw conclusions from a result it believes to be
+        complete.
+        """
+        if cls._result_bytes(result) <= MAX_RESULT_BYTES:
+            return result
+
+        if not isinstance(result, dict):
+            return {"truncated": True,
+                    "error": "Result exceeded %s bytes and was discarded. "
+                             "Narrow the request (fewer fields, a tighter "
+                             "domain) and try again." % MAX_RESULT_BYTES}
+
+        key = next((k for k in ("records", "rows")
+                    if isinstance(result.get(k), list)), None)
+        if not key:
+            return {"truncated": True,
+                    "error": "Result exceeded %s bytes and was discarded. "
+                             "Narrow the request and try again."
+                             % MAX_RESULT_BYTES}
+
+        clip = 8 * 1024
+        clipped_fields, rows = set(), []
+        for row in result[key]:
+            new_row, clipped = cls._clip_row(row, clip)
+            rows.append(new_row)
+            clipped_fields.update(clipped)
+
+        capped = dict(result)
+        capped[key] = rows
+        dropped = 0
+        while len(rows) > 1 and cls._result_bytes(capped) > MAX_RESULT_BYTES:
+            keep = max(1, len(rows) * 3 // 4)
+            dropped += len(rows) - keep
+            rows = rows[:keep]
+            capped[key] = rows
+
+        note = ["Result exceeded %s bytes." % MAX_RESULT_BYTES]
+        if clipped_fields:
+            note.append("Long text fields were clipped to %s chars: %s."
+                        % (clip, ", ".join(sorted(clipped_fields))))
+        if dropped:
+            note.append("%s row(s) were dropped; %s of %s returned."
+                        % (dropped, len(rows), len(result[key])))
+        note.append("Request fewer fields or a tighter domain for the full "
+                    "value.")
+        capped["truncated"] = " ".join(note)
+        return capped
 
     @staticmethod
     def _count(result):
@@ -551,6 +656,10 @@ class AidooToolExec(models.AbstractModel):
         Model = self.env[model]
         target = Model.browse(ids) if ids else Model
         target.check_access("write")
+        # Tell the action which chat session called it, so it can hand files
+        # back into that session (e.g. an image preview in uploads/). The model
+        # cannot set this: its kwargs are method arguments, not context.
+        target = target.with_context(aidoo_session_id=session.id if session else False)
         result = getattr(target, method)(*(args or []), **(kwargs or {}))
         return self._serialize_result(result)
 

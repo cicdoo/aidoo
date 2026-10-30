@@ -7,6 +7,19 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Change requests and approvals** — a persona proposes a change through `orm_action` (`aidoo.change.request`); one of the persona's principals (`principal_user_ids`) approves it in Odoo and it applies with their rights, or goes stale if the record moved. `aidoo_guard.require_human` lets a method refuse a tool call; every tool call runs with `aidoo_tool_call` and the session id in the context. `aidoo.action_methods_deny` (default `action_archive,action_unarchive`) is refused to tools but can still be proposed.
+- **Message groups and chat title** — collapsible, draggable message groups per conversation (`aidoo.message.group`), message timestamps, and a model-written conversation title.
+- **Sidebar folders** — per-user conversation folders (`aidoo.session.folder`), collapsible Favorites/folder/date sections, drag a conversation between folders.
+- **Claude streaming** — assistant text deltas are streamed into the chat; native text deltas are batched and the bus carries deltas instead of the full body.
+- **Codex `read_attachment`** — a local tool so native Codex can open attachments.
+- **Grok is now a native in-process provider** — `aidoo.provider.grok` talks to xAI's OpenAI-compatible API (inherits the Z.AI native loop), so no `grok` binary is required. Credentials are unchanged (`grok login` auth.json with client-side refresh, or an xAI API key); default model `grok-4.7`, optional `aidoo.grok.base_url`. The legacy subprocess adapter is kept unregistered in `grok_cli.py`.
+
+### Changed
+- **Path-scoped OAuth discovery** — the issuer is now `<host>/aidoo`; metadata is served at `/.well-known/oauth-authorization-server/aidoo` (and `/aidoo/.well-known/oauth-authorization-server`) and `/.well-known/oauth-protected-resource/aidoo/mcp`. The bare `/.well-known/*` URLs are no longer claimed.
+- Tool results are bounded in bytes, not only in rows; `orm_action` passes the calling session id in the context; the chat shows the server's error text.
+- OAuth consent/error pages are wrapped in a centred container.
+
 ### Fixed
 - **MCP OAuth consent `access_denied` fix** — the consent page no longer uses the login form class (whose script could drop the clicked button's value) and posts an explicit hidden `decision`; a missing decision re-renders the page instead of returning `access_denied`, and consent decisions are logged.
 

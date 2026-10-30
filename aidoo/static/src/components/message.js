@@ -5,6 +5,9 @@
 import { Component, proxy, t, useProps } from "@odoo/owl";
 import { renderMarkdown } from "../markdown";
 import { splitSegments } from "../artifacts";
+import { deserializeDateTime } from "@web/core/l10n/dates";
+
+const { DateTime } = luxon;
 
 export class AiMessage extends Component {
     static template = "aidoo.Message";
@@ -23,6 +26,28 @@ export class AiMessage extends Component {
         return { user: "You", assistant: "Assistant", report: "Report", error: "Error" }[
             this.props.message.role
         ] || this.props.message.role;
+    }
+
+    // Message time in the viewer's timezone: time only for today, short date +
+    // time otherwise. Optimistic (tmp-) messages have no date yet, so use now.
+    get messageDate() {
+        const raw = this.props.message.create_date;
+        if (!raw) {
+            return DateTime.now();
+        }
+        const dt = deserializeDateTime(raw);
+        return dt.isValid ? dt : DateTime.now();
+    }
+
+    get timestamp() {
+        const dt = this.messageDate;
+        return dt.hasSame(DateTime.now(), "day")
+            ? dt.toFormat("HH:mm")
+            : dt.toFormat("MMM d, HH:mm");
+    }
+
+    get timestampTitle() {
+        return this.messageDate.toLocaleString(DateTime.DATETIME_MED);
     }
 
     get isReport() {

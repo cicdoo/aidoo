@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 CICDoo (https://cicdoo.com)
+     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
+     Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md). -->
+<odoo>
+
+    <record id="view_aidoo_change_request_list" model="ir.ui.view">
+        <field name="name">aidoo.change.request.list</field>
+        <field name="model">aidoo.change.request</field>
+        <field name="arch" type="xml">
+            <list create="0" decoration-info="state == 'draft'"
+                  decoration-muted="state in ('rejected', 'expired', 'stale')"
+                  decoration-danger="state == 'failed'">
+                <field name="create_date" string="Proposed"/>
+                <field name="persona_id"/>
+                <field name="summary"/>
+                <field name="model"/>
+                <field name="operation"/>
+                <field name="proposer_id"/>
+                <field name="state" widget="badge"/>
+                <field name="approved_by_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_aidoo_change_request_form" model="ir.ui.view">
+        <field name="name">aidoo.change.request.form</field>
+        <field name="model">aidoo.change.request</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0">
+                <header>
+                    <button name="action_approve" type="object" string="Approve and apply"
+                            class="btn-primary" invisible="state != 'draft'"
+                            confirm="Apply this change now, with your access rights?"/>
+                    <button name="action_reject" type="object" string="Reject"
+                            invisible="state != 'draft'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,applied"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="summary"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="persona_id"/>
+                            <field name="proposer_id"/>
+                            <field name="session_id"/>
+                            <field name="expires_at"/>
+                        </group>
+                        <group>
+                            <field name="model"/>
+                            <field name="operation"/>
+                            <field name="res_ids"/>
+                            <field name="method" invisible="operation != 'action'"/>
+                            <field name="approved_by_id" invisible="not approved_by_id"/>
+                            <field name="approved_at" invisible="not approved_at"/>
+                        </group>
+                    </group>
+                    <group string="Reason" invisible="not reason">
+                        <field name="reason" nolabel="1" colspan="2"/>
+                    </group>
+                    <group string="Change">
+                        <field name="values" nolabel="1" colspan="2" widget="ace" options="{'mode': 'json'}"/>
+                    </group>
+                    <group string="Before" invisible="not before">
+                        <field name="before" nolabel="1" colspan="2" widget="ace" options="{'mode': 'json'}"/>
+                    </group>
+                    <group string="Result" invisible="not result">
+                        <field name="result" nolabel="1" colspan="2"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_aidoo_change_request_search" model="ir.ui.view">
+        <field name="name">aidoo.change.request.search</field>
+        <field name="model">aidoo.change.request</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="summary"/>
+                <field name="persona_id"/>
+                <field name="model"/>
+                <filter name="waiting" string="Waiting for approval"
+                        domain="[('state', '=', 'draft')]"/>
+                <group>
+                    <filter name="group_persona" string="Persona"
+                            context="{'group_by': 'persona_id'}"/>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_aidoo_change_request" model="ir.actions.act_window">
+        <field name="name">Change Requests</field>
+        <field name="res_model">aidoo.change.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_aidoo_change_request_search"/>
+        <field name="context">{'search_default_waiting': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No change requests</p>
+            <p>When a persona wants to change a record, it proposes the change here.
+               One of the persona's principals approves or rejects it.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_ai_change_requests" name="Change Requests"
+              parent="menu_ai_root" action="action_aidoo_change_request"
+              sequence="14" groups="group_ai_user"/>
+
+</odoo>

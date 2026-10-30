@@ -44,6 +44,7 @@
                             <field name="model"
                                    placeholder="Provider default"/>
                             <field name="skill_ids" widget="many2many_tags"/>
+                            <field name="principal_user_ids" widget="many2many_tags"/>
                             <field name="email"
                                    placeholder="System default sender"/>
                         </group>

@@ -31,6 +31,10 @@
                     <button class="btn btn-primary w-100" t-on-click="this._newSession">
                         <i class="oi me-1" data-icon="add"/> New chat
                     </button>
+                    <button class="btn btn-outline-secondary btn-sm w-100 mt-1 o_ai_new_folder"
+                            t-on-click="this.createFolder">
+                        <i class="oi me-1" data-icon="folder"/> New folder
+                    </button>
                     <div class="o_ai_search input-group input-group-sm mt-2">
                         <span class="input-group-text"><i class="oi" data-icon="search"/></span>
                         <input type="text" class="form-control"
@@ -45,24 +49,48 @@
                     </div>
                 </div>
                 <div class="flex-grow-1 overflow-auto">
-                    <t t-foreach="this.filteredSessions" t-as="s" t-key="s.id">
-                        <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === this.state.currentId ? 'active' : '' }}"
-                             t-on-click="() => this._openSession(s.id)">
-                            <img t-if="this._provider(s.provider).icon"
-                                 t-att-src="this._provider(s.provider).icon"
-                                 t-att-alt="this._provider(s.provider).label"
-                                 t-att-title="this._provider(s.provider).label"
-                                 class="o_ai_session_icon me-2"/>
-                            <i t-else="" class="oi me-2 text-muted" data-icon="chat"
-                               t-att-title="this._provider(s.provider).label"/>
-                            <span class="o_ai_session_name text-truncate" t-out="s.name"/>
-                            <i t-attf-class="oi o_ai_session_star ms-auto {{ s.is_favorite ? 'oi-filled o_ai_starred' : '' }}" data-icon="star"
-                               title="Favorite"
-                               t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
-                            <i class="oi o_ai_session_del ms-1" data-icon="delete"
-                               title="Delete conversation"
-                               t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
+                    <t t-foreach="this.sidebarSections" t-as="sec" t-key="sec.key">
+                        <div t-attf-class="o_ai_sidebar_section_header d-flex align-items-center px-2 py-1 {{ this.state.dragOver === sec.key ? 'o_ai_drop_target' : '' }}"
+                             t-on-click="() => this.toggleSection(sec)"
+                             t-on-dragover="(ev) => this.onSectionDragOver(ev, sec)"
+                             t-on-dragleave="() => this.state.dragOver = null"
+                             t-on-drop="(ev) => this.onSectionDrop(ev, sec)">
+                            <i class="oi o_ai_section_caret me-1" t-att-class="{ 'o_ai_section_caret--collapsed': sec.collapsed }" data-icon="arrow_drop_down"/>
+                            <i t-if="sec.folder" class="oi me-1" data-icon="folder"/>
+                            <span class="o_ai_section_label text-truncate" t-out="sec.label"
+                                  t-on-dblclick.stop="() => sec.folder and this.renameFolder(sec.folder)"/>
+                            <span class="o_ai_section_count text-muted ms-1" t-out="sec.sessions.length"/>
+                            <t t-if="sec.folder">
+                                <i class="oi ms-auto o_ai_folder_action" data-icon="edit" title="Rename folder"
+                                   t-on-click.stop="() => this.renameFolder(sec.folder)"/>
+                                <i class="oi ms-1 o_ai_folder_action" data-icon="delete" title="Delete folder"
+                                   t-on-click.stop="() => this.deleteFolder(sec.folder)"/>
+                            </t>
                         </div>
+                        <t t-if="!sec.collapsed">
+                            <t t-foreach="sec.sessions" t-as="s" t-key="s.id">
+                            <div t-attf-class="o_ai_session_item p-2 d-flex align-items-center {{ s.id === this.state.currentId ? 'active' : '' }} {{ s.id === this.state.draggingId ? 'o_ai_dragging' : '' }}"
+                                 draggable="true"
+                                 t-on-dragstart="(ev) => this.onSessionDragStart(ev, s)"
+                                 t-on-dragend="this.onSessionDragEnd"
+                                 t-on-click="() => this._openSession(s.id)">
+                                <img t-if="this._provider(s.provider).icon"
+                                     t-att-src="this._provider(s.provider).icon"
+                                     t-att-alt="this._provider(s.provider).label"
+                                     t-att-title="this._provider(s.provider).label"
+                                     class="o_ai_session_icon me-2"/>
+                                <i t-else="" class="oi me-2 text-muted" data-icon="chat"
+                                   t-att-title="this._provider(s.provider).label"/>
+                                <span class="o_ai_session_name text-truncate" t-out="s.name"/>
+                                <i t-attf-class="oi o_ai_session_star ms-auto {{ s.is_favorite ? 'oi-filled o_ai_starred' : '' }}" data-icon="star"
+                                   title="Favorite"
+                                   t-on-click="(ev) => { ev.stopPropagation(); this._toggleFavorite(s); }"/>
+                                <i class="oi o_ai_session_del ms-1" data-icon="delete"
+                                   title="Delete conversation"
+                                   t-on-click="(ev) => { ev.stopPropagation(); this._deleteSession(s); }"/>
+                            </div>
+                            </t>
+                        </t>
                     </t>
                 </div>
             </div>
@@ -185,7 +213,13 @@
                     </div>
                     <AiMessageList messages="this.state.messages" running="this.state.running"
                                    hasMore="this.state.hasMore" onLoadMore.bind="this.loadMore"
-                                   onOpenArtifact.bind="this.openArtifact"/>
+                                   onOpenArtifact.bind="this.openArtifact"
+                                   groups="this.state.groups"
+                                   onMoveMessage.bind="this.moveMessage"
+                                   onToggleGroup.bind="this.toggleGroup"
+                                   onRenameGroup.bind="this.renameGroup"
+                                   onCreateGroup.bind="this.createGroup"
+                                   onDeleteGroup.bind="this.deleteGroup"/>
                     <div t-if="this.state.running" class="px-2 pb-1">
                         <div t-if="this.state.notice" class="small text-muted fst-italic mb-1">
                             <i class="oi me-1" data-icon="schedule"/><t t-out="this.state.notice"/>

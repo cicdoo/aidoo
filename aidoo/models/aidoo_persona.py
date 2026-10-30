@@ -75,6 +75,13 @@ class AidooPersona(models.Model):
         "aidoo.skill", "aidoo_persona_skill_rel", "persona_id", "skill_id",
         string="Skills",
         help="Skills whose instructions ride every turn for this persona.")
+    principal_user_ids = fields.Many2many(
+        "res.users", "aidoo_persona_principal_rel", "persona_id", "user_id",
+        string="Principals",
+        help="The people this persona works for. Only they can approve its "
+             "change requests, and the persona is told, from the server, whether "
+             "the person talking to it is one of them. Empty = no principal, so "
+             "nobody can approve its change requests.")
     authenticated = fields.Boolean(
         string="Account Connected", compute="_compute_authenticated",
         help="Whether this persona's provider account has usable credentials.")

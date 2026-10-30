@@ -35,6 +35,10 @@ export class AiChatAction extends Component {
             skills: [],             // [{id, name, description}] the user may use
             currentSkillIds: [],    // skills on the open conversation
             sessions: [],
+            folders: [],            // [{id, name, collapsed, sequence}] sidebar folders
+            bucketsCollapsed: this._loadBucketsCollapsed(),  // automatic sections
+            dragOver: null,         // section key currently highlighted as drop target
+            draggingId: null,       // conversation being dragged
             searchQuery: "",       // sidebar: filter conversations by name
             favoritesOnly: false,  // sidebar: show only starred conversations
             sidebarOpen: false,    // mobile: off-canvas conversation drawer open?
@@ -42,6 +46,7 @@ export class AiChatAction extends Component {
             currentProvider: "claude",
             messages: [],
             hasMore: false,         // older messages exist above the loaded window
+            groups: [],             // [{id, name, collapsed, sequence}] message groups
             running: false,
             notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
@@ -266,7 +271,191 @@ export class AiChatAction extends Component {
     }
 
     async _loadSessions() {
-        this.state.sessions = await rpc("/aidoo/sessions");
+        const [sessions, folders] = await Promise.all([
+            rpc("/aidoo/sessions"), rpc("/aidoo/folders")]);
+        this.state.sessions = sessions;
+        this.state.folders = folders;
+    }
+
+    _loadBucketsCollapsed() {
+        try {
+            return JSON.parse(browser.localStorage.getItem("aidoo.sidebar.collapsed")) || {};
+        } catch {
+            return {};
+        }
+    }
+
+    // Sidebar sections: Favorites, user folders, then date buckets for the
+    // remaining unfiled conversations. While searching / filtering to
+    // favorites the list is flattened to the hits (sections expanded).
+    get sidebarSections() {
+        const filtering = !!this.state.searchQuery.trim() || this.state.favoritesOnly;
+        const sessions = this.filteredSessions;
+        const byRecency = (a, b) => (b.write_date || "").localeCompare(a.write_date || "");
+        const sections = [];
+        const loose = sessions.filter((s) => !s.folder_id || !this.state.folders.some((f) => f.id === s.folder_id));
+        const favs = loose.filter((s) => s.is_favorite);
+        sections.push({ key: "favorites", label: _t("Favorites"), sessions: favs });
+        for (const f of this.state.folders) {
+            sections.push({
+                key: "folder_" + f.id,
+                label: f.name,
+                folder: f,
+                sessions: sessions.filter((s) => s.folder_id === f.id).sort(byRecency),
+            });
+        }
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const DAY = 86400000;
+        const buckets = [
+            { key: "today", label: _t("Today"), sessions: [] },
+            { key: "yesterday", label: _t("Yesterday"), sessions: [] },
+            { key: "week", label: _t("Previous 7 days"), sessions: [] },
+            { key: "older", label: _t("Older"), sessions: [] },
+        ];
+        for (const s of loose.filter((x) => !x.is_favorite)) {
+            // write_date is server UTC; sessions without it are brand new.
+            const t = s.write_date
+                ? new Date(s.write_date.replace(" ", "T") + "Z").getTime()
+                : now.getTime();
+            const i = t >= startOfDay ? 0 : t >= startOfDay - DAY ? 1 : t >= startOfDay - 7 * DAY ? 2 : 3;
+            buckets[i].sessions.push(s);
+        }
+        for (const b of buckets) {
+            b.sessions.sort(byRecency);
+            sections.push(b);
+        }
+        return sections
+            .filter((sec) => (filtering ? sec.sessions.length : sec.folder || sec.sessions.length))
+            .map((sec) => ({
+                ...sec,
+                collapsed: filtering
+                    ? false
+                    : sec.folder
+                      ? sec.folder.collapsed
+                      : !!this.state.bucketsCollapsed[sec.key],
+            }));
+    }
+
+    async toggleSection(sec) {
+        if (!sec.folder) {
+            this.state.bucketsCollapsed[sec.key] = !this.state.bucketsCollapsed[sec.key];
+            try {
+                browser.localStorage.setItem(
+                    "aidoo.sidebar.collapsed", JSON.stringify(this.state.bucketsCollapsed));
+            } catch {
+                // storage unavailable: the state is kept for this page only
+            }
+            return;
+        }
+        const folder = this.state.folders.find((f) => f.id === sec.folder.id);
+        folder.collapsed = !folder.collapsed;
+        try {
+            await rpc("/aidoo/folder/update", {
+                folder_id: folder.id, collapsed: folder.collapsed });
+        } catch (e) {
+            folder.collapsed = !folder.collapsed;
+            this._notifyError(e, _t("Failed to update folder."));
+        }
+    }
+
+    _notifyError(e, fallback) {
+        this.notification.add(rpcErrorMessage(e, fallback), { type: "danger" });
+    }
+
+    async createFolder() {
+        try {
+            const folder = await rpc("/aidoo/folder/create", { name: _t("New folder") });
+            this.state.folders.push(folder);
+            this.renameFolder(folder);
+        } catch (e) {
+            this._notifyError(e, _t("Failed to create folder."));
+        }
+    }
+
+    renameFolder(folder) {
+        const name = window.prompt(_t("Folder name"), folder.name);
+        if (name === null || !name.trim() || name.trim() === folder.name) {
+            return;
+        }
+        const f = this.state.folders.find((x) => x.id === folder.id);
+        const previous = f.name;
+        f.name = name.trim();
+        rpc("/aidoo/folder/update", { folder_id: f.id, name: f.name }).catch((e) => {
+            f.name = previous;
+            this._notifyError(e, _t("Failed to rename folder."));
+        });
+    }
+
+    deleteFolder(folder) {
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Delete folder"),
+            body: _t(
+                'Delete the folder "%s"? Its conversations are kept and move back to the list.',
+                folder.name),
+            confirmLabel: _t("Delete"),
+            confirm: async () => {
+                try {
+                    await rpc("/aidoo/folder/delete", { folder_id: folder.id });
+                } catch (e) {
+                    this._notifyError(e, _t("Failed to delete folder."));
+                    return;
+                }
+                this.state.folders = this.state.folders.filter((f) => f.id !== folder.id);
+                for (const s of this.state.sessions) {
+                    if (s.folder_id === folder.id) {
+                        s.folder_id = false;
+                    }
+                }
+            },
+            cancel: () => {},
+        });
+    }
+
+    async moveSession(sessionId, folderId) {
+        const s = this.state.sessions.find((x) => x.id === sessionId);
+        if (!s || (s.folder_id || false) === (folderId || false)) {
+            return;
+        }
+        const previous = s.folder_id || false;
+        s.folder_id = folderId || false;
+        try {
+            await rpc("/aidoo/session/move", {
+                session_id: sessionId, folder_id: folderId || false });
+        } catch (e) {
+            s.folder_id = previous;
+            this._notifyError(e, _t("Failed to move conversation."));
+        }
+    }
+
+    onSessionDragStart(ev, session) {
+        this.state.draggingId = session.id;
+        ev.dataTransfer.effectAllowed = "move";
+        ev.dataTransfer.setData("text/plain", String(session.id));
+    }
+
+    onSessionDragEnd() {
+        this.state.draggingId = null;
+        this.state.dragOver = null;
+    }
+
+    onSectionDragOver(ev, sec) {
+        if (this.state.draggingId === null) {
+            return;
+        }
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = "move";
+        this.state.dragOver = sec.key;
+    }
+
+    onSectionDrop(ev, sec) {
+        ev.preventDefault();
+        const id = this.state.draggingId;
+        this.state.draggingId = null;
+        this.state.dragOver = null;
+        if (id !== null) {
+            this.moveSession(id, sec.folder ? sec.folder.id : false);
+        }
     }
 
     // Sidebar list after applying the search box / favorites filter, with
@@ -364,6 +553,7 @@ export class AiChatAction extends Component {
         this.state.contextLabel = data.context_label || "";
         this.state.currentSkillIds = data.skill_ids || [];
         this.state.messages = data.messages;
+        this.state.groups = data.groups || [];
         this.state.hasMore = !!data.has_more;
         this.state.running = data.state === "running";
         this.state.artifact = null;
@@ -537,12 +727,31 @@ export class AiChatAction extends Component {
     }
 
     _upsertMessage(msg) {
+        if (msg.delta !== undefined) {
+            const existing = this.state.messages.find((m) => m.id === msg.id);
+            const { delta, base_len, ...rest } = msg;
+            if (existing) {
+                if ((existing.body || "").length !== base_len) {
+                    return null; // missed event; `done` reload restores the body
+                }
+                Object.assign(existing, rest);
+                existing.body = (existing.body || "") + delta;
+                return existing;
+            }
+            if (base_len !== 0) {
+                return null;
+            }
+            const created = { ...rest, body: delta };
+            this.state.messages.push(created);
+            return this.state.messages[this.state.messages.length - 1];
+        }
         const idx = this.state.messages.findIndex((m) => m.id === msg.id);
         if (idx === -1) {
             this.state.messages.push(msg);
         } else {
             this.state.messages[idx] = msg;
         }
+        return msg;
     }
 
     _onBusEvent(p) {
@@ -558,9 +767,21 @@ export class AiChatAction extends Component {
                 break;
             case "message":
                 this.state.notice = "";
-                this._upsertMessage(p.message);
-                this._maybeCaptureArtifact(p.message);
+                {
+                    const merged = this._upsertMessage(p.message);
+                    if (merged) {
+                        this._maybeCaptureArtifact(merged);
+                    }
+                }
                 break;
+            case "title": {
+                // The model named the conversation in its first reply.
+                const s = this.state.sessions.find((x) => x.id === p.session_id);
+                if (s && p.name) {
+                    s.name = p.name;
+                }
+                break;
+            }
             case "done":
                 this.state.running = false;
                 this.state.notice = "";
@@ -589,7 +810,99 @@ export class AiChatAction extends Component {
             limit: keep,
         });
         this.state.messages = data.messages;
+        this.state.groups = data.groups || [];
         this.state.hasMore = !!data.has_more;
+        const s = this.state.sessions.find((x) => x.id === data.id);
+        if (s && data.name) {
+            s.name = data.name;
+        }
+    }
+
+    // ---- Message groups -------------------------------------------------
+    // Moving only changes a message's group; chronological order is untouched.
+    async moveMessage(messageIds, groupId) {
+        const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
+        const previous = new Map();
+        for (const m of this.state.messages) {
+            if (ids.includes(m.id)) {
+                previous.set(m.id, m.group_id || false);
+                m.group_id = groupId || false;
+            }
+        }
+        try {
+            for (const id of ids) {
+                if (typeof id === "number") {
+                    await rpc("/aidoo/message/move", {
+                        message_id: id,
+                        group_id: groupId || false,
+                    });
+                }
+            }
+        } catch (e) {
+            for (const m of this.state.messages) {
+                if (previous.has(m.id)) {
+                    m.group_id = previous.get(m.id);
+                }
+            }
+            this.notification.add(rpcErrorMessage(e, "Failed to move message."), {
+                type: "danger",
+            });
+        }
+    }
+
+    async toggleGroup(groupId) {
+        const group = this.state.groups.find((g) => g.id === groupId);
+        if (!group) return;
+        group.collapsed = !group.collapsed;
+        try {
+            await rpc("/aidoo/group/update", {
+                group_id: groupId,
+                collapsed: group.collapsed,
+            });
+        } catch {
+            group.collapsed = !group.collapsed;
+        }
+    }
+
+    async renameGroup(groupId, name) {
+        const group = this.state.groups.find((g) => g.id === groupId);
+        name = (name || "").trim();
+        if (!group || !name || name === group.name) return;
+        const old = group.name;
+        group.name = name;
+        try {
+            await rpc("/aidoo/group/update", { group_id: groupId, name });
+        } catch {
+            group.name = old;
+        }
+    }
+
+    // Create a group; when a message is dropped on a turn header it is moved in.
+    async createGroup(name, messageIds) {
+        if (!this.state.currentId) return null;
+        const group = await rpc("/aidoo/group/create", {
+            session_id: this.state.currentId,
+            name: name || "",
+        });
+        this.state.groups.push(group);
+        if (messageIds && messageIds.length) {
+            await this.moveMessage(messageIds, group.id);
+        }
+        return group;
+    }
+
+    async deleteGroup(groupId) {
+        try {
+            await rpc("/aidoo/group/delete", { group_id: groupId });
+        } catch {
+            return;
+        }
+        for (const m of this.state.messages) {
+            if (m.group_id === groupId) {
+                m.group_id = false;
+            }
+        }
+        this.state.groups = this.state.groups.filter((g) => g.id !== groupId);
     }
 
     async onSend(text, files = []) {

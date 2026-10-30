@@ -14,3 +14,9 @@ access_aidoo_skill_manager,aidoo.skill.manager,aidoo.skill,aidoo.group_ai_manage
 access_aidoo_persona_read,aidoo.persona.read,aidoo.persona,aidoo.group_ai_user,r,"[('active', '=', True)]"
 access_aidoo_persona_manager,aidoo.persona.manager,aidoo.persona,aidoo.group_ai_manager,crud,
 access_aidoo_mail_mail_ai_own,aidoo.mail.mail.ai.own,mail.mail,aidoo.group_ai_user,cr,"[('create_uid', '=', user.id)]"
+access_aidoo_message_group_user,aidoo.message.group.user,aidoo.message.group,aidoo.group_ai_user,crud,"[('session_id.user_id', '=', user.id)]"
+access_aidoo_message_group_manager,aidoo.message.group.manager,aidoo.message.group,aidoo.group_ai_manager,crud,
+access_aidoo_session_folder_user,aidoo.session.folder.user,aidoo.session.folder,aidoo.group_ai_user,crud,"[('user_id', '=', user.id)]"
+access_aidoo_session_folder_manager,aidoo.session.folder.manager,aidoo.session.folder,aidoo.group_ai_manager,crud,
+access_aidoo_change_request_user,aidoo.change.request.user,aidoo.change.request,aidoo.group_ai_user,cru,"['|', ('proposer_id', '=', user.id), ('persona_id.principal_user_ids', 'in', user.id)]"
+access_aidoo_change_request_manager,aidoo.change.request.manager,aidoo.change.request,aidoo.group_ai_manager,crud,
