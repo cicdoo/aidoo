@@ -111,16 +111,19 @@ class TestAidooMcpOauth(HttpCase):
 
     def test_metadata(self):
         base = self.base_url()
-        for path in ("/.well-known/oauth-protected-resource",
-                     "/.well-known/oauth-protected-resource/aidoo/mcp"):
-            res = self.url_open(path)
-            self.assertEqual(res.status_code, 200)
-            doc = res.json()
-            self.assertEqual(doc["resource"], base + "/aidoo/mcp")
-            self.assertEqual(doc["authorization_servers"], [base])
-            self.assertEqual(doc["scopes_supported"], ["aidoo_mcp"])
-        doc = self.url_open("/.well-known/oauth-authorization-server").json()
-        self.assertEqual(doc["issuer"], base)
+        res = self.url_open("/.well-known/oauth-protected-resource/aidoo/mcp")
+        self.assertEqual(res.status_code, 200)
+        doc = res.json()
+        self.assertEqual(doc["resource"], base + "/aidoo/mcp")
+        self.assertEqual(doc["authorization_servers"], [base + "/aidoo"])
+        self.assertEqual(doc["scopes_supported"], ["aidoo_mcp"])
+        # RFC 8414 path insertion for issuer <base>/aidoo, plus the appended
+        # form some clients try.
+        for path in ("/.well-known/oauth-authorization-server/aidoo",
+                     "/aidoo/.well-known/oauth-authorization-server"):
+            self.assertEqual(self.url_open(path).json()["issuer"],
+                             base + "/aidoo", path)
+        doc = self.url_open("/.well-known/oauth-authorization-server/aidoo").json()
         self.assertEqual(doc["token_endpoint"], base + "/aidoo/oauth/token")
         self.assertEqual(doc["authorization_endpoint"],
                          base + "/aidoo/oauth/authorize")
@@ -260,14 +263,22 @@ class TestAidooMcpOauth(HttpCase):
     def test_disabled(self):
         self.env["ir.config_parameter"].sudo().set_param(
             "aidoo.mcp_enabled", "False")
-        for path in ("/.well-known/oauth-protected-resource",
-                     "/.well-known/oauth-protected-resource/aidoo/mcp",
-                     "/.well-known/oauth-authorization-server",
+        for path in ("/.well-known/oauth-protected-resource/aidoo/mcp",
+                     "/.well-known/oauth-authorization-server/aidoo",
                      "/aidoo/oauth/authorize?client_id=x"):
             self.assertEqual(self.url_open(path).status_code, 403, path)
         for path in ("/aidoo/oauth/register", "/aidoo/oauth/token"):
             res = self.url_open(path, data="{}")
             self.assertEqual(res.status_code, 403, path)
+
+    def test_bare_well_known_urls_are_left_alone(self):
+        """The host-level discovery URLs belong to whatever else on the host
+        speaks OAuth; whatever answers there must not be aidoo."""
+        for path in ("/.well-known/oauth-protected-resource",
+                     "/.well-known/oauth-authorization-server"):
+            res = self.url_open(path)
+            if res.status_code == 200:
+                self.assertNotIn("/aidoo/", res.text, path)
 
     def test_manual_api_key_still_works(self):
         key = self.env["res.users.apikeys"].with_user(self.user)._generate(

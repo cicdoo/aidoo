@@ -36,6 +36,18 @@ def _base():
     return request.httprequest.host_url.rstrip("/")
 
 
+# The issuer lives under /aidoo, so its metadata sits at path-scoped
+# well-known URLs (RFC 8414 section 3.1, RFC 9728 section 3.1). The bare
+# /.well-known/* URLs belong to whatever else on the host speaks OAuth (another
+# module's MCP server, for one): claiming them here would send that server's
+# clients to the wrong authorization server.
+ISSUER_PATH = "/aidoo"
+
+
+def _issuer():
+    return _base() + ISSUER_PATH
+
+
 def _disabled():
     icp = request.env["ir.config_parameter"].sudo()
     if _enabled(icp):
@@ -70,8 +82,7 @@ def _redirect_with(uri, params):
 class AidooOauth(http.Controller):
 
     # --- discovery ------------------------------------------------------
-    @http.route(["/.well-known/oauth-protected-resource",
-                 "/.well-known/oauth-protected-resource/aidoo/mcp"],
+    @http.route("/.well-known/oauth-protected-resource/aidoo/mcp",
                 type="http", auth="none", methods=["GET"], cors="*", csrf=False)
     def protected_resource(self, **kw):
         if (off := _disabled()):
@@ -79,19 +90,20 @@ class AidooOauth(http.Controller):
         base = _base()
         return _json({
             "resource": base + "/aidoo/mcp",
-            "authorization_servers": [base],
+            "authorization_servers": [_issuer()],
             "bearer_methods_supported": ["header"],
             "scopes_supported": [SCOPE],
         })
 
-    @http.route("/.well-known/oauth-authorization-server", type="http",
-                auth="none", methods=["GET"], cors="*", csrf=False)
+    @http.route(["/.well-known/oauth-authorization-server/aidoo",
+                 "/aidoo/.well-known/oauth-authorization-server"],
+                type="http", auth="none", methods=["GET"], cors="*", csrf=False)
     def authorization_server(self, **kw):
         if (off := _disabled()):
             return off
         base = _base()
         return _json({
-            "issuer": base,
+            "issuer": _issuer(),
             "authorization_endpoint": base + "/aidoo/oauth/authorize",
             "token_endpoint": base + "/aidoo/oauth/token",
             "registration_endpoint": base + "/aidoo/oauth/register",
