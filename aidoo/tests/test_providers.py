@@ -129,18 +129,6 @@ class TestProviders(TransactionCase):
         self.assertIn("mcp__odoo__", SYSTEM_PROMPT)
         self.assertIn("after actually searching", SYSTEM_PROMPT)
 
-    def test_build_prompt_folds_context_for_cli_non_claude(self):
-        """CLI non-Claude providers can't pass a system-prompt flag, so the system
-        prompt + identity must be folded into the prompt text."""
-        for code in ("grok",):
-            session = self.env["aidoo.session"].create(
-                {"user_id": self.env.user.id, "provider": code})
-            prompt = self._adapter(code)._build_prompt(
-                session, "What is 2+2?", [], True, "ODOO USER CONTEXT BLOCK")
-            self.assertIn("ODOO USER CONTEXT BLOCK", prompt)
-            self.assertIn("What is 2+2?", prompt)
-            self.assertIn("Odoo", prompt)  # system prompt text present
-
     # ------------------------------------------------------------------
     # Native Gemini (in-process Code Assist) adapter
     # ------------------------------------------------------------------

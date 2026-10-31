@@ -84,12 +84,10 @@
                 <field name="model"/>
                 <filter name="waiting" string="Waiting for approval"
                         domain="[('state', '=', 'draft')]"/>
-                <group expand="0" string="Group By">
-                    <filter name="group_persona" string="Persona"
-                            context="{'group_by': 'persona_id'}"/>
-                    <filter name="group_state" string="Status"
-                            context="{'group_by': 'state'}"/>
-                </group>
+                <filter name="group_persona" string="Persona"
+                        context="{'group_by': 'persona_id'}"/>
+                <filter name="group_state" string="Status"
+                        context="{'group_by': 'state'}"/>
             </search>
         </field>
     </record>
