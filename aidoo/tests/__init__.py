@@ -17,3 +17,4 @@ from . import test_runner_stream
 from . import test_features
 from . import test_artifacts
 from . import test_config_persistence
+from . import test_tool_result_size
