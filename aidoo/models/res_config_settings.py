@@ -327,4 +327,4 @@ class ResConfigSettings(models.TransientModel):
         for rec in self:
             rec.aidoo_mcp_url = base + "/aidoo/mcp"
             rec.aidoo_oauth_metadata_url = (
-                base + "/.well-known/oauth-authorization-server")
+                base + "/.well-known/oauth-authorization-server/aidoo")

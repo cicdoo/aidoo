@@ -176,8 +176,8 @@ Assistant User* group. API keys remain an alternative (above).
 
 | Endpoint | Purpose |
 |---|---|
-| `/.well-known/oauth-protected-resource` (also `.../aidoo/mcp`) | RFC 9728 resource metadata |
-| `/.well-known/oauth-authorization-server` | RFC 8414 server metadata |
+| `/.well-known/oauth-protected-resource/aidoo/mcp` | RFC 9728 resource metadata |
+| `/.well-known/oauth-authorization-server/aidoo` (also `/aidoo/.well-known/oauth-authorization-server`) | RFC 8414 server metadata, issuer `https://HOST/aidoo` |
 | `POST /aidoo/oauth/register` | RFC 7591 dynamic client registration |
 | `/aidoo/oauth/authorize` | authorization code + PKCE (`S256` only), consent page |
 | `POST /aidoo/oauth/token` | code exchange and refresh-token rotation |
@@ -186,11 +186,13 @@ Access tokens are ordinary Odoo API keys (scope `aidoo_mcp`, 1 hour); refresh
 tokens last 30 days and are rotated on each use (replaying an old one revokes
 the grant). Revoke access any time under *Preferences → Account Security*
 (delete the "Aidoo OAuth: ..." key). The OAuth routes follow the same
-`aidoo.mcp_enabled` switch and return `403` when MCP is disabled.
+`aidoo.mcp_enabled` switch and return `403` when MCP is disabled. Discovery is
+path-scoped under `/aidoo` on purpose: the bare `/.well-known/*` URLs are left
+to anything else on the host that runs its own OAuth server.
 
 ```
-curl -s https://HOST/.well-known/oauth-protected-resource
-curl -s https://HOST/.well-known/oauth-authorization-server
+curl -s https://HOST/.well-known/oauth-protected-resource/aidoo/mcp
+curl -s https://HOST/.well-known/oauth-authorization-server/aidoo
 curl -si -X POST https://HOST/aidoo/mcp   # 401 + resource_metadata
 ```
 
