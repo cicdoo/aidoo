@@ -28,8 +28,10 @@ The backend is stateless (``store:false``): prior turns are replayed into the
 between tool rounds. The legacy subprocess adapter is preserved, unregistered,
 in ``codex_cli.py``.
 """
+import base64
 import json
 import logging
+import mimetypes
 import os
 import threading
 import uuid
@@ -122,7 +124,12 @@ class AidooProviderCodex(AidooProvider):
     # only need the composed current-turn user text (+ attachment manifest).
     # ------------------------------------------------------------------
     def _build_prompt(self, session, body, paths, is_first, identity):
-        return session._compose_prompt(body, paths)
+        text = session._compose_prompt(body, paths)
+        # Native Codex has no built-in file Read tool; it uses read_attachment.
+        return text.replace("Use the Read tool to open them",
+                            "Use the `read_attachment` tool (pass the full path) to open them"
+                            ).replace("Read the .transcript.txt file",
+                                      "Open the .transcript.txt file with `read_attachment`")
 
     # ------------------------------------------------------------------
     # The native turn: Responses SSE streaming + in-process tool loop
@@ -177,8 +184,15 @@ class AidooProviderCodex(AidooProvider):
             sid = str(uuid.uuid4())
             yield {"op": "session_id", "id": sid}
         instructions = "%s\n\n%s" % (SYSTEM_PROMPT, ctx.get("identity") or "")
+        uploads_dir = ctx.get("uploads_dir")
+        has_uploads = bool(uploads_dir and os.path.isdir(uploads_dir)
+                           and os.listdir(uploads_dir))
+        if has_uploads:
+            instructions += "\n\nAttachments are opened with `read_attachment`."
         input_items = self._build_input(session, ctx)
         tools = self._tool_specs(ctx.get("allowed_tools") or [])
+        if has_uploads:
+            tools = (tools or []) + [self._attachment_tool_spec()]
         # Reasoning summaries are a gpt-5-family feature; other models 400.
         reasoning = {"summary": "auto"} if (model or "").startswith("gpt-5") else None
         max_rounds = max(1, int(ctx.get("max_turns") or 30))
@@ -244,6 +258,7 @@ class AidooProviderCodex(AidooProvider):
                 return  # turn complete; the runner finalizes the 'done' state
 
             # Execute each requested tool in-process and feed results back.
+            pending_images = []
             for item in calls:
                 cid = item.get("call_id") or item.get("id") or ""
                 name = self._strip_tool_prefix(item.get("name") or "")
@@ -258,13 +273,23 @@ class AidooProviderCodex(AidooProvider):
                     args = {}
                 yield {"op": "tool_use", "msg_id": msg_id, "id": cid,
                        "name": name, "input": args}
-                result = env["aidoo.tool.exec"]._dispatch(session, name, args)
+                if name == "read_attachment" and has_uploads:
+                    result, image_item = self._read_attachment(
+                        ctx, args.get("path"))
+                    if image_item:
+                        pending_images.append(image_item)
+                else:
+                    result = env["aidoo.tool.exec"]._dispatch(session, name, args)
                 is_error = isinstance(result, dict) and set(result) == {"error"}
                 payload = json.dumps(result, default=str, ensure_ascii=False)
                 yield {"op": "tool_result", "id": cid,
                        "text": payload, "is_error": bool(is_error)}
                 input_items.append({"type": "function_call_output",
                                     "call_id": cid, "output": payload})
+            # Function outputs are text-only: show images as a user message.
+            for image_item in pending_images:
+                input_items.append({"type": "message", "role": "user",
+                                    "content": [image_item]})
             rnd += 1
 
         yield {"op": "text", "msg_id": "x%s-cap" % session.turn_count,
@@ -306,6 +331,83 @@ class AidooProviderCodex(AidooProvider):
                       "content": [{"type": "input_text",
                                    "text": ctx.get("prompt") or ""}]})
         return items
+
+    @staticmethod
+    def _attachment_tool_spec():
+        return {
+            "type": "function",
+            "name": "read_attachment",
+            "description": (
+                "Open a file the user attached to this chat. Text/CSV/code is "
+                "returned verbatim, PDFs as extracted text, images are shown "
+                "to you. Only files in the attachments directory can be read."),
+            "strict": False,
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {
+                    "type": "string",
+                    "description": "Full path of the attachment, as listed."}},
+                "required": ["path"],
+            },
+        }
+
+    def _read_attachment(self, ctx, path):
+        """Return ``(result, image_item)`` for the local read_attachment tool.
+        Confined to ``ctx['uploads_dir']`` (realpath check)."""
+        from ..aidoo_session import (
+            UPLOAD_AUDIO_EXTS, UPLOAD_IMAGE_EXTS, UPLOAD_PDF_EXTS,
+            UPLOAD_TEXT_EXTS)
+        root = os.path.realpath(ctx.get("uploads_dir") or "")
+        real = os.path.realpath(path) if isinstance(path, str) and path else ""
+        if not real or not (real == root or real.startswith(root + os.sep)) \
+                or not os.path.isfile(real):
+            return {"error": "Not an attachment of this chat: %s" % path}, None
+        name = os.path.basename(real).lower()
+        ext = os.path.splitext(name)[1]
+        limit = 200 * 1024
+        try:
+            if ext in UPLOAD_AUDIO_EXTS:
+                return {"error": "Audio cannot be read; open the matching "
+                                 ".transcript.txt file instead."}, None
+            if ext in UPLOAD_TEXT_EXTS or name.endswith(".transcript.txt"):
+                with open(real, "rb") as f:
+                    data = f.read(limit + 1)
+                text = data[:limit].decode("utf-8", errors="replace")
+                if len(data) > limit:
+                    text += "\n[truncated]"
+                return {"content": text}, None
+            if ext in UPLOAD_PDF_EXTS:
+                try:
+                    import PyPDF2
+                except ImportError:
+                    return {"error": "PDF reading is unavailable on this server."}, None
+                reader = PyPDF2.PdfReader(real)
+                parts, size = [], 0
+                for i, page in enumerate(reader.pages, 1):
+                    t = page.extract_text() or ""
+                    parts.append("--- page %d ---\n%s" % (i, t))
+                    size += len(t)
+                    if size > limit:
+                        break
+                text = "\n".join(parts)
+                if not text.replace("-", "").strip() or size == 0:
+                    return {"error": "The PDF has no extractable text "
+                                     "(probably scanned)."}, None
+                if size > limit:
+                    text = text[:limit] + "\n[truncated]"
+                return {"content": text}, None
+            if ext in UPLOAD_IMAGE_EXTS:
+                if os.path.getsize(real) > 15 * 1024 * 1024:
+                    return {"error": "Image too large."}, None
+                with open(real, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                mime = mimetypes.guess_type(real)[0] or "image/png"
+                return ({"content": "Image attached below as a user message."},
+                        {"type": "input_image",
+                         "image_url": "data:%s;base64,%s" % (mime, b64)})
+        except Exception as e:  # noqa: BLE001 — report to the model, don't crash the turn
+            return {"error": "Could not read attachment: %s" % e}, None
+        return {"error": "Unsupported attachment type: %s" % ext}, None
 
     def _tool_specs(self, allowed_tools):
         """Responses-API ``tools`` for the user's granted Odoo tools.

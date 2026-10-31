@@ -266,6 +266,30 @@ class TestProviders(TransactionCase):
             self.assertFalse(s["strict"])
         self.assertIsNone(adapter._tool_specs([]))
 
+    def test_codex_read_attachment(self):
+        import os
+        import tempfile
+        adapter = self._adapter("codex")
+        with tempfile.TemporaryDirectory() as tmp:
+            up = os.path.join(tmp, "uploads")
+            os.makedirs(up)
+            txt = os.path.join(up, "a.txt")
+            with open(txt, "w") as f:
+                f.write("hello")
+            with open(os.path.join(tmp, "secret.txt"), "w") as f:
+                f.write("x")
+            os.symlink(os.path.join(tmp, "secret.txt"), os.path.join(up, "l.txt"))
+            with open(os.path.join(up, "v.mp3"), "wb") as f:
+                f.write(b"x")
+            ctx = {"uploads_dir": up}
+            self.assertEqual(adapter._read_attachment(ctx, txt)[0], {"content": "hello"})
+            self.assertIn("error", adapter._read_attachment(ctx, up + "/../secret.txt")[0])
+            self.assertIn("error", adapter._read_attachment(ctx, os.path.join(up, "l.txt"))[0])
+            self.assertIn("error", adapter._read_attachment(ctx, os.path.join(up, "v.mp3"))[0])
+        spec = adapter._attachment_tool_spec()
+        self.assertEqual(spec["name"], "read_attachment")
+        self.assertNotIn("function", spec)
+
     def test_codex_build_prompt_is_plain(self):
         """Native Codex sends system+identity via `instructions`, so the
         per-turn prompt is just the user's message (no folded system text)."""
