@@ -22,6 +22,16 @@ from odoo.tools import html2plaintext
 
 _logger = logging.getLogger(__name__)
 
+# The model names a new conversation itself: on the first turn it is asked to
+# open its reply with a title tag, which the runner strips and turns into the
+# session name (see aidoo.runner._title_*).
+TITLE_OPEN = "<aidoo_title>"
+TITLE_CLOSE = "</aidoo_title>"
+TITLE_INSTRUCTION = (
+    "[Conversation title] Begin your reply with %s, a title of at most 6 words "
+    "that names what the user wants, then %s. Put nothing before it. Then answer "
+    "the user as usual; do not mention the title." % (TITLE_OPEN, TITLE_CLOSE))
+
 
 # ---------------------------------------------------------------------------
 # Minimal, safe Markdown -> HTML rendering for Discuss replies.
@@ -333,6 +343,8 @@ class AiAssistantSession(models.Model):
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
+    group_ids = fields.One2many(
+        "aidoo.message.group", "session_id", string="Message groups")
 
     # ------------------------------------------------------------------
     # Message paging (newest-anchored, for the OWL chat)
@@ -1046,10 +1058,6 @@ class AiAssistantSession(models.Model):
             "body": body,
             "attachments": [self._attachment_descriptor(a) for a in atts] or False,
         })
-        if self.turn_count == 0 and self.name in (_("New conversation"), False):
-            title = body or (atts[:1].name or "")
-            self.name = (title[:60] + ("…" if len(title) > 60 else "")) or self.name
-
         is_first = self.turn_count == 0
         # Persona-aware identity so history-fold providers (which embed identity
         # in the prompt here) also adopt the persona; Claude/zai read the same
@@ -1059,6 +1067,10 @@ class AiAssistantSession(models.Model):
         if context_prefix:
             # Prepended to the model prompt only (never the stored message body).
             prompt = context_prefix + "\n\n" + prompt
+        if is_first and self.name in (_("New conversation"), False):
+            # The model titles the conversation in its first reply; the runner
+            # strips the tag and renames the session (prompt only, never stored).
+            prompt = TITLE_INSTRUCTION + "\n\n" + prompt
         self.write({"state": "running"})
         token = self._mint_bridge_token()
         self.env["aidoo.runner"]._launch(self, prompt, is_first, token,

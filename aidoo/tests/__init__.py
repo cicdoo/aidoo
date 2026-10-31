@@ -20,3 +20,4 @@ from . import test_config_persistence
 from . import test_tool_result_size
 from . import test_mcp_server
 from . import test_mcp_oauth
+from . import test_groups_title

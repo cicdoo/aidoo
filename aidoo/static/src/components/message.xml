@@ -15,6 +15,7 @@
         <div t-else="" t-attf-class="o_ai_msg o_ai_msg_{{props.message.role}} d-flex flex-column mb-3">
             <div class="o_ai_msg_role small text-muted mb-1">
                 <t t-esc="roleLabel"/>
+                <span class="o_ai_msg_time ms-2" t-att-title="timestampTitle" t-esc="timestamp"/>
             </div>
 
             <!-- Tool calls: collapsed by default behind a toggle -->
