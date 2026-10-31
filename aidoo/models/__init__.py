@@ -11,6 +11,7 @@ from . import aidoo_tool_log
 from . import aidoo_tool_exec
 from . import aidoo_scheduled
 from . import aidoo_persona
+from . import aidoo_change_request
 from . import providers
 from . import aidoo_runner
 from . import res_users

@@ -32,6 +32,8 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.osv import expression
 from odoo.tools import str2bool
 
+from .aidoo_guard import CTX_SESSION_ID, CTX_TOOL_CALL
+
 _logger = logging.getLogger(__name__)
 
 # Hard caps on rows returned to the model (oversized results bloat the model's
@@ -180,6 +182,10 @@ class AidooToolExec(models.AbstractModel):
         Returns a JSON-safe result dict (the tool's payload, or ``{"error": ...}``
         for any denial/validation/error — never raises)."""
         self._guard()
+        # Mark everything this call runs as a tool call, so methods that record a
+        # human decision can refuse it (see aidoo_guard.require_human).
+        self = self.with_context(**{
+            CTX_TOOL_CALL: True, CTX_SESSION_ID: session.id if session else False})
         arguments = self._coerce_json_args(arguments)
         handler = getattr(self, "_t_%s" % tool, None)
         base_vals = dict(self._base_vals(tool, arguments), )
@@ -241,13 +247,22 @@ class AidooToolExec(models.AbstractModel):
             raise AccessError(
                 "Model '%s' is not accessible to the AI Assistant." % model)
 
-    def _check_action_method(self, method):
+    def _check_action_method(self, method, allow_denied=False):
+        """``allow_denied`` skips the denylist: a change request may *propose* a
+        denied method, because a person runs it on approval."""
         if not method or method.startswith("_"):
             raise ValidationError("Private/dunder methods are not callable.")
-        patterns = self.env["aidoo.session"]._ai_action_method_patterns()
+        session = self.env["aidoo.session"]
+        patterns = session._ai_action_method_patterns()
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
             raise ValidationError(
                 "Method '%s' is not in the AI action allowlist." % method)
+        if not allow_denied and any(
+                fnmatch.fnmatchcase(method, p)
+                for p in session._ai_action_method_deny_patterns()):
+            raise ValidationError(
+                "Method '%s' is denied to AI tools; propose it as a change "
+                "request instead." % method)
 
     def _sql_table_denylist(self):
         """Admin-configured fnmatch patterns for tables the SQL tool may not read."""
@@ -644,7 +659,7 @@ class AidooToolExec(models.AbstractModel):
         # Tell the action which chat session called it, so it can hand files
         # back into that session (e.g. an image preview in uploads/). The model
         # cannot set this: its kwargs are method arguments, not context.
-        target = target.with_context(aidoo_session_id=session.id)
+        target = target.with_context(aidoo_session_id=session.id if session else False)
         result = getattr(target, method)(*(args or []), **(kwargs or {}))
         return self._serialize_result(result)
 
