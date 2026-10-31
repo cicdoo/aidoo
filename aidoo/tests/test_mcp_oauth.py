@@ -28,7 +28,7 @@ class TestAidooMcpOauth(HttpCase):
         self.user = self.env["res.users"].create({
             "name": "Aidoo OAuth User", "login": "aidoo_oauth_user",
             "password": self.password,
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id])],
         })
@@ -228,7 +228,7 @@ class TestAidooMcpOauth(HttpCase):
         self.env["res.users"].create({
             "name": "No AI", "login": "aidoo_oauth_noai",
             "password": self.password,
-            "groups_id": [(6, 0, [self.env.ref("base.group_user").id])]})
+            "group_ids": [(6, 0, [self.env.ref("base.group_user").id])]})
         self.authenticate("aidoo_oauth_noai", self.password)
         res = self.opener.get(
             self.base_url() + "/aidoo/oauth/authorize",

@@ -21,7 +21,7 @@ class TestAidooMcp(HttpCase):
         self.user = self.env["res.users"].create({
             "name": "Aidoo MCP User", "login": "aidoo_mcp_user",
             "password": "aidoo_mcp_pw_123!",
-            "groups_id": [(6, 0, [
+            "group_ids": [(6, 0, [
                 self.env.ref("base.group_user").id,
                 self.env.ref("aidoo.group_ai_user").id])],
         })
@@ -79,7 +79,7 @@ class TestAidooMcp(HttpCase):
     def test_user_without_group_forbidden(self):
         other = self.env["res.users"].create({
             "name": "No AI", "login": "aidoo_mcp_noai", "password": "x_pw_123456!",
-            "groups_id": [(6, 0, [self.env.ref("base.group_user").id])]})
+            "group_ids": [(6, 0, [self.env.ref("base.group_user").id])]})
         self.assertEqual(
             self._rpc("ping", key=self._key(other, "aidoo_mcp")).status_code, 403)
 

@@ -585,7 +585,7 @@ class TestAidooMoreUploads(TransactionCase):
             "name": "Aidoo Upload Tester",
             "login": "aidoo_upload_tester",
             "email": "upload.tester@example.com",
-            "groups_id": [(4, self.env.ref("base.group_user").id),
+            "group_ids": [(4, self.env.ref("base.group_user").id),
                           (4, self.env.ref("aidoo.group_ai_user").id)],
         })
         self.session = self.env["aidoo.session"].with_user(self.user).create({

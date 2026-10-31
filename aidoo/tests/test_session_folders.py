@@ -19,10 +19,10 @@ class TestSessionFolders(HttpCase):
         Users = self.env["res.users"]
         self.user = Users.create({
             "name": "Folders User", "login": "aidoo_folders_user",
-            "password": self.password, "groups_id": [(6, 0, groups)]})
+            "password": self.password, "group_ids": [(6, 0, groups)]})
         self.other = Users.create({
             "name": "Folders Other", "login": "aidoo_folders_other",
-            "password": self.password, "groups_id": [(6, 0, groups)]})
+            "password": self.password, "group_ids": [(6, 0, groups)]})
         Session = self.env["aidoo.session"]
         self.conv = Session.create({"user_id": self.user.id, "provider": "claude"})
         self.foreign = Session.create({"user_id": self.other.id, "provider": "claude"})

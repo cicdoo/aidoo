@@ -28,13 +28,13 @@ class TestChangeRequest(TransactionCase):
         ai = [(4, self.env.ref("base.group_user").id),
               (4, self.env.ref("aidoo.group_ai_user").id)]
         self.agent = self.env["res.users"].create({
-            "name": "Run-as Agent", "login": "aidoo_cr_agent", "groups_id": ai})
+            "name": "Run-as Agent", "login": "aidoo_cr_agent", "group_ids": ai})
         self.boss = self.env["res.users"].create({
             "name": "Principal", "login": "aidoo_cr_boss",
-            "groups_id": ai + [(4, self.env.ref("base.group_partner_manager").id)]})
+            "group_ids": ai + [(4, self.env.ref("base.group_partner_manager").id)]})
         self.other = self.env["res.users"].create({
             "name": "Teammate", "login": "aidoo_cr_other",
-            "groups_id": ai + [(4, self.env.ref("base.group_partner_manager").id)]})
+            "group_ids": ai + [(4, self.env.ref("base.group_partner_manager").id)]})
         tools = self.env["aidoo.tool"].search([("name", "in", [
             "orm_read", "orm_search_read", "orm_action", "orm_create", "orm_write"])])
         for user in (self.agent, self.boss):

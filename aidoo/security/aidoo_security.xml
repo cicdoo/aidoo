@@ -149,7 +149,7 @@
         <field name="perm_unlink" eval="False"/>
     </record>
 
-    <!-- mail.mail is system-only in Odoo 18, but creating a mail.mail record is
+    <!-- mail.mail is system-only in Odoo 19, but creating a mail.mail record is
          the assistant's ONE sanctioned email-send path (send tools are blocked).
          The ACL above grants AI users read+create; this rule fences reads to
          mail they queued themselves, so the outgoing mail of other users

@@ -51,9 +51,9 @@ class AidooOauthClient(models.Model):
         default="none", required=True)
     grant_ids = fields.One2many("aidoo.oauth.grant", "client_id")
 
-    _sql_constraints = [
-        ("client_id_uniq", "UNIQUE(client_id)", "The client id must be unique."),
-    ]
+    # Odoo 19: SQL constraints are declared as models.Constraint attributes.
+    _client_id_uniq = models.Constraint(
+        "UNIQUE(client_id)", "The client id must be unique.")
 
     def _uris(self):
         self.ensure_one()
@@ -153,7 +153,7 @@ class AidooOauthGrant(models.Model):
         user = self.user_id
         self._remove_key()
         # Honour the Odoo group limit on API key duration.
-        days = max((g.api_key_duration for g in user.sudo().groups_id),
+        days = max((g.api_key_duration for g in user.sudo().all_group_ids),
                    default=0) or 1.0
         ttl = min(ACCESS_TTL, timedelta(days=days))
         apikeys = self.env["res.users.apikeys"].with_user(user).sudo()
