@@ -102,6 +102,45 @@ class TestToolExec(TransactionCase):
         self.assertIn("error", res)
         self.assertIn("AccessError", res["error"])
 
+    # ------------------------------------------------------------------
+    # many2one static-domain enforcement on write tools
+    # ------------------------------------------------------------------
+    def _mailing_setup(self):
+        """Grant what an AI user needs to create mailings, or skip the test
+        when mass_mailing is not in the registry."""
+        if "mailing.mailing" not in self.env:
+            self.skipTest("mass_mailing not installed")
+        group = self.env.ref("mass_mailing.group_mass_mailing_user",
+                             raise_if_not_found=False)
+        if group:
+            self.user.sudo().groups_id = [(4, group.id)]
+        self._grant("orm_create")
+
+    def test_orm_create_rejects_m2o_domain_violation(self):
+        # mailing_model_id carries the static domain
+        # [('is_mailing_enabled', '=', True)]; the abstract 'base' model
+        # violates it and used to produce a form-crashing record.
+        self._mailing_setup()
+        base_model = self.env["ir.model"]._get("base")
+        res = self.exec._dispatch(
+            self.session, "orm_create",
+            {"model": "mailing.mailing",
+             "values": {"subject": "guarded", "mailing_model_id": base_model.id}})
+        self.assertIn("error", res)
+        self.assertIn("does not satisfy the field domain", res["error"])
+
+    def test_orm_create_allows_valid_m2o(self):
+        self._mailing_setup()
+        partner_model = self.env["ir.model"]._get("res.partner")
+        res = self.exec._dispatch(
+            self.session, "orm_create",
+            {"model": "mailing.mailing",
+             "values": {"subject": "guarded ok",
+                        "email_from": "test@example.com",
+                        "mailing_model_id": partner_model.id}})
+        self.assertNotIn("error", res)
+        self.assertTrue(res["ids"])
+
     def test_dispatch_aborts_under_superuser(self):
         # The su guard is a hard invariant: tools must never run as superuser.
         from odoo.exceptions import AccessError
