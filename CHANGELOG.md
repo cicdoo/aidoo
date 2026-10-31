@@ -7,6 +7,19 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Fixed
+- **OAuth authorize pages work with the `website` module** — `/aidoo/oauth/authorize` is now a `website=True` route (not in the sitemap) so the consent and error pages render inside the website layout.
+- **MCP OAuth consent `access_denied` fix** — the consent page no longer uses the login form class (whose script could drop the clicked button's value) and posts an explicit hidden `decision`; a missing decision re-renders the page instead of returning `access_denied`, and consent decisions are logged.
+
+### Removed
+- **Chat message grouping** — the "New group" button, collapsible turn/group headers, drag-to-group, rename and delete are gone from the chat transcript, together with the `aidoo.message.group` model, its `/aidoo/group/*` and `/aidoo/message/move` routes and `aidoo.message.group_id`. The transcript is now a flat chronological list. Sidebar folders and date sections are unchanged. On existing databases the orphaned `aidoo_message_group` table and `aidoo_message.group_id` column are left in place.
+
+### Added
+- **More upload file types in the chat** — many more text/code extensions (Rust, Kotlin, Swift, C#, Lua, Vue, patches, `.po`, `.eml`, …) and spreadsheets (`.xlsx`, `.xlsm`, `.xls`), which are converted to a TSV `.sheet.txt` sibling the model reads (works with Claude and Codex providers).
+- **MCP OAuth for ChatGPT / Claude connectors** — `/aidoo/mcp` now answers unauthenticated requests with a `WWW-Authenticate: Bearer resource_metadata=...` challenge and Aidoo serves an OAuth 2.1 authorization server (RFC 9728/8414 metadata, RFC 7591 dynamic client registration, authorization code + PKCE `S256`, rotating refresh tokens, consent page). Access tokens are Odoo API keys of scope `aidoo_mcp` (revocable under Preferences → Account Security); manual API keys keep working. OAuth follows `aidoo.mcp_enabled`.
+- **Remote MCP server** — `POST /aidoo/mcp` (Streamable HTTP, JSON-only) lets external MCP clients (Claude Desktop, Cursor, Claude Code `--transport http`) use the assistant's tools. Enabled by default; the Settings → Aidoo → Remote MCP Server checkbox (`aidoo.mcp_enabled`) disables it (disabled returns 403 with a hint; `GET` returns 405 with a JSON description). Authenticates with a user's own API key of scope `aidoo_mcp`; calls run through the shared `aidoo.tool.exec` pipeline (per-user tool grant, model denylist, non-superuser, `aidoo.tool_log` audit with empty session). Tool definitions are shared in `models/mcp_tools.py`; the stdio bridge is unchanged. Backported from 20.0.
+- **Sidebar folders, date sections and change requests** — conversations can be filed into per-user collapsible folders (`aidoo.session.folder`; deleting a folder ungroups, never deletes chats) and the sidebar is split into date sections; the model writes a short chat title; messages show timestamps. Tool calls that need human approval are recorded as change requests (`aidoo.change.request`) which only a persona's principals can approve; MCP API keys can be scoped. Ported from 18.0.
+
 ### Added
 - **Audio / voice-note uploads with local transcription** — the chat composer and
   Discuss attachments now accept audio files (`.mp3 .wav .m4a .ogg .opus .flac
