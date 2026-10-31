@@ -203,7 +203,7 @@ export class FloatingAidoo extends Component {
             });
         } catch (e) {
             this.state.running = false;
-            this.state.authError = e.message?.data?.message || _t("Failed to send.");
+            this.state.authError = e.data?.message || _t("Failed to send.");
         }
     }
 
