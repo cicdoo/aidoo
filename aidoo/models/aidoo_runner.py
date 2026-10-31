@@ -270,14 +270,7 @@ class AiAssistantRunner(models.AbstractModel):
                     continue
                 dirty = False
                 for op in adapter._normalize_event(evt, state):
-                    if (op.get("op") == "text" and not op.get("replace")
-                            and op.get("text")
-                            and (not pending["text"]
-                                 or pending["msg_id"] == op.get("msg_id"))):
-                        if not pending["text"]:
-                            pending["msg_id"] = op.get("msg_id")
-                            pending["since"] = time.time()
-                        pending["text"] += op["text"]
+                    if self._feed_text_op(op, pending):
                         continue
                     _flush_pending()
                     self._apply_op(env, session, op, msg_map, produced_text)
@@ -369,16 +362,42 @@ class AiAssistantRunner(models.AbstractModel):
         next_typing = time.time() + 40  # refresh the Discuss "typing…" indicator
         msg_map = {}
         produced_text = {"any": False}
+        # Same text coalescing as the CLI path: one write/commit/bus message per
+        # _STREAM_FLUSH_S batch instead of per token.
+        pending = {"msg_id": None, "text": "", "since": 0.0}
+
+        def _flush_pending():
+            if not pending["text"]:
+                return False
+            op = {"op": "text", "msg_id": pending["msg_id"], "text": pending["text"]}
+            pending["text"] = ""
+            self._apply_op(env, session, op, msg_map, produced_text)
+            return True
+
         try:
-            for op in adapter._run_stream(env, session, ctx):
-                if time.time() > deadline:
-                    raise TimeoutError("Run exceeded timeout")
-                if session.discuss_channel_id and time.time() > next_typing:
-                    session._discuss_set_typing(True)
-                    next_typing = time.time() + 40
-                    env.cr.commit()
-                if op:
-                    self._apply_op(env, session, op, msg_map, produced_text)
+            try:
+                for op in adapter._run_stream(env, session, ctx):
+                    if time.time() > deadline:
+                        raise TimeoutError("Run exceeded timeout")
+                    dirty = False
+                    if session.discuss_channel_id and time.time() > next_typing:
+                        session._discuss_set_typing(True)
+                        next_typing = time.time() + 40
+                        dirty = True
+                    if op:
+                        if self._feed_text_op(op, pending):
+                            if time.time() - pending["since"] >= _STREAM_FLUSH_S:
+                                _flush_pending()
+                                dirty = True
+                        else:
+                            _flush_pending()
+                            self._apply_op(env, session, op, msg_map, produced_text)
+                            dirty = True
+                    if dirty:
+                        env.cr.commit()
+            finally:
+                # Also on error/timeout, so partial output is not lost.
+                if _flush_pending():
                     env.cr.commit()
         finally:
             if ctx.get("routing_sid"):
@@ -405,6 +424,18 @@ class AiAssistantRunner(models.AbstractModel):
     # ------------------------------------------------------------------
     # Apply one normalized op to the DB + bus
     # ------------------------------------------------------------------
+    @staticmethod
+    def _feed_text_op(op, pending):
+        """Absorb a streamed text append into ``pending``; True if absorbed."""
+        if (op.get("op") == "text" and not op.get("replace") and op.get("text")
+                and (not pending["text"] or pending["msg_id"] == op.get("msg_id"))):
+            if not pending["text"]:
+                pending["msg_id"] = op.get("msg_id")
+                pending["since"] = time.time()
+            pending["text"] += op["text"]
+            return True
+        return False
+
     def _apply_op(self, env, session, op, msg_map, produced_text):
         kind = op.get("op")
         if kind == "session_id":
@@ -414,9 +445,14 @@ class AiAssistantRunner(models.AbstractModel):
             rec = self._get_msg(env, session, op.get("msg_id"), msg_map)
             text = op.get("text") or ""
             if text:
+                # UTF-16 units, to match JS string length on the client.
+                len_before = len((rec.body or "").encode("utf-16-le")) // 2
                 rec.body = text if op.get("replace") else (rec.body or "") + text
                 produced_text["any"] = True
-                self._emit_message(session, rec)
+                if op.get("replace"):
+                    self._emit_message(session, rec)
+                else:
+                    self._emit_message(session, rec, delta=text, base_len=len_before)
         elif kind == "tool_use":
             rec = self._get_msg(env, session, op.get("msg_id"), msg_map)
             calls = list(rec.tool_calls or [])
@@ -525,8 +561,15 @@ class AiAssistantRunner(models.AbstractModel):
         payload = dict(payload, session_id=session.id)
         session.user_id.partner_id._bus_send("aidoo", payload)
 
-    def _emit_message(self, session, rec):
-        self._emit(session, {"kind": "message", "message": rec._to_frontend()[0]})
+    def _emit_message(self, session, rec, delta=None, base_len=0):
+        msg = rec._to_frontend()[0]
+        if delta is not None:
+            # Streamed append: ship only the new text; the client checks
+            # base_len against its copy and the `done` reload restores the rest.
+            msg = {k: v for k, v in msg.items() if k != "body"}
+            msg["delta"] = delta
+            msg["base_len"] = base_len
+        self._emit(session, {"kind": "message", "message": msg})
 
     def _emit_notice(self, ctx, text):
         """Emit a transient ``notice`` bus event on its OWN committed cursor.
