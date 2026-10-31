@@ -3,6 +3,7 @@
     <template id="oauth_consent" name="Aidoo OAuth consent">
         <t t-call="web.login_layout">
             <t t-set="disable_database_manager" t-value="True"/>
+            <div class="mx-auto" style="max-width: 400px;">
             <h4 class="text-center mb-3">Authorize access</h4>
             <p t-if="error" class="alert alert-danger" t-out="error"/>
             <p>
@@ -24,14 +25,17 @@
                     <button type="submit" t-attf-class="btn {{opt[2]}} w-100" t-out="opt[1]"/>
                 </form>
             </t>
+            </div>
         </t>
     </template>
 
     <template id="oauth_error" name="Aidoo OAuth error">
         <t t-call="web.login_layout">
             <t t-set="disable_database_manager" t-value="True"/>
+            <div class="mx-auto" style="max-width: 400px;">
             <h4 class="text-center mb-3">Cannot authorize</h4>
             <p class="alert alert-danger" t-out="message"/>
+            </div>
         </t>
     </template>
 </odoo>
