@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="oauth_consent" name="Aidoo OAuth consent">
+        <t t-call="web.login_layout">
+            <t t-set="disable_database_manager" t-value="True"/>
+            <h4 class="text-center mb-3">Authorize access</h4>
+            <p t-if="error" class="alert alert-danger" t-out="error"/>
+            <p>
+                <strong t-out="client_name"/> wants to use Aidoo tools as
+                <strong t-out="user_name"/>.
+            </p>
+            <p class="text-muted">
+                After approval you will be sent back to
+                <code t-out="redirect_host"/>. Only approve if you recognize this application.
+                You can revoke access any time under Preferences → Account Security.
+            </p>
+            <t t-foreach="[('allow', 'Allow', 'btn-primary'), ('deny', 'Deny', 'btn-secondary')]" t-as="opt">
+                <form method="post" action="/aidoo/oauth/authorize" class="d-grid mb-2">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <t t-foreach="hidden" t-as="name">
+                        <input type="hidden" t-att-name="name" t-att-value="hidden[name]"/>
+                    </t>
+                    <input type="hidden" name="decision" t-att-value="opt[0]"/>
+                    <button type="submit" t-attf-class="btn {{opt[2]}} w-100" t-out="opt[1]"/>
+                </form>
+            </t>
+        </t>
+    </template>
+
+    <template id="oauth_error" name="Aidoo OAuth error">
+        <t t-call="web.login_layout">
+            <t t-set="disable_database_manager" t-value="True"/>
+            <h4 class="text-center mb-3">Cannot authorize</h4>
+            <p class="alert alert-danger" t-out="message"/>
+        </t>
+    </template>
+</odoo>

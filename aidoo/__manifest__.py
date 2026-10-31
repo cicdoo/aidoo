@@ -51,6 +51,7 @@ directly from Python, no binary needed.
         'views/aidoo_scheduled_views.xml',
         'views/aidoo_skill_views.xml',
         'views/aidoo_persona_views.xml',
+        'views/oauth_templates.xml',
     ],
     'post_init_hook': 'post_init_hook',
     'assets': {

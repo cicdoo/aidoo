@@ -18,3 +18,5 @@ from . import test_features
 from . import test_artifacts
 from . import test_config_persistence
 from . import test_tool_result_size
+from . import test_mcp_server
+from . import test_mcp_oauth
