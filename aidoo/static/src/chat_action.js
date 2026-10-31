@@ -44,7 +44,6 @@ export class AiChatAction extends Component {
             currentProvider: "claude",
             messages: [],
             hasMore: false,         // older messages exist above the loaded window
-            groups: [],             // [{id, name, collapsed, sequence}] message groups
             running: false,
             notice: "",             // transient status (e.g. rate-limit retry)
             ready: false,
@@ -551,7 +550,6 @@ export class AiChatAction extends Component {
         this.state.contextLabel = data.context_label || "";
         this.state.currentSkillIds = data.skill_ids || [];
         this.state.messages = data.messages;
-        this.state.groups = data.groups || [];
         this.state.hasMore = !!data.has_more;
         this.state.running = data.state === "running";
         this.state.artifact = null;
@@ -808,99 +806,11 @@ export class AiChatAction extends Component {
             limit: keep,
         });
         this.state.messages = data.messages;
-        this.state.groups = data.groups || [];
         this.state.hasMore = !!data.has_more;
         const s = this.state.sessions.find((x) => x.id === data.id);
         if (s && data.name) {
             s.name = data.name;
         }
-    }
-
-    // ---- Message groups -------------------------------------------------
-    // Moving only changes a message's group; chronological order is untouched.
-    async moveMessage(messageIds, groupId) {
-        const ids = Array.isArray(messageIds) ? messageIds : [messageIds];
-        const previous = new Map();
-        for (const m of this.state.messages) {
-            if (ids.includes(m.id)) {
-                previous.set(m.id, m.group_id || false);
-                m.group_id = groupId || false;
-            }
-        }
-        try {
-            for (const id of ids) {
-                if (typeof id === "number") {
-                    await rpc("/aidoo/message/move", {
-                        message_id: id,
-                        group_id: groupId || false,
-                    });
-                }
-            }
-        } catch (e) {
-            for (const m of this.state.messages) {
-                if (previous.has(m.id)) {
-                    m.group_id = previous.get(m.id);
-                }
-            }
-            this.notification.add(e.data?.message || "Failed to move message.", {
-                type: "danger",
-            });
-        }
-    }
-
-    async toggleGroup(groupId) {
-        const group = this.state.groups.find((g) => g.id === groupId);
-        if (!group) return;
-        group.collapsed = !group.collapsed;
-        try {
-            await rpc("/aidoo/group/update", {
-                group_id: groupId,
-                collapsed: group.collapsed,
-            });
-        } catch {
-            group.collapsed = !group.collapsed;
-        }
-    }
-
-    async renameGroup(groupId, name) {
-        const group = this.state.groups.find((g) => g.id === groupId);
-        name = (name || "").trim();
-        if (!group || !name || name === group.name) return;
-        const old = group.name;
-        group.name = name;
-        try {
-            await rpc("/aidoo/group/update", { group_id: groupId, name });
-        } catch {
-            group.name = old;
-        }
-    }
-
-    // Create a group; when a message is dropped on a turn header it is moved in.
-    async createGroup(name, messageIds) {
-        if (!this.state.currentId) return null;
-        const group = await rpc("/aidoo/group/create", {
-            session_id: this.state.currentId,
-            name: name || "",
-        });
-        this.state.groups.push(group);
-        if (messageIds && messageIds.length) {
-            await this.moveMessage(messageIds, group.id);
-        }
-        return group;
-    }
-
-    async deleteGroup(groupId) {
-        try {
-            await rpc("/aidoo/group/delete", { group_id: groupId });
-        } catch {
-            return;
-        }
-        for (const m of this.state.messages) {
-            if (m.group_id === groupId) {
-                m.group_id = false;
-            }
-        }
-        this.state.groups = this.state.groups.filter((g) => g.id !== groupId);
     }
 
     async onSend(text, files = []) {

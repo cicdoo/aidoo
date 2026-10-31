@@ -2,12 +2,10 @@
 # Copyright 2026 CICDoo (https://cicdoo.com)
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
-"""Model-written conversation titles (runner tag extraction), message groups
-and the group/move routes."""
-import json
+"""Model-written conversation titles (runner tag extraction)."""
 from unittest.mock import patch
 
-from odoo.tests.common import HttpCase, TransactionCase, tagged
+from odoo.tests.common import TransactionCase, tagged
 
 
 @tagged("post_install", "-at_install", "aidoo")
@@ -94,88 +92,3 @@ class TestTitleTag(TransactionCase):
         self.assertEqual(self.session.name, "New conversation")
         self.assertIn("<aidoo_title>", captured["prompt"])
         self.assertNotIn("<aidoo_title>", self.session.message_ids[0].body)
-
-
-@tagged("post_install", "-at_install", "aidoo")
-class TestMessageGroups(HttpCase):
-
-    def setUp(self):
-        super().setUp()
-        self.password = "aidoo_groups_pw"
-        groups = [self.env.ref("base.group_user").id,
-                  self.env.ref("aidoo.group_ai_user").id]
-        self.user = self.env["res.users"].create({
-            "name": "Groups User", "login": "aidoo_groups_user",
-            "password": self.password, "groups_id": [(6, 0, groups)]})
-        self.other = self.env["res.users"].create({
-            "name": "Groups Other", "login": "aidoo_groups_other",
-            "password": self.password, "groups_id": [(6, 0, groups)]})
-        Session = self.env["aidoo.session"]
-        self.conv = Session.create({"user_id": self.user.id, "provider": "claude"})
-        self.conv2 = Session.create({"user_id": self.user.id, "provider": "claude"})
-        self.foreign = Session.create({"user_id": self.other.id, "provider": "claude"})
-        Msg = self.env["aidoo.message"]
-        self.msg = Msg.create({"session_id": self.conv.id, "role": "user", "body": "a"})
-        self.msg2 = Msg.create({"session_id": self.conv2.id, "role": "user", "body": "b"})
-        self.fmsg = Msg.create({"session_id": self.foreign.id, "role": "user", "body": "c"})
-        self.authenticate("aidoo_groups_user", self.password)
-
-    def _call(self, route, params):
-        resp = self.url_open(route, data=json.dumps(
-            {"jsonrpc": "2.0", "method": "call", "params": params}),
-            headers={"Content-Type": "application/json"})
-        return resp.json()
-
-    def _create_group(self, session, name="G"):
-        return self._call("/aidoo/group/create",
-                          {"session_id": session.id, "name": name})["result"]
-
-    def test_crud_and_messages_payload(self):
-        g = self._create_group(self.conv, "First")
-        self.assertEqual(g["name"], "First")
-        upd = self._call("/aidoo/group/update", {
-            "group_id": g["id"], "name": "Renamed", "collapsed": True})["result"]
-        self.assertEqual((upd["name"], upd["collapsed"]), ("Renamed", True))
-        data = self._call("/aidoo/messages", {"session_id": self.conv.id})["result"]
-        self.assertEqual([x["id"] for x in data["groups"]], [g["id"]])
-        self.assertTrue(data["groups"][0]["collapsed"])
-
-    def test_move_keeps_create_date_and_delete_ungroups(self):
-        g = self._create_group(self.conv)
-        created = self.msg.create_date
-        res = self._call("/aidoo/message/move",
-                         {"message_id": self.msg.id, "group_id": g["id"]})["result"]
-        self.assertEqual(res["group_id"], g["id"])
-        self.msg.invalidate_recordset()
-        self.assertEqual(self.msg.group_id.id, g["id"])
-        self.assertEqual(self.msg.create_date, created)
-        out = self._call("/aidoo/messages", {"session_id": self.conv.id})["result"]
-        self.assertEqual(out["messages"][0]["group_id"], g["id"])
-        self._call("/aidoo/group/delete", {"group_id": g["id"]})
-        self.msg.invalidate_recordset()
-        self.assertFalse(self.msg.group_id)
-        self.assertTrue(self.msg.exists())
-
-    def test_cross_session_move_rejected(self):
-        g = self._create_group(self.conv)
-        body = self._call("/aidoo/message/move",
-                          {"message_id": self.msg2.id, "group_id": g["id"]})
-        self.assertIn("error", body)
-        self.msg2.invalidate_recordset()
-        self.assertFalse(self.msg2.group_id)
-
-    def test_cross_user_rejected(self):
-        fgroup = self.env["aidoo.message.group"].create(
-            {"session_id": self.foreign.id, "name": "F"})
-        mine = self._create_group(self.conv)
-        for route, params in (
-            ("/aidoo/group/create", {"session_id": self.foreign.id, "name": "x"}),
-            ("/aidoo/group/update", {"group_id": fgroup.id, "name": "x"}),
-            ("/aidoo/group/delete", {"group_id": fgroup.id}),
-            ("/aidoo/message/move", {"message_id": self.fmsg.id, "group_id": False}),
-            ("/aidoo/message/move", {"message_id": self.msg.id, "group_id": fgroup.id}),
-            ("/aidoo/message/move", {"message_id": self.fmsg.id, "group_id": mine["id"]}),
-        ):
-            self.assertIn("error", self._call(route, params), route)
-        self.assertTrue(fgroup.exists())
-        self.assertEqual(fgroup.name, "F")

@@ -347,8 +347,6 @@ class AiAssistantSession(models.Model):
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
-    group_ids = fields.One2many(
-        "aidoo.message.group", "session_id", string="Message groups")
 
     # ------------------------------------------------------------------
     # Message paging (newest-anchored, for the OWL chat)
