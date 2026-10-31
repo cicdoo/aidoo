@@ -173,6 +173,7 @@ class AidooProviderClaude(AidooProvider):
             ctx["cli_path"], "-p",
             "--output-format", "stream-json",
             "--verbose",
+            "--include-partial-messages",
             "--model", ctx["model"],
             "--max-turns", str(ctx["max_turns"]),
             "--permission-mode", "default",
@@ -249,14 +250,39 @@ class AidooProviderClaude(AidooProvider):
             if sid:
                 ops.append({"op": "session_id", "id": sid})
             return ops
+        if etype == "stream_event":
+            inner = evt.get("event") or {}
+            itype = inner.get("type")
+            if itype == "message_start":
+                state["stream_mid"] = (inner.get("message") or {}).get("id")
+            elif itype == "content_block_delta":
+                delta = inner.get("delta") or {}
+                mid = state.get("stream_mid")
+                if delta.get("type") == "text_delta" and mid and delta.get("text"):
+                    state.setdefault("streamed", set()).add(mid)
+                    ops.append({"op": "text", "msg_id": mid, "text": delta["text"]})
+            return ops
         if etype == "assistant":
             message = evt.get("message") or {}
             cid = message.get("id")
-            for block in message.get("content") or []:
+            blocks = message.get("content") or []
+            if cid in state.get("streamed", ()):
+                # Text already arrived as deltas; reconcile instead of appending
+                # a duplicate. The CLI emits one event per content block of the
+                # same message, so accumulate the final text across events.
+                full = "".join(b.get("text") or "" for b in blocks
+                               if b.get("type") == "text")
+                if full:
+                    acc = state.setdefault("final_text", {})
+                    acc[cid] = acc.get(cid, "") + full
+                    ops.append({"op": "text", "msg_id": cid, "text": acc[cid],
+                                "replace": True})
+            for block in blocks:
                 btype = block.get("type")
                 if btype == "text":
-                    ops.append({"op": "text", "msg_id": cid,
-                                "text": block.get("text") or ""})
+                    if cid not in state.get("streamed", ()):
+                        ops.append({"op": "text", "msg_id": cid,
+                                    "text": block.get("text") or ""})
                 elif btype == "tool_use":
                     ops.append({
                         "op": "tool_use", "msg_id": cid,
