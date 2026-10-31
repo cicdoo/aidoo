@@ -356,7 +356,7 @@ class AidooProviderCodex(AidooProvider):
         Confined to ``ctx['uploads_dir']`` (realpath check)."""
         from ..aidoo_session import (
             UPLOAD_AUDIO_EXTS, UPLOAD_IMAGE_EXTS, UPLOAD_PDF_EXTS,
-            UPLOAD_TEXT_EXTS)
+            UPLOAD_SHEET_EXTS, UPLOAD_TEXT_EXTS)
         root = os.path.realpath(ctx.get("uploads_dir") or "")
         real = os.path.realpath(path) if isinstance(path, str) and path else ""
         if not real or not (real == root or real.startswith(root + os.sep)) \
@@ -369,7 +369,11 @@ class AidooProviderCodex(AidooProvider):
             if ext in UPLOAD_AUDIO_EXTS:
                 return {"error": "Audio cannot be read; open the matching "
                                  ".transcript.txt file instead."}, None
-            if ext in UPLOAD_TEXT_EXTS or name.endswith(".transcript.txt"):
+            if ext in UPLOAD_SHEET_EXTS:
+                return {"error": "Spreadsheets cannot be read directly; open the "
+                                 "matching .sheet.txt file instead."}, None
+            if ext in UPLOAD_TEXT_EXTS or name.endswith(
+                    (".transcript.txt", ".sheet.txt")):
                 with open(real, "rb") as f:
                     data = f.read(limit + 1)
                 text = data[:limit].decode("utf-8", errors="replace")

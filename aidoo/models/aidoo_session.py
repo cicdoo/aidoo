@@ -244,12 +244,26 @@ UPLOAD_TEXT_EXTS = {
     ".log", ".yaml", ".yml", ".ini", ".conf", ".cfg", ".toml", ".env",
     ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".htm", ".css", ".scss",
     ".sql", ".sh", ".c", ".h", ".cpp", ".hpp", ".java", ".go", ".rb", ".php",
+    ".jsonl", ".ndjson", ".xhtml", ".svg", ".psv", ".properties", ".tex",
+    ".bib", ".diff", ".patch", ".rs", ".kt", ".swift", ".cs", ".vb", ".pl",
+    ".lua", ".r", ".m", ".scala", ".dart", ".bat", ".ps1", ".zsh", ".bash",
+    ".less", ".sass", ".vue", ".svelte", ".po", ".pot", ".rtf", ".ics",
+    ".vcf", ".eml", ".cc", ".hh", ".cxx", ".hxx", ".mjs", ".cjs",
+    ".graphql", ".proto", ".tf", ".dockerfile", ".mako",
 }
+UPLOAD_SHEET_EXTS = {".xlsx", ".xlsm", ".xls"}
 UPLOAD_PDF_EXTS = {".pdf"}
 UPLOAD_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 UPLOAD_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac", ".webm"}
 ALLOWED_UPLOAD_EXTS = (
-    UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS | UPLOAD_AUDIO_EXTS)
+    UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS | UPLOAD_AUDIO_EXTS
+    | UPLOAD_SHEET_EXTS)
+
+# Spreadsheets are converted to TSV text on materialization into a sibling
+# file the prompt manifest points at (neither provider reads them natively).
+SHEET_TEXT_SUFFIX = ".sheet.txt"
+SHEET_MAX_BYTES = 200 * 1024
+SHEET_MAX_ROWS = 5000
 
 # Audio can't be Read by the CLI agent: it is transcribed server-side (in the
 # runner worker thread, see _transcribe_pending) into a sibling text file the
@@ -577,7 +591,7 @@ class AiAssistantSession(models.Model):
         if ext not in ALLOWED_UPLOAD_EXTS:
             raise UserError(_(
                 "File type '%s' is not supported. You can upload text/CSV/code, "
-                "PDF, image (PNG/JPG/GIF/WebP) and audio "
+                "spreadsheet (XLSX/XLSM/XLS), PDF, image (PNG/JPG/GIF/WebP) and audio "
                 "(MP3/WAV/M4A/OGG/OPUS/FLAC/AAC/WebM) files.") % (ext or base))
         return base
 
@@ -690,6 +704,58 @@ class AiAssistantSession(models.Model):
         with open(transcript_path, encoding="utf-8") as f:
             return f.read().strip()
 
+    # ------------------------------------------------------------------
+    # Spreadsheet -> text (see UPLOAD_SHEET_EXTS comment above)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _is_sheet_path(path):
+        return os.path.splitext(path or "")[1].lower() in UPLOAD_SHEET_EXTS
+
+    @staticmethod
+    def _sheet_text_path_for(sheet_path):
+        return sheet_path + SHEET_TEXT_SUFFIX
+
+    @staticmethod
+    def _sheet_to_text(path):
+        """TSV text per sheet, bounded in rows and bytes. Never raises."""
+        ext = os.path.splitext(path)[1].lower()
+        out, size = [], 0
+
+        def cell(v):
+            return "" if v is None else str(v).replace("\t", " ").replace(
+                "\r", " ").replace("\n", " ")
+
+        try:
+            if ext == ".xls":
+                import xlrd
+                book = xlrd.open_workbook(path, on_demand=True)
+                sheets = ((sh.name, (sh.row_values(i) for i in range(sh.nrows)))
+                          for sh in map(book.sheet_by_index, range(book.nsheets)))
+            else:
+                import openpyxl
+                book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                sheets = ((ws.title, ws.iter_rows(values_only=True))
+                          for ws in book.worksheets)
+            for name, rows in sheets:
+                out.append("--- sheet: %s ---" % name)
+                for n, row in enumerate(rows):
+                    if n >= SHEET_MAX_ROWS:
+                        out.append("[truncated: row limit]")
+                        break
+                    line = "\t".join(cell(v) for v in row).rstrip("\t")
+                    size += len(line) + 1
+                    if size > SHEET_MAX_BYTES:
+                        out.append("[truncated: size limit]")
+                        break
+                    out.append(line)
+                if size > SHEET_MAX_BYTES:
+                    break
+        except Exception as e:  # noqa: BLE001
+            _logger.warning("aidoo: spreadsheet conversion failed for %s: %s", path, e)
+            out.append("[Could not read this spreadsheet (%s). Tell the user you "
+                       "could not open it.]" % str(e)[:200])
+        return "\n".join(out)
+
     def _write_attachment_to_disk(self, att):
         """Materialize one attachment into the uploads dir; return its abs path."""
         self.ensure_one()
@@ -702,6 +768,9 @@ class AiAssistantSession(models.Model):
             cached = self._cached_transcript(att)
             if cached is not None:
                 self._write_transcript_file(self._transcript_path_for(path), cached)
+        elif self._is_sheet_path(path):
+            self._write_transcript_file(
+                self._sheet_text_path_for(path), self._sheet_to_text(path))
         return path
 
     def _materialize_attachments(self, attachment_ids):
@@ -974,6 +1043,11 @@ class AiAssistantSession(models.Model):
                     lines.append(_(
                         '- %(t)s — transcript of the attached voice note "%(a)s"'
                     ) % {"t": self._transcript_path_for(p),
+                         "a": os.path.basename(p)})
+                elif self._is_sheet_path(p):
+                    lines.append(_(
+                        '- %(t)s — spreadsheet "%(a)s" converted to tab-separated text'
+                    ) % {"t": self._sheet_text_path_for(p),
                          "a": os.path.basename(p)})
                 else:
                     lines.append("- %s" % p)

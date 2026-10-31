@@ -574,3 +574,52 @@ class TestAidooAudioUploads(TransactionCase):
         self.assertIn("broken.mp3", note)
         # Nothing cached -> retried on the next turn.
         self.assertFalse(att.sudo().description)
+
+
+class TestAidooMoreUploads(TransactionCase):
+    """Extra text/code extensions and spreadsheet -> text conversion."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.env["res.users"].create({
+            "name": "Aidoo Upload Tester",
+            "login": "aidoo_upload_tester",
+            "email": "upload.tester@example.com",
+            "groups_id": [(4, self.env.ref("base.group_user").id),
+                          (4, self.env.ref("aidoo.group_ai_user").id)],
+        })
+        self.session = self.env["aidoo.session"].with_user(self.user).create({
+            "user_id": self.user.id, "provider": "claude"})
+
+    def test_new_text_extension_accepted(self):
+        desc = self.session._store_upload("main.rs", b"fn main() {}")
+        self.assertEqual(desc["name"], "main.rs")
+
+    def test_executables_and_archives_rejected(self):
+        S = self.env["aidoo.session"]
+        for name in ("a.exe", "a.zip"):
+            with self.assertRaises(Exception):
+                S._safe_upload_name(name)
+
+    def test_xlsx_converted_to_sheet_text(self):
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        wb.active.append(["name", "qty"])
+        wb.active.append(["widget", 42])
+        buf = io.BytesIO()
+        wb.save(buf)
+        desc = self.session._store_upload("book.xlsx", buf.getvalue())
+        paths, _atts = self.session._materialize_attachments([desc["id"]])
+        with open(self.session._sheet_text_path_for(paths[0]), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("--- sheet: Data ---", text)
+        self.assertIn("widget\t42", text)
+        self.assertIn(".sheet.txt", self.session._compose_prompt("x", paths))
+
+    def test_corrupt_xlsx_leaves_note(self):
+        desc = self.session._store_upload("bad.xlsx", b"not a workbook")
+        paths, _atts = self.session._materialize_attachments([desc["id"]])
+        with open(self.session._sheet_text_path_for(paths[0]), encoding="utf-8") as f:
+            self.assertIn("Could not read this spreadsheet", f.read())

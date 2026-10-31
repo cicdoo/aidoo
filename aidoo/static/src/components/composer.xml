@@ -23,10 +23,10 @@
 
             <div class="d-flex align-items-end gap-2">
                 <input type="file" class="d-none" t-ref="file" multiple="multiple"
-                       accept=".txt,.csv,.tsv,.json,.xml,.md,.markdown,.rst,.log,.yaml,.yml,.ini,.conf,.cfg,.toml,.env,.py,.js,.ts,.jsx,.tsx,.html,.htm,.css,.scss,.sql,.sh,.c,.h,.cpp,.hpp,.java,.go,.rb,.php,.pdf,.png,.jpg,.jpeg,.gif,.webp,image/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,.webm,audio/*"
+                       accept=".txt,.csv,.tsv,.json,.xml,.md,.markdown,.rst,.log,.yaml,.yml,.ini,.conf,.cfg,.toml,.env,.py,.js,.ts,.jsx,.tsx,.html,.htm,.css,.scss,.sql,.sh,.c,.h,.cpp,.hpp,.java,.go,.rb,.php,.jsonl,.ndjson,.xhtml,.svg,.psv,.properties,.tex,.bib,.diff,.patch,.rs,.kt,.swift,.cs,.vb,.pl,.lua,.r,.m,.scala,.dart,.bat,.ps1,.zsh,.bash,.less,.sass,.vue,.svelte,.po,.pot,.rtf,.ics,.vcf,.eml,.cc,.hh,.cxx,.hxx,.mjs,.cjs,.graphql,.proto,.tf,.dockerfile,.mako,.xlsx,.xlsm,.xls,.pdf,.png,.jpg,.jpeg,.gif,.webp,image/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,.webm,audio/*"
                        t-on-change="onFilesChosen"/>
                 <button class="btn btn-light o_ai_attach"
-                        title="Attach files (text, CSV, code, PDF, images, audio)"
+                        title="Attach files (text, CSV, code, spreadsheets, PDF, images, audio)"
                         t-att-disabled="props.disabled || state.uploading"
                         t-on-click="pickFiles">
                     <i t-attf-class="fa {{ state.uploading ? 'fa-spinner fa-spin' : 'fa-paperclip' }}"/>
