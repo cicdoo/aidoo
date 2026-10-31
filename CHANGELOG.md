@@ -55,6 +55,20 @@ Odoo-style versioning (`19.0.MAJOR.MINOR.PATCH`). Add new entries under
   rendering inline as before.
 
 ### Changed
+- **Grok is now a native in-process provider** — `aidoo.provider.grok` no
+  longer drives the `grok` CLI. xAI's API (`https://api.x.ai/v1`) is
+  OpenAI-compatible chat completions, so the adapter inherits the Z.AI native
+  loop (SSE streaming, retries, in-process tool calls via `aidoo.tool.exec`)
+  and only swaps the endpoint, labels and Bearer token. **No `grok` binary is
+  required anymore.** Credentials are unchanged (`<home>/.grok/auth.json` from
+  `grok login`, or an xAI API key): the login's ~6h access token is accepted by
+  api.x.ai and is refreshed client-side against the issuer's token endpoint
+  (refresh-token rotation, written back under a per-user lock file so Odoo
+  workers never race). Default model is `grok-4.7` (`aidoo.grok.model`;
+  optional `aidoo.grok.base_url`). Z.AI gained small hooks for this
+  (`_bearer_token`, `_not_connected_text`, `_default_base_url`, label-driven
+  notices). The legacy subprocess adapter is preserved unregistered in
+  `grok_cli.py`; the CLI-path and output-format settings left the UI.
 - **Codex is now a native in-process provider** — like the native Gemini and
   Z.AI adapters, `aidoo.provider.codex` no longer drives a CLI subprocess: it
   talks to the ChatGPT Codex backend (`chatgpt.com/backend-api/codex/responses`,

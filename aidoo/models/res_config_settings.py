@@ -107,9 +107,10 @@ class ResConfigSettings(models.TransientModel):
 
     aidoo_grok_cli_path = fields.Char(
         string="Grok CLI Path", config_parameter="aidoo.grok.cli_path",
-        help="Absolute path to the grok binary. Empty = auto-detect (PATH).")
+        help="Legacy CLI adapter only. Absolute path to the grok binary.")
     aidoo_grok_model = fields.Char(
-        string="Grok Model", config_parameter="aidoo.grok.model", default="")
+        string="Grok Model", config_parameter="aidoo.grok.model", default="",
+        help="xAI model id. Empty = grok-4.7.")
     aidoo_grok_auth_mode = fields.Selection(
         [("oauth_import", "Import Grok auth.json"),
          ("api_key", "xAI API key")],
@@ -120,7 +121,8 @@ class ResConfigSettings(models.TransientModel):
     aidoo_grok_output_format = fields.Selection(
         [("streaming-json", "Streaming JSON"), ("json", "Single JSON")],
         string="Grok Output Format",
-        config_parameter="aidoo.grok.output_format", default="streaming-json")
+        config_parameter="aidoo.grok.output_format", default="streaming-json",
+        help="Legacy CLI adapter only.")
 
     aidoo_zai_model = fields.Char(
         string="Z.AI Model", config_parameter="aidoo.zai.model",

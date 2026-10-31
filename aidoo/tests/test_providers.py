@@ -7,18 +7,20 @@
 Every provider adapter must: expose the right descriptor, build a runnable
 command from a ctx (writing whatever config files its CLI needs), and normalize
 its CLI's stream events into the common op format without ever raising on junk."""
+import json
 import os
 import sys
 import tempfile
 from unittest.mock import patch
 
+from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
 
 PROVIDER_CODES = ["claude", "codex", "gemini", "grok", "zai", "custom"]
 # Providers that drive a CLI subprocess (implement _prepare_run/_normalize_event).
 # Codex, Gemini and z.ai are NATIVE (in-process) and implement _run_stream
 # instead, so the CLI-shaped contract tests don't apply to them.
-CLI_PROVIDER_CODES = ["claude", "grok"]
+CLI_PROVIDER_CODES = ["claude"]
 
 
 @tagged("post_install", "-at_install", "aidoo")
@@ -240,6 +242,100 @@ class TestProviders(TransactionCase):
         self.assertEqual(acc[0]["id"], "call_1")
         self.assertEqual(acc[0]["name"], "orm_read")
         self.assertEqual(acc[0]["arguments"], '{"model": "res.partner"}')
+
+    # ------------------------------------------------------------------
+    # Native Grok (xAI API, inherits the z.ai loop) adapter
+    # ------------------------------------------------------------------
+    def test_grok_is_native(self):
+        adapter = self._adapter("grok")
+        self.assertTrue(adapter._is_native)
+        self.assertEqual(adapter._base_url(), "https://api.x.ai/v1")
+        with self.assertRaises(NotImplementedError):
+            adapter._prepare_run(self._ctx("grok"))
+
+    def _grok_auth(self, adapter, entry):
+        """Write a `grok login` auth.json for the current user into a temp home."""
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.grok.home_root", self.scratch)
+        path = adapter._auth_path(self.env.user)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"https://auth.x.ai::cid": entry}, f)
+        return path
+
+    def test_grok_refresh_persists_rotated_token(self):
+        """A near-expiry login is refreshed once; the new key, rotated refresh
+        token and expiry are written back and unknown fields are kept."""
+        from odoo.addons.aidoo.models.providers import grok
+        adapter = self._adapter("grok")
+        path = self._grok_auth(adapter, {
+            "key": "old", "refresh_token": "rt1", "email": "a@b.c",
+            "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "cid",
+            "expires_at": "2000-01-01T00:00:00Z"})
+        seen = {}
+
+        def fake_refresh(self, entry):
+            seen["rt"] = entry["refresh_token"]
+            return dict(entry, key="new", refresh_token="rt2",
+                        expires_at="2999-01-01T00:00:00.000000Z")
+
+        with patch.object(type(adapter), "_refresh_entry", new=fake_refresh):
+            self.assertEqual(adapter._bearer_token(self.env.user), "new")
+            # Now fresh: no second refresh.
+            self.assertEqual(adapter._bearer_token(self.env.user), "new")
+        self.assertEqual(seen["rt"], "rt1")
+        with open(path) as f:
+            entry = json.load(f)["https://auth.x.ai::cid"]
+        self.assertEqual(entry["refresh_token"], "rt2")
+        self.assertEqual(entry["email"], "a@b.c")
+        self.assertTrue(grok._parse_expiry(entry["expires_at"]) > 4e9)
+
+    def test_grok_expired_login_without_refresh_is_disconnected(self):
+        adapter = self._adapter("grok")
+        self._grok_auth(adapter, {"key": "old",
+                                  "expires_at": "2000-01-01T00:00:00Z"})
+        self.env["ir.config_parameter"].sudo().set_param("aidoo.grok.api_key", "")
+        self.assertFalse(adapter._is_authenticated(self.env.user))
+
+    def test_grok_import_rejects_entry_without_key(self):
+        adapter = self._adapter("grok")
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.grok.home_root", self.scratch)
+        with self.assertRaises(UserError):
+            adapter._auth_import(self.env.user, '{"x": {"email": "a@b.c"}}')
+
+    def test_grok_native_tool_loop(self):
+        from odoo.addons.aidoo.models.providers import zai_client
+        user, user_env, session, adapter, ctx = self._native_user_env("grok")
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.grok.api_key", "test-key")
+        args = ('{"model": "res.users", "ids": [%s], "fields": ["login"]}'
+                % user.id)
+        rounds = [
+            [{"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "id": "call_1",
+                 "function": {"name": "orm_read", "arguments": args}}]}}]}],
+            [{"choices": [{"delta": {"content": "Your login is "
+                                     "aidoo_native_grok."}}]}],
+        ]
+        calls = {"n": 0, "base": None}
+
+        def fake_stream_chat(self, model, messages, **kw):
+            calls["base"] = self._base
+            i = calls["n"]
+            calls["n"] += 1
+            for chunk in rounds[i]:
+                yield chunk
+
+        with patch.object(zai_client.ZaiClient, "stream_chat",
+                          new=fake_stream_chat), self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(calls["base"], "https://api.x.ai/v1")
+        tool_result = next(o for o in ops if o["op"] == "tool_result")
+        self.assertFalse(tool_result["is_error"])
+        self.assertIn("aidoo_native_grok", tool_result["text"])
 
     # ------------------------------------------------------------------
     # Native Codex (in-process ChatGPT Codex backend) adapter

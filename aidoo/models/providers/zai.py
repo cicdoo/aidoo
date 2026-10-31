@@ -48,6 +48,10 @@ class AidooProviderZai(AidooProvider):
         "(from https://z.ai/manage-apikey/apikey-list).")
     _uses_system_prompt_flag = False
     _is_native = True
+    # Chat-completions base used when ``aidoo.<code>.base_url`` is unset.
+    # Subclassed by the native Grok adapter, which only swaps the endpoint,
+    # labels and how the Bearer token is obtained.
+    _default_base_url = ZAI_CODING_BASE
 
     # ------------------------------------------------------------------
     # Per-user credential file (under the .zai config dir)
@@ -70,16 +74,24 @@ class AidooProviderZai(AidooProvider):
     def _is_authenticated(self, user):
         return bool(self._api_key(user))
 
+    def _bearer_token(self, user):
+        """The Bearer token for this run (empty = not connected)."""
+        return self._api_key(user)
+
+    def _not_connected_text(self):
+        return _("Connect z.ai with your API key to chat. Open the connect panel "
+                 "and paste your z.ai API key.")
+
     def _base_url(self):
-        """The coding endpoint base URL, read PROVIDER-SCOPED only.
+        """The chat endpoint base URL, read PROVIDER-SCOPED only.
 
         We must not use ``_pconfig`` here: its fallback to the shared
         ``aidoo.base_url`` is the Odoo *host* URL, which would silently point the
-        client at the local server. Read ``aidoo.zai.base_url`` directly and fall
-        back to the z.ai coding endpoint constant."""
+        client at the local server. Read ``aidoo.<code>.base_url`` directly and
+        fall back to the provider's endpoint constant."""
         val = self.env["ir.config_parameter"].sudo().get_param(
-            "aidoo.zai.base_url")
-        return val if val not in (None, False, "") else ZAI_CODING_BASE
+            "aidoo.%s.base_url" % self._provider_code)
+        return val if val not in (None, False, "") else self._default_base_url
 
     # ------------------------------------------------------------------
     # Prompt: native assembles structured `messages` in _run_stream; here we
@@ -93,12 +105,15 @@ class AidooProviderZai(AidooProvider):
     # ------------------------------------------------------------------
     def _run_stream(self, env, session, ctx):
         user = session._credential_user().sudo()
-        key = self._api_key(user)
-        if not key:
-            yield {"op": "error", "text": _(
-                "Connect z.ai with your API key to chat. Open the connect panel "
-                "and paste your z.ai API key.")}
+        try:
+            key = self._bearer_token(user)
+        except UserError as e:
+            yield {"op": "error", "text": str(e)}
             return
+        if not key:
+            yield {"op": "error", "text": self._not_connected_text()}
+            return
+        label = self._provider_label
 
         runner = env["aidoo.runner"]
 
@@ -108,9 +123,11 @@ class AidooProviderZai(AidooProvider):
             if attempt < 2 and delay < 8:
                 return
             if reason == 429:
-                text = _("z.ai is rate-limited — retrying in %ss…") % int(delay)
+                text = _("%(label)s is rate-limited — retrying in %(s)ss…",
+                         label=label, s=int(delay))
             else:
-                text = _("z.ai is busy — retrying in %ss…") % int(delay)
+                text = _("%(label)s is busy — retrying in %(s)ss…",
+                         label=label, s=int(delay))
             runner._emit_notice(ctx, text)
 
         client = ZaiClient(
@@ -126,7 +143,7 @@ class AidooProviderZai(AidooProvider):
         max_rounds = max(1, int(ctx.get("max_turns") or 30))
 
         for rnd in range(max_rounds):
-            msg_id = "z%s-%s" % (session.turn_count, rnd)
+            msg_id = "%s%s-%s" % (self._provider_code, session.turn_count, rnd)
             content_buf = ""
             tool_acc = {}
             try:
@@ -141,7 +158,8 @@ class AidooProviderZai(AidooProvider):
                         ZaiClient.accumulate_tool_calls(
                             tool_acc, delta["tool_calls"])
             except ZaiError as e:
-                yield {"op": "error", "text": _("z.ai request failed: %s") % e}
+                yield {"op": "error", "text": _(
+                    "%(label)s request failed: %(err)s", label=label, err=e)}
                 return
 
             calls = [tool_acc[i] for i in sorted(tool_acc) if tool_acc[i].get("name")]
@@ -167,8 +185,8 @@ class AidooProviderZai(AidooProvider):
                         args = {}
                 except ValueError:
                     _logger.warning(
-                        "z.ai: tool %s sent non-JSON arguments, using {}: %.200s",
-                        c.get("name"), c.get("arguments"))
+                        "%s: tool %s sent non-JSON arguments, using {}: %.200s",
+                        self._provider_code, c.get("name"), c.get("arguments"))
                     args = {}
                 yield {"op": "tool_use", "msg_id": msg_id, "id": c["id"],
                        "name": c["name"], "input": args}
@@ -180,7 +198,8 @@ class AidooProviderZai(AidooProvider):
                 messages.append({"role": "tool", "tool_call_id": c["id"],
                                  "content": payload})
 
-        yield {"op": "text", "msg_id": "z%s-cap" % session.turn_count,
+        yield {"op": "text",
+               "msg_id": "%s%s-cap" % (self._provider_code, session.turn_count),
                "text": _("\n\n_(stopped after %s tool rounds)_") % max_rounds}
         return  # hard stop: never run beyond the round cap
 
