@@ -77,11 +77,18 @@ class AiAssistantChat(http.Controller):
 
     @http.route("/aidoo/auth/key", type="json", auth="user")
     def auth_key(self, provider=None, key=None):
-        return self._adapter(provider)._auth_set_key(request.env.user, key)
+        adapter = self._adapter(provider)
+        res = adapter._auth_set_key(request.env.user, key)
+        # Clearing a key removes the file; share that with the other nodes.
+        adapter._cred_sync(request.env.user, force=True)
+        return res
 
     @http.route("/aidoo/auth/logout", type="json", auth="user")
     def auth_logout(self, provider=None):
-        return self._adapter(provider)._auth_logout(request.env.user)
+        adapter = self._adapter(provider)
+        res = adapter._auth_logout(request.env.user)
+        adapter._cred_sync(request.env.user, force=True)
+        return res
 
     # ------------------------------------------------------------------
     # Conversations

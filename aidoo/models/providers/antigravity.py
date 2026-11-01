@@ -52,6 +52,7 @@ class AidooProviderAntigravity(AidooProvider):
     _accent_color = "#4285F4"
     _provider_icon = "/aidoo/static/src/svg/antigravity-color.svg"
     _config_dir_name = ".gemini"
+    _credential_files = (".gemini/antigravity-cli/antigravity-oauth-token",)
     _default_cli_glob = "/usr/local/bin/agy"
     _default_model = ""
     _auth_ui_mode = "import_or_key"

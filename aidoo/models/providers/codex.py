@@ -69,6 +69,7 @@ class AidooProviderCodex(AidooProvider):
     _accent_color = "#10a37f"          # codex used teal
     _provider_icon = "/aidoo/static/src/svg/openai.svg"
     _config_dir_name = ".codex"        # CODEX_HOME lives at <home>/.codex
+    _credential_files = (".codex/auth.json",)
     # The native client must always pin a model (the request body requires one;
     # there is no CLI "account default" to fall back to). NB: the ChatGPT
     # backend only serves the mainline chat models — codex-branded ids

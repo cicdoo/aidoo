@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import queue
+import socket
 import subprocess
 import sys
 import threading
@@ -40,6 +41,8 @@ _TITLE_MAX_CHARS = 300
 
 # Max delay before streamed text deltas are written/emitted to the chat.
 _STREAM_FLUSH_S = 0.15
+# How often a running turn checks whether it was stopped from another node.
+_STOP_CHECK_S = 5
 
 
 def _lift_rlimit_as():
@@ -95,6 +98,17 @@ class AiAssistantRunner(models.AbstractModel):
         # Align the CLI's stored account identity with the credential user (Claude).
         if not native:
             adapter._sync_cli_account(cred_user)
+        # On a multi-node cluster the previous turn may have run on another node:
+        # bring this node's copy of the conversation's CLI state and uploads up
+        # to date before the CLI looks for them. Best effort — Claude replays
+        # history when its transcript is still missing.
+        try:
+            if not native:
+                session._restore_cli_state(adapter, cred_user)
+            session._restore_uploads()
+        except Exception:  # noqa: BLE001
+            _logger.warning("AI assistant: restoring node-local state for session %s "
+                            "failed", session.id, exc_info=True)
         allowed_tools = sorted(session._effective_tools())
         excluded_models = sorted(session.user_id.sudo()._ai_excluded_models())
         identity = session._run_identity(set(allowed_tools))
@@ -188,9 +202,12 @@ class AiAssistantRunner(models.AbstractModel):
                     "AI assistant: writing stdin to %s failed (process already "
                     "gone?)", ctx["provider"], exc_info=True)
 
-        session.write({"last_run_pid": proc.pid})
+        session.write({"last_run_pid": proc.pid, "last_run_host": socket.gethostname()})
         self._emit(session, {"kind": "started"})
         env.cr.commit()
+        # A Stop (or the reaper) handled by another node cannot signal our
+        # child; it flips the session out of 'running' and we kill it here.
+        next_stop_check = time.time() + _STOP_CHECK_S
 
         deadline = time.time() + ctx["timeout_s"]
         # Keep the Discuss "typing…" indicator alive across long runs (clients
@@ -253,6 +270,15 @@ class AiAssistantRunner(models.AbstractModel):
                 if remaining <= 0:
                     proc.kill()
                     raise TimeoutError("Run exceeded timeout")
+                if time.time() > next_stop_check:
+                    next_stop_check = time.time() + _STOP_CHECK_S
+                    _flush_pending()
+                    env.cr.commit()  # a fresh snapshot sees the other node's write
+                    session.invalidate_recordset(["state"])
+                    if session.state != "running" and proc.poll() is None:
+                        _logger.info("AI assistant: session %s stopped elsewhere, "
+                                     "killing its CLI", ctx["session_id"])
+                        proc.terminate()
                 wait = min(remaining, 5)
                 if pending["text"]:
                     wait = min(wait, max(0.0, pending["since"] + _STREAM_FLUSH_S - time.time()))
@@ -305,6 +331,7 @@ class AiAssistantRunner(models.AbstractModel):
                 except OSError:
                     pass
             env["aidoo.session"]._delete_routing_sid(ctx.get("routing_sid"))
+            self._save_node_state(env, session, adapter)
 
         if stderr_reader is not None:
             stderr_reader.join(timeout=5)
@@ -332,7 +359,8 @@ class AiAssistantRunner(models.AbstractModel):
         self._persist_turn_artifacts(
             env, session,
             env["aidoo.message"].browse(list(msg_map.values())) | fallback_rec)
-        session.write({"last_run_pid": False, "turn_count": session.turn_count + 1})
+        session.write({"last_run_pid": False, "last_run_host": False,
+                       "turn_count": session.turn_count + 1})
         # Any tool call still marked "running" never received its result event
         # (CLI exited mid-tool, timed out, or was stopped). Settle it so the
         # chip doesn't spin forever once the frontend reloads.
@@ -353,6 +381,19 @@ class AiAssistantRunner(models.AbstractModel):
             session._deliver_result(rc == 0)
         except Exception:  # noqa: BLE001
             _logger.exception("AI assistant: result delivery failed")
+
+    def _save_node_state(self, env, session, adapter):
+        """After the CLI exits: save the conversation's resume state on the
+        session and push a login the CLI refreshed mid-run, so the next turn can
+        run on any node. Never raises — it must not change how the turn ends."""
+        try:
+            with env.cr.savepoint():
+                cred_user = session._credential_user()
+                session._store_cli_state(adapter, cred_user)
+                adapter._cred_sync(cred_user, force=True)
+        except Exception:  # noqa: BLE001
+            _logger.warning("AI assistant: saving CLI state for session %s failed",
+                            session.id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Native (in-process) execution — no subprocess, no stdout pump.

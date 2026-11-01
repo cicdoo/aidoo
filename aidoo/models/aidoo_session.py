@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -10,6 +11,7 @@ import logging
 import os
 import re
 import secrets
+import socket
 import subprocess
 import time
 import uuid
@@ -323,7 +325,15 @@ class AiAssistantSession(models.Model):
         string="Skills", copy=False)
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
+    # The node that spawned last_run_pid: on a multi-node cluster a pid only
+    # means something on the host that owns it.
+    last_run_host = fields.Char(copy=False)
     last_error = fields.Text(copy=False)
+    # The CLI's resume state (Claude's transcript), carried between turns so a
+    # turn served by another node of a cluster resumes the conversation. A
+    # gzipped JSON map {path relative to the credential user's home: base64}.
+    cli_state = fields.Binary(attachment=True, copy=False, groups="base.group_system")
+    cli_state_sha = fields.Char(copy=False, groups="base.group_system")
 
     # Optional record this conversation is focused on (set when opened from a
     # form view via "Ask Aidoo"). Used to seed the first prompt and the UI chip.
@@ -527,25 +537,106 @@ class AiAssistantSession(models.Model):
             seconds=timeout + 120)
         stale = self.search([("state", "=", "running"), ("write_date", "<", cutoff)])
         for session in stale:
-            if session.last_run_pid:
-                try:
-                    os.kill(session.last_run_pid, 9)
-                except (ProcessLookupError, PermissionError):
-                    pass
-            session.write({"state": "error", "last_run_pid": False,
+            session._kill_run(9)
+            session.write({"state": "error", "last_run_pid": False, "last_run_host": False,
                            "last_error": "Reaped by cron (stale run)."})
         return True
 
     def action_stop(self):
-        """Terminate the running CLI subprocess for this session, if any."""
+        """Terminate the running CLI subprocess for this session, if any.
+
+        A run on another node is stopped by the state change itself: its
+        runner sees the session leave 'running' and kills its own child."""
         self.ensure_one()
-        if self.last_run_pid:
-            try:
-                os.kill(self.last_run_pid, 15)  # SIGTERM
-            except (ProcessLookupError, PermissionError):
-                pass
-        self.write({"state": "idle", "last_run_pid": False})
+        self._kill_run(15)  # SIGTERM
+        self.write({"state": "idle", "last_run_pid": False, "last_run_host": False})
         return True
+
+    def _kill_run(self, sig):
+        """Signal the CLI subprocess, but only from the node that spawned it:
+        the same pid on another host is an unrelated process."""
+        self.ensure_one()
+        if not self.last_run_pid or self.last_run_host != socket.gethostname():
+            return False
+        try:
+            os.kill(self.last_run_pid, sig)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    # ------------------------------------------------------------------
+    # Node-local run state carried through the database (multi-node clusters)
+    # ------------------------------------------------------------------
+    def _store_cli_state(self, adapter, user):
+        """Save the CLI's resume files for this conversation on the session."""
+        self.ensure_one()
+        home = adapter._home_dir(user)
+        files = {}
+        for path in adapter._session_state_files(self, user):
+            with open(path, "rb") as f:
+                files[os.path.relpath(path, home)] = base64.b64encode(f.read()).decode()
+        if not files:
+            return False
+        raw = json.dumps(files, sort_keys=True).encode()
+        sha = hashlib.sha256(raw).hexdigest()
+        rec = self.sudo()
+        if rec.cli_state_sha == sha:
+            return False
+        rec.write({"cli_state": base64.b64encode(gzip.compress(raw)), "cli_state_sha": sha})
+        return True
+
+    def _restore_cli_state(self, adapter, user):
+        """Write the stored resume files back under the user's home dir when
+        this node's copy is missing or different. The stored copy is the newest:
+        it is saved after every turn, whichever node served it."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not rec.cli_state:
+            return 0
+        files = json.loads(gzip.decompress(base64.b64decode(rec.cli_state)))
+        home = os.path.realpath(adapter._home_dir(user))
+        written = 0
+        for rel, b64 in files.items():
+            path = os.path.realpath(os.path.join(home, rel))
+            if os.path.isabs(rel) or not path.startswith(home + os.sep):
+                _logger.warning("aidoo: session %s: refusing state path %r", self.id, rel)
+                continue
+            content = base64.b64decode(b64)
+            try:
+                with open(path, "rb") as f:
+                    if f.read() == content:
+                        continue
+            except OSError:
+                pass
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            tmp = path + ".tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            written += 1
+        if written:
+            _logger.info("aidoo: session %s: restored %d CLI state file(s) on this node",
+                         self.id, written)
+        return written
+
+    def _restore_uploads(self):
+        """Re-materialize files uploaded in earlier turns that are missing on
+        this node (they were written on the node that received the upload)."""
+        self.ensure_one()
+        atts = self.env["ir.attachment"].sudo().search(
+            [("res_model", "=", self._name), ("res_id", "=", self.id),
+             ("res_field", "=", False), ("description", "!=", "aidoo_artifact")])
+        restored = 0
+        for att in atts:
+            try:
+                name = "%s_%s" % (att.id, self._safe_upload_name(att.name))
+            except UserError:
+                continue  # not an upload
+            if not os.path.exists(os.path.join(self._uploads_dir(), name)):
+                self._write_attachment_to_disk(att)
+                restored += 1
+        return restored
 
     # ------------------------------------------------------------------
     # Scratch working directory (CLI cwd) — NOT under /opt/odoo source
@@ -1066,12 +1157,18 @@ class AiAssistantSession(models.Model):
             parts.append(msg)
         return "\n\n".join(parts)
 
-    def _history_for_prompt(self):
+    def _history_for_prompt(self, exclude_last_user=False):
         """Bounded transcript of this conversation, for providers that cannot
-        resume a server-side session and must replay context into the prompt."""
+        resume a server-side session and must replay context into the prompt.
+
+        ``exclude_last_user`` drops the newest message when it is the user's
+        (the one being answered, already sent as the prompt)."""
         self.ensure_one()
         msgs = self.message_ids.filtered(lambda m: m.role in ("user", "assistant"))
-        msgs = msgs.sorted("id")[-HISTORY_MAX_MESSAGES:]
+        msgs = msgs.sorted("id")
+        if exclude_last_user and msgs and msgs[-1].role == "user":
+            msgs = msgs[:-1]
+        msgs = msgs[-HISTORY_MAX_MESSAGES:]
         if not msgs:
             return ""
         text = "\n\n".join(

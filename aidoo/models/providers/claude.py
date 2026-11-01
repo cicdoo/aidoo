@@ -40,6 +40,10 @@ OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 OAUTH_SCOPES = "org:create_api_key user:profile user:inference"
 _PKCE_PARAM = "aidoo.claude.oauth_pkce.%s"
+# Renew the access token when it is this close to expiry (seconds), and treat a
+# token this close to expiry as already gone when reporting auth state.
+_REFRESH_SKEW_S = 300
+_EXPIRY_SKEW_S = 60
 
 DEFAULT_CLI_GLOB = (
     "/opt/odoo/.local/share/code-server/extensions/"
@@ -56,6 +60,7 @@ class AidooProviderClaude(AidooProvider):
     _accent_color = "#714b67"
     _provider_icon = "/aidoo/static/src/svg/claude-color.svg"
     _config_dir_name = ".claude"
+    _credential_files = (".claude/.credentials.json",)
     _default_cli_glob = DEFAULT_CLI_GLOB
     _default_model = "claude-sonnet-4-5"
     _auth_ui_mode = "oauth_code"
@@ -93,6 +98,10 @@ class AidooProviderClaude(AidooProvider):
     # Runtime env: HOME + CLAUDE_CONFIG_DIR (per user)
     # ------------------------------------------------------------------
     def _oauth_env(self, user):
+        # Renew before the CLI starts. The CLI refreshes on its own, but only
+        # when the stored credential carries a refreshToken — without one every
+        # run dies on "API Error: 401 OAuth access token has expired".
+        self._refresh_credentials(user)
         return {
             "HOME": self._home_dir(user),
             "CLAUDE_CONFIG_DIR": self._config_dir(user, create=True),
@@ -106,6 +115,16 @@ class AidooProviderClaude(AidooProvider):
             return False
         pattern = os.path.join(config_dir, "projects", "*", sid + ".jsonl")
         return bool(glob.glob(pattern))
+
+    def _session_state_files(self, session, user):
+        """The conversation's transcript: --resume needs it on the node that
+        runs the next turn."""
+        sid = session.cli_session_id
+        if not sid:
+            return []
+        pattern = os.path.join(self._config_dir(user), "projects", "*", sid + ".jsonl")
+        matches = glob.glob(pattern)
+        return [max(matches, key=os.path.getmtime)] if matches else []
 
     def _sync_cli_account(self, user):
         """Overwrite display-only fields in .claude.json so the CLI's injected
@@ -185,19 +204,32 @@ class AidooProviderClaude(AidooProvider):
         ]
         # Resume only when this conversation's transcript exists under the
         # current CLAUDE_CONFIG_DIR; otherwise start fresh (reusing the UUID) so
-        # the turn doesn't fail with "No conversation found".
+        # the turn doesn't fail with "No conversation found". The runner restores
+        # the transcript from the session first, so a miss here means there is
+        # none stored (a conversation from before transcripts were shared): replay
+        # recent history into the prompt rather than answer with no context.
         is_first = ctx["is_first"]
+        prompt = ctx["prompt"]
         if not is_first:
             config_dir = ctx["oauth_env"].get("CLAUDE_CONFIG_DIR", "")
             pattern = os.path.join(
                 config_dir, "projects", "*", ctx["cli_session_id"] + ".jsonl")
             if not glob.glob(pattern):
                 is_first = True
+                session = self.env["aidoo.session"].browse(ctx["session_id"])
+                history = session._history_for_prompt(exclude_last_user=True)
+                _logger.warning(
+                    "AI assistant: no transcript for session %s on this node, "
+                    "replaying %d chars of history", ctx["session_id"], len(history))
+                if history:
+                    # Must not start with a dash: the prompt is an argv element.
+                    prompt = ("=== EARLIER IN THIS CONVERSATION (restored context) "
+                              "===\n\n%s\n\n=== NEW MESSAGE ===\n\n%s" % (history, prompt))
         if is_first:
             argv += ["--session-id", ctx["cli_session_id"]]
         else:
             argv += ["--resume", ctx["cli_session_id"]]
-        argv.append(ctx["prompt"])
+        argv.append(prompt)
         return argv
 
     def _write_settings(self, ctx):
@@ -321,13 +353,104 @@ class AidooProviderClaude(AidooProvider):
     def _credentials_path(self, user):
         return os.path.join(self._config_dir(user), ".credentials.json")
 
-    def _is_authenticated(self, user):
+    def _read_credentials(self, user):
+        """The whole credentials document ({} when absent or corrupt)."""
         try:
             with open(self._credentials_path(user)) as f:
                 data = json.load(f)
-            return bool((data.get("claudeAiOauth") or {}).get("accessToken"))
         except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _oauth_block(self, data):
+        block = data.get("claudeAiOauth")
+        return block if isinstance(block, dict) else {}
+
+    def _is_expired(self, oauth, skew=_EXPIRY_SKEW_S):
+        """True when the access token is past (or within ``skew`` of) expiry.
+
+        A credential with no parseable ``expiresAt`` is taken at face value —
+        the CLI is then the one to complain."""
+        try:
+            expires_at = int(oauth.get("expiresAt"))
+        except (TypeError, ValueError):
             return False
+        return expires_at / 1000.0 <= time.time() + skew
+
+    def _is_authenticated(self, user):
+        oauth = self._oauth_block(self._read_credentials(user))
+        if not oauth.get("accessToken"):
+            return False
+        # An expired token is only recoverable when a refresh token is stored;
+        # without one nothing can renew it, so report it as disconnected rather
+        # than letting the run reach the API and come back 401.
+        return bool(oauth.get("refreshToken")) or not self._is_expired(oauth)
+
+    def _refresh_credentials(self, user):
+        """Renew the access token from the stored refresh token, in place.
+
+        Returns True when the credentials file was rewritten. Network trouble is
+        non-fatal (the CLI gets its own turn); a refusal from the token endpoint,
+        or an expired credential with nothing to refresh from, raises so the
+        caller sees "reconnect" instead of a bare 401 out of the CLI."""
+        data = self._read_credentials(user)
+        oauth = self._oauth_block(data)
+        if not oauth.get("accessToken") or not self._is_expired(oauth, _REFRESH_SKEW_S):
+            return False
+        # Refresh tokens rotate: two nodes spending the same one leaves the
+        # loser holding a dead token. Lock the shared login row and re-read, so
+        # a refresh another node just committed is picked up instead of repeated.
+        if self._cred_sync(user, lock=True) == "pull":
+            data = self._read_credentials(user)
+            oauth = self._oauth_block(data)
+            if not oauth.get("accessToken") or not self._is_expired(oauth, _REFRESH_SKEW_S):
+                return False
+        who = user.name or user.login
+        refresh_token = oauth.get("refreshToken")
+        if not refresh_token:
+            raise UserError(_(
+                "The stored Claude session for %s has expired and carries no "
+                "refresh token, so it cannot be renewed. Reconnect the account "
+                "(for a persona: AI ▸ Personas ▸ Login with Claude).") % who)
+        payload = {
+            "grant_type": "refresh_token", "refresh_token": refresh_token,
+            "client_id": OAUTH_CLIENT_ID,
+        }
+        try:
+            resp = requests.post(
+                OAUTH_TOKEN_URL, json=payload,
+                headers={"Content-Type": "application/json"}, timeout=30)
+        except requests.RequestException as e:
+            _logger.warning(
+                "Claude token refresh for user %s could not reach Claude: %s", user.id, e)
+            return False
+        if resp.status_code != 200:
+            _logger.warning("Claude token refresh for user %s rejected (%s): %s",
+                            user.id, resp.status_code, resp.text[:500])
+            raise UserError(_(
+                "Claude refused to renew the session for %(who)s (HTTP %(code)s). "
+                "Reconnect the account.", who=who, code=resp.status_code))
+        body = resp.json()
+        access = body.get("access_token")
+        if not access:
+            _logger.warning("Claude token refresh for user %s returned no token", user.id)
+            return False
+        # Keep every field already on the block (rateLimitTier, subscriptionType,
+        # …) and replace only what came back. A response that omits refresh_token
+        # means the existing one stays valid — dropping it is exactly what leaves
+        # a credential permanently unrenewable.
+        oauth = dict(oauth)
+        oauth["accessToken"] = access
+        if body.get("refresh_token"):
+            oauth["refreshToken"] = body["refresh_token"]
+        oauth["expiresAt"] = int((time.time() + int(body.get("expires_in") or 0)) * 1000)
+        if body.get("scope"):
+            oauth["scopes"] = body["scope"].split()
+        if body.get("subscription_type"):
+            oauth["subscriptionType"] = body["subscription_type"]
+        data["claudeAiOauth"] = oauth
+        self._write_user_file(user, self._credentials_path(user), json.dumps(data))
+        return True
 
     def _auth_start(self, user):
         verifier = secrets.token_urlsafe(64)

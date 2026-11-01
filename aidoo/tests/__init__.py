@@ -22,3 +22,4 @@ from . import test_mcp_oauth
 from . import test_groups_title
 from . import test_session_folders
 from . import test_change_request
+from . import test_cluster_state
