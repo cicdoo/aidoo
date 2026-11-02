@@ -14,13 +14,23 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 - **Claude streaming** — assistant text deltas are streamed into the chat; native text deltas are batched and the bus carries deltas instead of the full body.
 - **Codex `read_attachment`** — a local tool so native Codex can open attachments.
 - **Grok is now a native in-process provider** — `aidoo.provider.grok` talks to xAI's OpenAI-compatible API (inherits the Z.AI native loop), so no `grok` binary is required. Credentials are unchanged (`grok login` auth.json with client-side refresh, or an xAI API key); default model `grok-4.7`, optional `aidoo.grok.base_url`. The legacy subprocess adapter is kept unregistered in `grok_cli.py`.
+- **More upload file types in the chat** — many more text/code extensions (Rust, Kotlin, Swift, C#, Lua, Vue, patches, `.po`, `.eml`, …) and spreadsheets (`.xlsx`, `.xlsm`, `.xls`), which are converted to a TSV `.sheet.txt` sibling the model reads (works with Claude and Codex providers).
 
 ### Changed
 - **Path-scoped OAuth discovery** — the issuer is now `<host>/aidoo`; metadata is served at `/.well-known/oauth-authorization-server/aidoo` (and `/aidoo/.well-known/oauth-authorization-server`) and `/.well-known/oauth-protected-resource/aidoo/mcp`. The bare `/.well-known/*` URLs are no longer claimed.
 - Tool results are bounded in bytes, not only in rows; `orm_action` passes the calling session id in the context; the chat shows the server's error text.
 - OAuth consent/error pages are wrapped in a centred container.
 
+### Removed
+- **Chat message grouping** (ported from 18.0) — the "New group" button, collapsible turn/group headers, drag-to-group, rename and delete are gone from the chat transcript, together with the `aidoo.message.group` model, its `/aidoo/group/*` and `/aidoo/message/move` routes and `aidoo.message.group_id`. The transcript is now a flat chronological list. Sidebar folders and date sections (and dragging conversations between them) are unchanged. On existing databases the orphaned `aidoo_message_group` table and `aidoo_message.group_id` column are left in place.
+
 ### Fixed
+- **Multi-node clusters (several Odoo servers on one database)** — state that lived only on the node's disk now goes through the database, so any node can serve any turn:
+  - **Claude conversation context** — the CLI transcript is saved on the session after each turn (`cli_state`, an attachment) and restored before the next, so `--resume` works when a turn lands on another node. Previously the CLI silently started a new conversation ("I don't see any earlier request"). A non-first turn with no transcript (conversations from before this fix) now replays recent history into the prompt and logs a warning.
+  - **Provider logins** — each provider's credential files are mirrored in the new `aidoo.credential` model (sudo-only) and reconciled per node with a three-way merge, so a login, logout or token refresh on one node applies on all of them. Claude's refresh locks the shared row and re-reads first, so two nodes never spend the same rotating refresh token.
+  - **Uploads** from earlier turns are re-materialized when missing on the node running the turn.
+  - **Stop and the stale-run reaper** only signal a pid on the node that spawned it (`last_run_host`); previously the reaper could SIGKILL an unrelated process with the same pid on another node. A Stop handled by another node is picked up by the running node within 5 s.
+- **Claude access token renewed before each run** — an expiring token is refreshed from the stored refresh token before the CLI starts, and a credential with no refresh token reports as disconnected instead of failing the run with a 401.
 - **MCP OAuth consent `access_denied` fix** — the consent page no longer uses the login form class (whose script could drop the clicked button's value) and posts an explicit hidden `decision`; a missing decision re-renders the page instead of returning `access_denied`, and consent decisions are logged.
 
 ### Added

@@ -311,6 +311,7 @@ class AidooPersona(models.Model):
         self.ensure_one()
         self._check_manager()
         self._adapter()._auth_logout(self.bot_user_id.sudo())
+        self._adapter()._cred_sync(self.bot_user_id.sudo(), force=True)
         self._compute_authenticated()
         return self._notify(
             _("%s has been disconnected.") % self.name,

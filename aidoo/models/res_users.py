@@ -223,6 +223,7 @@ class ResUsers(models.Model):
             for code, _label in PROVIDERS:
                 try:
                     user._ai_provider(code)._auth_logout(user)
+                    user._ai_provider(code)._cred_sync(user, force=True)
                 except Exception:  # noqa: BLE001
                     _logger.exception("aidoo: logout failed for provider %s", code)
         return True

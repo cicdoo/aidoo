@@ -128,6 +128,10 @@ class AidooProvider(models.AbstractModel):
     _accent_color = "#714b67"     # chart/report accent in the UI
     _provider_icon = ""           # provider logo URL (under static/), shown in the chat list
     _config_dir_name = ".aidoo"   # per-user CLI config dir under HOME
+    # The files (relative to the per-user home dir) that make up a login. They
+    # are mirrored through aidoo.credential so every node of a cluster sees the
+    # same login, and a token refresh on one node reaches the others.
+    _credential_files = ()
     _default_cli_glob = ""        # where to find the CLI binary
     _default_model = ""           # default --model (empty = account default)
     # Auth UI the OWL client should render: one of
@@ -188,7 +192,53 @@ class AidooProvider(models.AbstractModel):
             "home_root", "/var/lib/odoo/aidoo_%s_home" % self._provider_code)
 
     def _home_dir(self, user):
-        return os.path.join(self._home_root(), str(user.id))
+        home = os.path.join(self._home_root(), str(user.id))
+        self._cred_sync(user, home)
+        return home
+
+    # ------------------------------------------------------------------
+    # Login shared across cluster nodes (see aidoo.credential)
+    # ------------------------------------------------------------------
+    def _cred_sync(self, user, home=None, force=False, lock=False):
+        """Reconcile this node's credential files with the shared copy.
+
+        Runs once per transaction per (provider, user) — every credential read
+        goes through _home_dir — unless ``force`` (after a write in the same
+        transaction). Never raises: a node that cannot reach the shared copy
+        keeps working from its local files."""
+        if not self._credential_files or not user:
+            return None
+        home = home or os.path.join(self._home_root(), str(user.id))
+        try:
+            cr = self.env.cr
+            memo = cr.__dict__.setdefault("_aidoo_cred_synced", set())
+            key = (self._provider_code, user.id)
+            if key in memo and not force and not lock:
+                return None
+            memo.add(key)
+            with self.env.cr.savepoint():
+                return self.env["aidoo.credential"]._sync(
+                    user, self._provider_code, home, self._credential_files, lock=lock)
+        except Exception:  # noqa: BLE001
+            # e.g. a device-login thread writing after its request cursor closed;
+            # the next request on this node pushes the change.
+            _logger.warning("aidoo: %s login sync for user %s failed",
+                            self._provider_code, user.id, exc_info=True)
+            return None
+
+    def _is_credential_path(self, user, path):
+        home = os.path.join(self._home_root(), str(user.id))
+        return any(os.path.join(home, rel) == path for rel in self._credential_files)
+
+    # ------------------------------------------------------------------
+    # CLI conversation state shared across cluster nodes
+    # ------------------------------------------------------------------
+    def _session_state_files(self, session, user):
+        """Local files (absolute paths under the user's home dir) a later turn
+        needs to resume this conversation. Stored on the session after each
+        turn and restored before the next, so a turn served by another node
+        resumes instead of starting over. Default: nothing to carry."""
+        return []
 
     def _config_dir(self, user, create=False):
         """The per-user CLI config dir (holds this provider's credentials)."""
@@ -209,6 +259,8 @@ class AidooProvider(models.AbstractModel):
         with os.fdopen(fd, "w") as f:
             f.write(content)
         os.replace(tmp, path)
+        if self._is_credential_path(user, path):
+            self._cred_sync(user, force=True)
         return True
 
     # ------------------------------------------------------------------

@@ -213,13 +213,7 @@
                     </div>
                     <AiMessageList messages="this.state.messages" running="this.state.running"
                                    hasMore="this.state.hasMore" onLoadMore.bind="this.loadMore"
-                                   onOpenArtifact.bind="this.openArtifact"
-                                   groups="this.state.groups"
-                                   onMoveMessage.bind="this.moveMessage"
-                                   onToggleGroup.bind="this.toggleGroup"
-                                   onRenameGroup.bind="this.renameGroup"
-                                   onCreateGroup.bind="this.createGroup"
-                                   onDeleteGroup.bind="this.deleteGroup"/>
+                                   onOpenArtifact.bind="this.openArtifact"/>
                     <div t-if="this.state.running" class="px-2 pb-1">
                         <div t-if="this.state.notice" class="small text-muted fst-italic mb-1">
                             <i class="oi me-1" data-icon="schedule"/><t t-out="this.state.notice"/>

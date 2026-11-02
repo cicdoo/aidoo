@@ -121,6 +121,7 @@ export class AiMessage extends Component {
         const mt = att.mimetype || "";
         if (mt.startsWith("image/")) return "image";
         if (mt === "application/pdf") return "picture_as_pdf";
+        if (mt.includes("spreadsheet") || mt.includes("excel")) return "table_chart";
         return "description";
     }
 

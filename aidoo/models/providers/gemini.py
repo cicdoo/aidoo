@@ -83,6 +83,11 @@ class AidooProviderGemini(AidooProvider):
     _accent_color = "#714b67"
     _provider_icon = "/aidoo/static/src/svg/gemini-color.svg"
     _config_dir_name = ".gemini"
+    _credential_files = (
+        ".gemini/oauth_creds.json",
+        ".gemini/api_key",
+        ".gemini/code_assist_project",
+    )
     # Default to flash: on Code Assist the pro model has a much lower per-model
     # rate limit, so it 429s on almost every turn; flash has the headroom for a
     # smooth chat. Admins who want pro can set aidoo.gemini.model = gemini-2.5-pro

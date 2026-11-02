@@ -6,13 +6,13 @@ from . import aidoo_tool
 from . import aidoo_skill
 from . import aidoo_session_folder
 from . import aidoo_session
-from . import aidoo_message_group
 from . import aidoo_message
 from . import aidoo_tool_log
 from . import aidoo_tool_exec
 from . import aidoo_scheduled
 from . import aidoo_persona
 from . import aidoo_change_request
+from . import aidoo_credential
 from . import providers
 from . import aidoo_runner
 from . import res_users

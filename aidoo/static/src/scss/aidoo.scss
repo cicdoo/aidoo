@@ -156,36 +156,6 @@
         opacity: .75;
     }
 
-    .o_ai_group_boxed {
-        max-width: 820px;
-        margin-bottom: .5rem;
-        padding: .25rem .5rem 0;
-        border: 1px solid transparent;
-        border-radius: 6px;
-
-        .o_ai_group_header {
-            padding: .25rem 0;
-            border-bottom: 1px solid $o-gray-200;
-            margin-bottom: .5rem;
-            cursor: pointer;
-            user-select: none;
-        }
-        .o_ai_group_name_input { max-width: 320px; }
-        .o_ai_group_empty { padding: .5rem 0 1rem; }
-    }
-
-    .o_ai_drop_over {
-        border-color: $o-brand-primary;
-        background-color: rgba($o-brand-primary, .06);
-    }
-
-    .o_ai_ungroup_zone {
-        flex-grow: 1;
-        padding: .25rem .5rem;
-        border: 1px dashed $o-gray-400;
-        border-radius: 6px;
-    }
-
     .o_ai_msg {
         max-width: 820px;
 

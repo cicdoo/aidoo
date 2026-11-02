@@ -62,6 +62,10 @@ class AidooProviderGeminiCli(AidooProvider):
     _provider_label = "Gemini"
     _accent_color = "#714b67"
     _config_dir_name = ".gemini"
+    _credential_files = (
+        ".gemini/oauth_creds.json",
+        ".gemini/api_key",
+    )
     _default_cli_glob = "/usr/local/bin/gemini"
     _default_model = ""
     _auth_ui_mode = "import_or_key"

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
 # Dual-licensed: open source (LGPL-3, see LICENSE) or commercial (see COMMERCIAL_LICENSE.md).
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -10,6 +11,7 @@ import logging
 import os
 import re
 import secrets
+import socket
 import subprocess
 import time
 import uuid
@@ -19,6 +21,7 @@ from markupsafe import Markup, escape
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, MissingError, UserError
 from odoo.tools import html2plaintext
+from odoo.tools.binary import BinaryBytes
 
 _logger = logging.getLogger(__name__)
 
@@ -243,12 +246,26 @@ UPLOAD_TEXT_EXTS = {
     ".log", ".yaml", ".yml", ".ini", ".conf", ".cfg", ".toml", ".env",
     ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".htm", ".css", ".scss",
     ".sql", ".sh", ".c", ".h", ".cpp", ".hpp", ".java", ".go", ".rb", ".php",
+    ".jsonl", ".ndjson", ".xhtml", ".svg", ".psv", ".properties", ".tex",
+    ".bib", ".diff", ".patch", ".rs", ".kt", ".swift", ".cs", ".vb", ".pl",
+    ".lua", ".r", ".m", ".scala", ".dart", ".bat", ".ps1", ".zsh", ".bash",
+    ".less", ".sass", ".vue", ".svelte", ".po", ".pot", ".rtf", ".ics",
+    ".vcf", ".eml", ".cc", ".hh", ".cxx", ".hxx", ".mjs", ".cjs",
+    ".graphql", ".proto", ".tf", ".dockerfile", ".mako",
 }
+UPLOAD_SHEET_EXTS = {".xlsx", ".xlsm", ".xls"}
 UPLOAD_PDF_EXTS = {".pdf"}
 UPLOAD_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 UPLOAD_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac", ".webm"}
 ALLOWED_UPLOAD_EXTS = (
-    UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS | UPLOAD_AUDIO_EXTS)
+    UPLOAD_TEXT_EXTS | UPLOAD_PDF_EXTS | UPLOAD_IMAGE_EXTS | UPLOAD_AUDIO_EXTS
+    | UPLOAD_SHEET_EXTS)
+
+# Spreadsheets are converted to TSV text on materialization into a sibling
+# file the prompt manifest points at (neither provider reads them natively).
+SHEET_TEXT_SUFFIX = ".sheet.txt"
+SHEET_MAX_BYTES = 200 * 1024
+SHEET_MAX_ROWS = 5000
 
 # Audio can't be Read by the CLI agent: it is transcribed server-side (in the
 # runner worker thread, see _transcribe_pending) into a sibling text file the
@@ -309,7 +326,15 @@ class AiAssistantSession(models.Model):
         string="Skills", copy=False)
     working_dir = fields.Char(copy=False)
     last_run_pid = fields.Integer(copy=False)
+    # The node that spawned last_run_pid: on a multi-node cluster a pid only
+    # means something on the host that owns it.
+    last_run_host = fields.Char(copy=False)
     last_error = fields.Text(copy=False)
+    # The CLI's resume state (Claude's transcript), carried between turns so a
+    # turn served by another node of a cluster resumes the conversation. A
+    # gzipped JSON map {path relative to the credential user's home: base64}.
+    cli_state = fields.Binary(attachment=True, copy=False, groups="base.group_system")
+    cli_state_sha = fields.Char(copy=False, groups="base.group_system")
 
     # Optional record this conversation is focused on (set when opened from a
     # form view via "Ask Aidoo"). Used to seed the first prompt and the UI chip.
@@ -349,8 +374,6 @@ class AiAssistantSession(models.Model):
 
     message_ids = fields.One2many(
         "aidoo.message", "session_id", string="Messages")
-    group_ids = fields.One2many(
-        "aidoo.message.group", "session_id", string="Message groups")
 
     # ------------------------------------------------------------------
     # Message paging (newest-anchored, for the OWL chat)
@@ -515,25 +538,106 @@ class AiAssistantSession(models.Model):
             seconds=timeout + 120)
         stale = self.search([("state", "=", "running"), ("write_date", "<", cutoff)])
         for session in stale:
-            if session.last_run_pid:
-                try:
-                    os.kill(session.last_run_pid, 9)
-                except (ProcessLookupError, PermissionError):
-                    pass
-            session.write({"state": "error", "last_run_pid": False,
+            session._kill_run(9)
+            session.write({"state": "error", "last_run_pid": False, "last_run_host": False,
                            "last_error": "Reaped by cron (stale run)."})
         return True
 
     def action_stop(self):
-        """Terminate the running CLI subprocess for this session, if any."""
+        """Terminate the running CLI subprocess for this session, if any.
+
+        A run on another node is stopped by the state change itself: its
+        runner sees the session leave 'running' and kills its own child."""
         self.ensure_one()
-        if self.last_run_pid:
-            try:
-                os.kill(self.last_run_pid, 15)  # SIGTERM
-            except (ProcessLookupError, PermissionError):
-                pass
-        self.write({"state": "idle", "last_run_pid": False})
+        self._kill_run(15)  # SIGTERM
+        self.write({"state": "idle", "last_run_pid": False, "last_run_host": False})
         return True
+
+    def _kill_run(self, sig):
+        """Signal the CLI subprocess, but only from the node that spawned it:
+        the same pid on another host is an unrelated process."""
+        self.ensure_one()
+        if not self.last_run_pid or self.last_run_host != socket.gethostname():
+            return False
+        try:
+            os.kill(self.last_run_pid, sig)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    # ------------------------------------------------------------------
+    # Node-local run state carried through the database (multi-node clusters)
+    # ------------------------------------------------------------------
+    def _store_cli_state(self, adapter, user):
+        """Save the CLI's resume files for this conversation on the session."""
+        self.ensure_one()
+        home = adapter._home_dir(user)
+        files = {}
+        for path in adapter._session_state_files(self, user):
+            with open(path, "rb") as f:
+                files[os.path.relpath(path, home)] = base64.b64encode(f.read()).decode()
+        if not files:
+            return False
+        raw = json.dumps(files, sort_keys=True).encode()
+        sha = hashlib.sha256(raw).hexdigest()
+        rec = self.sudo()
+        if rec.cli_state_sha == sha:
+            return False
+        rec.write({"cli_state": BinaryBytes(gzip.compress(raw)), "cli_state_sha": sha})
+        return True
+
+    def _restore_cli_state(self, adapter, user):
+        """Write the stored resume files back under the user's home dir when
+        this node's copy is missing or different. The stored copy is the newest:
+        it is saved after every turn, whichever node served it."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not rec.cli_state:
+            return 0
+        files = json.loads(gzip.decompress(rec.cli_state.content))
+        home = os.path.realpath(adapter._home_dir(user))
+        written = 0
+        for rel, b64 in files.items():
+            path = os.path.realpath(os.path.join(home, rel))
+            if os.path.isabs(rel) or not path.startswith(home + os.sep):
+                _logger.warning("aidoo: session %s: refusing state path %r", self.id, rel)
+                continue
+            content = base64.b64decode(b64)
+            try:
+                with open(path, "rb") as f:
+                    if f.read() == content:
+                        continue
+            except OSError:
+                pass
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            tmp = path + ".tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            written += 1
+        if written:
+            _logger.info("aidoo: session %s: restored %d CLI state file(s) on this node",
+                         self.id, written)
+        return written
+
+    def _restore_uploads(self):
+        """Re-materialize files uploaded in earlier turns that are missing on
+        this node (they were written on the node that received the upload)."""
+        self.ensure_one()
+        atts = self.env["ir.attachment"].sudo().search(
+            [("res_model", "=", self._name), ("res_id", "=", self.id),
+             ("res_field", "=", False), ("description", "!=", "aidoo_artifact")])
+        restored = 0
+        for att in atts:
+            try:
+                name = "%s_%s" % (att.id, self._safe_upload_name(att.name))
+            except UserError:
+                continue  # not an upload
+            if not os.path.exists(os.path.join(self._uploads_dir(), name)):
+                self._write_attachment_to_disk(att)
+                restored += 1
+        return restored
 
     # ------------------------------------------------------------------
     # Scratch working directory (CLI cwd) — NOT under /opt/odoo source
@@ -578,7 +682,7 @@ class AiAssistantSession(models.Model):
         if ext not in ALLOWED_UPLOAD_EXTS:
             raise UserError(_(
                 "File type '%s' is not supported. You can upload text/CSV/code, "
-                "PDF, image (PNG/JPG/GIF/WebP) and audio "
+                "spreadsheet (XLSX/XLSM/XLS), PDF, image (PNG/JPG/GIF/WebP) and audio "
                 "(MP3/WAV/M4A/OGG/OPUS/FLAC/AAC/WebM) files.") % (ext or base))
         return base
 
@@ -691,6 +795,58 @@ class AiAssistantSession(models.Model):
         with open(transcript_path, encoding="utf-8") as f:
             return f.read().strip()
 
+    # ------------------------------------------------------------------
+    # Spreadsheet -> text (see UPLOAD_SHEET_EXTS comment above)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _is_sheet_path(path):
+        return os.path.splitext(path or "")[1].lower() in UPLOAD_SHEET_EXTS
+
+    @staticmethod
+    def _sheet_text_path_for(sheet_path):
+        return sheet_path + SHEET_TEXT_SUFFIX
+
+    @staticmethod
+    def _sheet_to_text(path):
+        """TSV text per sheet, bounded in rows and bytes. Never raises."""
+        ext = os.path.splitext(path)[1].lower()
+        out, size = [], 0
+
+        def cell(v):
+            return "" if v is None else str(v).replace("\t", " ").replace(
+                "\r", " ").replace("\n", " ")
+
+        try:
+            if ext == ".xls":
+                import xlrd
+                book = xlrd.open_workbook(path, on_demand=True)
+                sheets = ((sh.name, (sh.row_values(i) for i in range(sh.nrows)))
+                          for sh in map(book.sheet_by_index, range(book.nsheets)))
+            else:
+                import openpyxl
+                book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                sheets = ((ws.title, ws.iter_rows(values_only=True))
+                          for ws in book.worksheets)
+            for name, rows in sheets:
+                out.append("--- sheet: %s ---" % name)
+                for n, row in enumerate(rows):
+                    if n >= SHEET_MAX_ROWS:
+                        out.append("[truncated: row limit]")
+                        break
+                    line = "\t".join(cell(v) for v in row).rstrip("\t")
+                    size += len(line) + 1
+                    if size > SHEET_MAX_BYTES:
+                        out.append("[truncated: size limit]")
+                        break
+                    out.append(line)
+                if size > SHEET_MAX_BYTES:
+                    break
+        except Exception as e:  # noqa: BLE001
+            _logger.warning("aidoo: spreadsheet conversion failed for %s: %s", path, e)
+            out.append("[Could not read this spreadsheet (%s). Tell the user you "
+                       "could not open it.]" % str(e)[:200])
+        return "\n".join(out)
+
     def _write_attachment_to_disk(self, att):
         """Materialize one attachment into the uploads dir; return its abs path."""
         self.ensure_one()
@@ -703,6 +859,9 @@ class AiAssistantSession(models.Model):
             cached = self._cached_transcript(att)
             if cached is not None:
                 self._write_transcript_file(self._transcript_path_for(path), cached)
+        elif self._is_sheet_path(path):
+            self._write_transcript_file(
+                self._sheet_text_path_for(path), self._sheet_to_text(path))
         return path
 
     def _materialize_attachments(self, attachment_ids):
@@ -976,6 +1135,11 @@ class AiAssistantSession(models.Model):
                         '- %(t)s — transcript of the attached voice note "%(a)s"'
                     ) % {"t": self._transcript_path_for(p),
                          "a": os.path.basename(p)})
+                elif self._is_sheet_path(p):
+                    lines.append(_(
+                        '- %(t)s — spreadsheet "%(a)s" converted to tab-separated text'
+                    ) % {"t": self._sheet_text_path_for(p),
+                         "a": os.path.basename(p)})
                 else:
                     lines.append("- %s" % p)
             msg = _(
@@ -994,12 +1158,18 @@ class AiAssistantSession(models.Model):
             parts.append(msg)
         return "\n\n".join(parts)
 
-    def _history_for_prompt(self):
+    def _history_for_prompt(self, exclude_last_user=False):
         """Bounded transcript of this conversation, for providers that cannot
-        resume a server-side session and must replay context into the prompt."""
+        resume a server-side session and must replay context into the prompt.
+
+        ``exclude_last_user`` drops the newest message when it is the user's
+        (the one being answered, already sent as the prompt)."""
         self.ensure_one()
         msgs = self.message_ids.filtered(lambda m: m.role in ("user", "assistant"))
-        msgs = msgs.sorted("id")[-HISTORY_MAX_MESSAGES:]
+        msgs = msgs.sorted("id")
+        if exclude_last_user and msgs and msgs[-1].role == "user":
+            msgs = msgs[:-1]
+        msgs = msgs[-HISTORY_MAX_MESSAGES:]
         if not msgs:
             return ""
         text = "\n\n".join(

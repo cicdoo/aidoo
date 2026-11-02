@@ -83,6 +83,10 @@ class AidooProviderGrok(AidooProvider):
     _accent_color = "#714b67"
     _provider_icon = "/aidoo/static/src/svg/grok.svg"
     _config_dir_name = ".grok"
+    _credential_files = (
+        ".grok/auth.json",
+        ".grok/api_key",
+    )
     _default_model = "grok-4.7"
     _default_base_url = XAI_API_BASE
     _auth_ui_mode = "import_or_key"

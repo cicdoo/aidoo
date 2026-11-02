@@ -46,9 +46,6 @@ class AiAssistantMessage(models.Model):
     tool_calls = fields.Json()
     # List of {id, name, mimetype} dicts for files the user attached to the turn.
     attachments = fields.Json()
-    # Optional user-defined group (collapsible bucket); empty = implicit turn group.
-    group_id = fields.Many2one(
-        "aidoo.message.group", ondelete="set null", index=True, copy=False)
 
     def _artifact_blocks(self):
         """The HTML artifact sources of this message ([] when not applicable)."""
@@ -109,5 +106,4 @@ class AiAssistantMessage(models.Model):
             "tool_calls": m.tool_calls or [],
             "attachments": m.attachments or [],
             "create_date": fields.Datetime.to_string(m.create_date),
-            "group_id": m.group_id.id or False,
         } for m in self]

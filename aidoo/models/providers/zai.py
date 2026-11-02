@@ -40,6 +40,7 @@ class AidooProviderZai(AidooProvider):
     _accent_color = "#3859ff"
     _provider_icon = "/aidoo/static/src/svg/zai.svg"
     _config_dir_name = ".zai"
+    _credential_files = (".zai/api_key",)
     _default_model = "glm-4.6"
     _auth_ui_mode = "import_or_key"
     _auth_key_supported = True

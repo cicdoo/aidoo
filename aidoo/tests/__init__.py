@@ -25,3 +25,4 @@ from . import test_tool_result_size
 from . import test_groups_title
 from . import test_session_folders
 from . import test_change_request
+from . import test_cluster_state
