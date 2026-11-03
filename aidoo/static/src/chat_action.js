@@ -384,6 +384,29 @@ export class AiChatAction extends Component {
         });
     }
 
+    disconnectProvider() {
+        if (this.state.running) {
+            return;
+        }
+        const code = this.state.currentProvider;
+        const label = this.currentProvider.label || code;
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Disconnect %s", label),
+            body: _t("You will be signed out of %s and need to sign in again to keep chatting.", label),
+            confirmLabel: _t("Disconnect"),
+            confirm: async () => {
+                try {
+                    await rpc("/aidoo/auth/logout", { provider: code });
+                } catch (e) {
+                    this._notifyError(e, _t("Failed to disconnect."));
+                    return;
+                }
+                this._resetAuthForms();
+                this._setAuthed(code, false);
+            },
+        });
+    }
+
     deleteFolder(folder) {
         this.dialog.add(ConfirmationDialog, {
             title: _t("Delete folder"),
