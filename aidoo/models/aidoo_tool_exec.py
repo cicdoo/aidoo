@@ -247,13 +247,17 @@ class AidooToolExec(models.AbstractModel):
             raise AccessError(
                 "Model '%s' is not accessible to the AI Assistant." % model)
 
-    def _check_action_method(self, method, allow_denied=False):
+    def _check_action_method(self, method, allow_denied=False, session=None):
         """``allow_denied`` skips the denylist: a change request may *propose* a
-        denied method, because a person runs it on approval."""
+        denied method, because a person runs it on approval. ``session`` adds
+        the driving persona's extra allowed methods; the deny list stays global."""
         if not method or method.startswith("_"):
             raise ValidationError("Private/dunder methods are not callable.")
+        if session:
+            patterns = session._ai_session_action_method_patterns()
+        else:
+            patterns = self.env["aidoo.session"]._ai_action_method_patterns()
         session = self.env["aidoo.session"]
-        patterns = session._ai_action_method_patterns()
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
             raise ValidationError(
                 "Method '%s' is not in the AI action allowlist." % method)
@@ -648,7 +652,7 @@ class AidooToolExec(models.AbstractModel):
                       args=None, kwargs=None, **kw):
         self._check_tool(session, "orm_action")
         self._check_model(model)
-        self._check_action_method(method)
+        self._check_action_method(method, session=session)
         if args is not None and not isinstance(args, list):
             raise ValidationError("args must be a list.")
         if kwargs is not None and not isinstance(kwargs, dict):
@@ -667,7 +671,7 @@ class AidooToolExec(models.AbstractModel):
                       args=None, kwargs=None, **kw):
         self._check_tool(session, "run_wizard")
         self._check_model(model)
-        self._check_action_method(method)
+        self._check_action_method(method, session=session)
         if values is not None and not isinstance(values, dict):
             raise ValidationError("values must be an object.")
         if args is not None and not isinstance(args, list):

@@ -7,6 +7,9 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 
 ## [Unreleased]
 
+### Added
+- **Per-persona extra action methods** — a persona's new *Extra Allowed Action Methods* field (`action_method_patterns`, comma-separated fnmatch patterns such as `message_post`) adds methods that `orm_action`/`run_wizard` may call in sessions driven by that persona, on top of the global AI Action Method Patterns. The global deny list still applies, and the persona prompt lists the extra methods. Change requests and remote MCP calls without a session use only the global list. Kwargs pass straight through, so `message_post` lets the persona choose the author, recipients and subtype.
+
 ### Removed
 - **Chat message grouping** — the "New group" button, collapsible turn/group headers, drag-to-group, rename and delete are gone from the chat transcript, together with the `aidoo.message.group` model, its `/aidoo/group/*` and `/aidoo/message/move` routes and `aidoo.message.group_id`. The transcript is now a flat chronological list. Sidebar folders and date sections are unchanged. On existing databases the orphaned `aidoo_message_group` table and `aidoo_message.group_id` column are left in place.
 

@@ -498,6 +498,13 @@ class AiAssistantSession(models.Model):
                 blocks.append("")
                 blocks.append("[Skill: %s]" % (skill.name or ""))
                 blocks.append(skill.instructions)
+        extra_methods = persona._extra_action_method_patterns()
+        if extra_methods:
+            blocks.append("")
+            blocks.append(
+                "[Actions] Besides action_*/button_* methods, you may also call "
+                "these methods via orm_action (when that tool is enabled): %s."
+                % ", ".join(extra_methods))
         principal_line = self._principal_line(persona)
         if principal_line:
             blocks.append("")
@@ -927,6 +934,16 @@ class AiAssistantSession(models.Model):
         raw = self._config("action_methods", "") or ""
         pats = [p.strip() for p in raw.split(",") if p.strip()]
         return pats or DEFAULT_ACTION_METHOD_PATTERNS
+
+    def _ai_session_action_method_patterns(self):
+        """Global action patterns plus the driving persona's extras. Falls back
+        to the global list when ``self`` is not a single persona session."""
+        pats = list(self._ai_action_method_patterns())
+        if len(self) == 1 and self.persona_id:
+            for p in self.persona_id.sudo()._extra_action_method_patterns():
+                if p not in pats:
+                    pats.append(p)
+        return pats
 
     @api.model
     def _ai_action_method_deny_patterns(self):
