@@ -148,3 +148,58 @@ class TestToolExec(TransactionCase):
             self.env["aidoo.tool.exec"].sudo()._dispatch(
                 self.session, "orm_read",
                 {"model": "res.users", "ids": [self.user.id]})
+
+    # ------------------------------------------------------------------
+    # Per-persona extra action methods (e.g. message_post)
+    # ------------------------------------------------------------------
+    def _persona_session(self, patterns):
+        persona = self.env["aidoo.persona"].create({
+            "name": "Poster %s" % (patterns or "none"), "provider": "claude",
+            "action_method_patterns": patterns,
+        })
+        return self.env["aidoo.session"].create({
+            "user_id": self.user.id, "provider": "claude",
+            "persona_id": persona.id}).with_user(self.user)
+
+    def _post(self, session, partner):
+        return self.exec._dispatch(
+            session, "orm_action",
+            {"model": "res.partner", "ids": [partner.id],
+             "method": "message_post", "kwargs": {"body": "hello from AI"}})
+
+    def test_persona_extra_method_allows_message_post(self):
+        self._grant("orm_action")
+        # orm_action checks write access on the target record.
+        self.user.sudo().group_ids = [
+            (4, self.env.ref("base.group_partner_manager").id)]
+        self.user.sudo().email = "aidoo_exec_tester@example.com"
+        partner = self.env["res.partner"].create({"name": "Chatter Target"})
+        session = self._persona_session("message_post")
+        res = self._post(session, partner)
+        self.assertNotIn("error", res, res)
+        self.assertEqual(res["model"], "mail.message")
+        self.assertIn("hello from AI", partner.message_ids[:1].body)
+
+    def test_message_post_refused_without_persona_extra(self):
+        self._grant("orm_action")
+        partner = self.env["res.partner"].create({"name": "Chatter Target"})
+        for session in (self.session, self._persona_session(False)):
+            res = self._post(session, partner)
+            self.assertIn("error", res)
+            self.assertIn("allowlist", res["error"])
+
+    def test_persona_extra_cannot_override_deny_list(self):
+        self._grant("orm_action")
+        partner = self.env["res.partner"].create({"name": "Deny Target"})
+        session = self._persona_session("action_archive")
+        res = self.exec._dispatch(
+            session, "orm_action",
+            {"model": "res.partner", "ids": [partner.id],
+             "method": "action_archive"})
+        self.assertIn("error", res)
+        self.assertIn("denied", res["error"])
+        self.assertTrue(partner.active)
+
+    def test_persona_extra_methods_are_in_prompt(self):
+        session = self._persona_session("message_post")
+        self.assertIn("message_post", session.sudo()._run_identity(set()))

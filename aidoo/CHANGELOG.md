@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- **Chat: Disconnect / re-authenticate button** for the current provider, with a confirmation, returning to the provider's sign-in screen.
+- **Per-persona extra action methods** — a persona's new *Extra Allowed Action Methods* field (`action_method_patterns`, comma-separated fnmatch patterns such as `message_post`) adds methods that `orm_action`/`run_wizard` may call in sessions driven by that persona, on top of the global AI Action Method Patterns. The global deny list still applies, and the persona prompt lists the extra methods. Change requests and remote MCP calls without a session use only the global list. Kwargs pass straight through, so `message_post` lets the persona choose the author, recipients and subtype.
 - **Change requests and approvals** — a persona proposes a change through `orm_action` (`aidoo.change.request`); one of the persona's principals (`principal_user_ids`) approves it in Odoo and it applies with their rights, or goes stale if the record moved. `aidoo_guard.require_human` lets a method refuse a tool call; every tool call runs with `aidoo_tool_call` and the session id in the context. `aidoo.action_methods_deny` (default `action_archive,action_unarchive`) is refused to tools but can still be proposed.
 - **Message groups and chat title** — collapsible, draggable message groups per conversation (`aidoo.message.group`), message timestamps, and a model-written conversation title.
 - **Sidebar folders** — per-user conversation folders (`aidoo.session.folder`), collapsible Favorites/folder/date sections, drag a conversation between folders.

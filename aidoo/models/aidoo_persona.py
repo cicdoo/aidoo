@@ -82,6 +82,14 @@ class AidooPersona(models.Model):
              "change requests, and the persona is told, from the server, whether "
              "the person talking to it is one of them. Empty = no principal, so "
              "nobody can approve its change requests.")
+    action_method_patterns = fields.Char(
+        string="Extra Allowed Action Methods",
+        help="Comma-separated fnmatch patterns (e.g. 'message_post') that "
+             "orm_action/run_wizard may also call in sessions driven by this "
+             "persona, on top of the global AI Action Method Patterns. The "
+             "global deny list still applies. Kwargs pass straight through, so "
+             "'message_post' lets the persona post and email followers as any "
+             "author.")
     authenticated = fields.Boolean(
         string="Account Connected", compute="_compute_authenticated",
         help="Whether this persona's provider account has usable credentials.")
@@ -214,6 +222,12 @@ class AidooPersona(models.Model):
             lambda u: u.has_group("base.group_user"))
         if bots:
             bots.sudo().write({"group_ids": [(3, internal.id), (4, portal.id)]})
+
+    def _extra_action_method_patterns(self):
+        """Parsed ``action_method_patterns`` (empty list when unset)."""
+        self.ensure_one()
+        raw = self.action_method_patterns or ""
+        return [p.strip() for p in raw.split(",") if p.strip()]
 
     def _check_manager(self):
         if not (self.env.su or self.env.user.has_group("aidoo.group_ai_manager")):

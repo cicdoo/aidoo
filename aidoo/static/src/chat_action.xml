@@ -207,6 +207,13 @@
 
                 <!-- Chat surface (current provider connected) -->
                 <t t-if="this.isAuthed">
+                    <div class="o_ai_auth_bar d-flex align-items-center justify-content-end px-3 py-1 border-bottom small">
+                        <button type="button" class="btn btn-link btn-sm p-0 text-muted"
+                                t-att-disabled="this.state.running"
+                                t-on-click="this.disconnectProvider">
+                            <i class="oi me-1" data-icon="logout"/>Re-authenticate / Disconnect <t t-out="this.currentProvider.label"/>
+                        </button>
+                    </div>
                     <div t-if="this.state.contextLabel"
                          class="o_ai_context_chip px-3 py-2 border-bottom small text-muted">
                         <i class="oi me-1" data-icon="link"/> Discussing: <b t-out="this.state.contextLabel"/>

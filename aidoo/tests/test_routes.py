@@ -197,3 +197,19 @@ class TestAidooRoutes(HttpCase):
         self.assertFalse(sess.context_groupby)
         self.assertFalse(sess.context_selected_ids)
         self.assertEqual(sess.context_model, "res.partner")
+
+    def test_auth_logout_clears_credentials(self):
+        import os
+        claude = self.env["aidoo.provider.claude"]
+        path = claude._credentials_path(self.user)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"claudeAiOauth": {
+                "accessToken": "x", "refreshToken": "y",
+                "expiresAt": 9999999999999}}, f)
+        self.authenticate("aidoo_routes_user", self.password)
+        body = self._call("/aidoo/auth/logout", {"provider": "claude"})
+        self.assertFalse(body["result"]["authenticated"])
+        self.assertFalse(os.path.exists(path))
+        body = self._call("/aidoo/auth/status", {"provider": "claude"})
+        self.assertFalse(body["result"]["authenticated"])
