@@ -22,6 +22,18 @@ MCP_TOOL_DEFS = [
         },
     },
     {
+        "name": "wizard_describe",
+        "description": "Describe a wizard (transient model) before running it: "
+                       "the callable action methods, fields (required/type/"
+                       "relation), defaults and a usage example. Call this "
+                       "before run_wizard; never guess method or field names.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"model": {"type": "string"}},
+            "required": ["model"],
+        },
+    },
+    {
         "name": "orm_search_read",
         "description": "Search and read records of an Odoo model. Honors the user's "
                        "access rights and record rules. domain is an Odoo domain "
@@ -132,7 +144,7 @@ MCP_TOOL_DEFS = [
         "description": "Call an allowlisted business/action method (e.g. "
                        "action_confirm, action_post, button_validate) on a "
                        "recordset. Omit ids for a model-level call. Honors the "
-                       "user's access rights. Only available when granted.",
+                       "user's access rights. Never guess method names: call wizard_describe (wizards) or model_introspect (action_methods) first. If the error lists valid methods, retry once with one of them; if it still fails, stop and report to the user instead of trying other tools. Only available when granted.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -149,8 +161,11 @@ MCP_TOOL_DEFS = [
     {
         "name": "run_wizard",
         "description": "Create a wizard (transient model) with values and run its "
-                       "allowlisted button method in one step. Honors the user's "
-                       "access rights. Only available when granted.",
+                       "allowlisted button method in one step; the wizard is rolled "
+                       "back if it fails. Call wizard_describe first. Check "
+                       "needs_followup in the result and verify the outcome. Never guess method names: call wizard_describe (wizards) or model_introspect (action_methods) first. If the error lists valid methods, retry once with one of them; if it still fails, stop and report to the user instead of trying other tools. "
+                       "Honors the user's access rights. Only available when "
+                       "granted.",
         "inputSchema": {
             "type": "object",
             "properties": {

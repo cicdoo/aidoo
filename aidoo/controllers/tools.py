@@ -44,6 +44,11 @@ class AiAssistantTools(http.Controller):
     def model_introspect(self, **kw):
         return self._dispatch("model_introspect", kw)
 
+    @http.route("/aidoo/tool/wizard_describe", type="jsonrpc",
+                auth="ai_bridge", methods=["POST"])
+    def wizard_describe(self, **kw):
+        return self._dispatch("wizard_describe", kw)
+
     @http.route("/aidoo/tool/orm_search_read", type="jsonrpc",
                 auth="ai_bridge", methods=["POST"])
     def orm_search_read(self, **kw):

@@ -247,7 +247,40 @@ class AidooToolExec(models.AbstractModel):
             raise AccessError(
                 "Model '%s' is not accessible to the AI Assistant." % model)
 
-    def _check_action_method(self, method, allow_denied=False):
+    def _list_action_methods(self, Model, limit=40):
+        """Public callables on ``Model`` that the AI action allowlist permits.
+
+        Excludes the ORM base-class methods so the list shows business actions
+        only, and is capped so a huge model cannot bloat an error message."""
+        session = self.env["aidoo.session"]
+        patterns = session._ai_action_method_patterns()
+        deny = session._ai_action_method_deny_patterns()
+        base = set(dir(self.env["base"].__class__))
+        names = []
+        for name in dir(type(Model)):
+            if name.startswith("_") or name in base:
+                continue
+            if not any(fnmatch.fnmatchcase(name, p) for p in patterns):
+                continue
+            if any(fnmatch.fnmatchcase(name, p) for p in deny):
+                continue
+            if callable(getattr(type(Model), name, None)):
+                names.append(name)
+        return sorted(names)[:limit]
+
+    def _resolve_method(self, recordset, method):
+        """Check ``method`` exists and is callable on the model; on failure raise
+        a ValidationError that tells the model what it may call instead."""
+        if callable(getattr(type(recordset), method, None)):
+            return
+        valid = self._list_action_methods(recordset)
+        raise ValidationError(
+            "Method '%s' does not exist on %s. Callable methods permitted "
+            "here: %s. Call wizard_describe (or model_introspect) for "
+            "details; do not guess method names." % (
+                method, recordset._name, valid or "none"))
+
+    def _check_action_method(self, method, allow_denied=False, model=None):
         """``allow_denied`` skips the denylist: a change request may *propose* a
         denied method, because a person runs it on approval."""
         if not method or method.startswith("_"):
@@ -255,8 +288,13 @@ class AidooToolExec(models.AbstractModel):
         session = self.env["aidoo.session"]
         patterns = session._ai_action_method_patterns()
         if not any(fnmatch.fnmatchcase(method, p) for p in patterns):
+            hint = ""
+            if model and model in self.env:
+                hint = " Valid methods on %s: %s." % (
+                    model, self._list_action_methods(self.env[model]) or "none")
             raise ValidationError(
-                "Method '%s' is not in the AI action allowlist." % method)
+                "Method '%s' is not in the AI action allowlist. Allowed "
+                "method patterns: %s.%s" % (method, ", ".join(patterns), hint))
         if not allow_denied and any(
                 fnmatch.fnmatchcase(method, p)
                 for p in session._ai_action_method_deny_patterns()):
@@ -507,7 +545,50 @@ class AidooToolExec(models.AbstractModel):
                             for op in access}
         return {"model": model, "access": access,
                 "effective_access": effective_access,
-                "ai_tools_allowed": sorted(eff), "fields": fg}
+                "ai_tools_allowed": sorted(eff), "fields": fg,
+                "action_methods": self._list_action_methods(Model)}
+
+    # Curated usage hints for stateful wizards the model otherwise has to guess.
+    _WIZARD_HINTS = {
+        "base.partner.merge.automatic.wizard": {
+            "method": "action_merge",
+            "values": {"partner_ids": [[6, 0, ["<id1>", "<id2>"]]],
+                       "dst_partner_id": "<id1>"},
+        },
+        "crm.merge.opportunity": {
+            "method": "action_merge",
+            "values": {"opportunity_ids": [[6, 0, ["<id1>", "<id2>"]]],
+                       "user_id": False},
+        },
+        "account.merge.wizard": {
+            "method": "action_merge",
+            "values": {"account_ids": [[6, 0, ["<id1>", "<id2>"]]]},
+        },
+    }
+
+    def _t_wizard_describe(self, session, model=None, values=None, **kw):
+        self._check_tool(session, "wizard_describe")
+        self._check_model(model)
+        if model not in self.env:
+            raise ValidationError("Unknown model '%s'." % model)
+        Model = self.env[model]
+        if not Model._transient:
+            raise ValidationError(
+                "wizard_describe only operates on transient (wizard) models.")
+        Model.check_access("create")
+        fg = Model.fields_get(attributes=[
+            "string", "type", "required", "relation", "readonly"])
+        defaults = Model.default_get(list(Model._fields))
+        hint = self._WIZARD_HINTS.get(model, {})
+        example = {}
+        if hint:
+            example = {"tool": "run_wizard", "model": model,
+                       "method": hint["method"], "values": hint["values"]}
+        return {"model": model,
+                "action_methods": self._list_action_methods(Model),
+                "fields": fg,
+                "defaults": json.loads(json.dumps(defaults, default=str)),
+                "usage_example": example}
 
     def _t_orm_search_read(self, session, model=None, domain=None, fields=None,
                            limit=80, offset=0, order="", **kw):
@@ -648,12 +729,13 @@ class AidooToolExec(models.AbstractModel):
                       args=None, kwargs=None, **kw):
         self._check_tool(session, "orm_action")
         self._check_model(model)
-        self._check_action_method(method)
+        self._check_action_method(method, model=model)
         if args is not None and not isinstance(args, list):
             raise ValidationError("args must be a list.")
         if kwargs is not None and not isinstance(kwargs, dict):
             raise ValidationError("kwargs must be an object.")
         Model = self.env[model]
+        self._resolve_method(Model, method)
         target = Model.browse(ids) if ids else Model
         target.check_access("write")
         # Tell the action which chat session called it, so it can hand files
@@ -667,7 +749,7 @@ class AidooToolExec(models.AbstractModel):
                       args=None, kwargs=None, **kw):
         self._check_tool(session, "run_wizard")
         self._check_model(model)
-        self._check_action_method(method)
+        self._check_action_method(method, model=model)
         if values is not None and not isinstance(values, dict):
             raise ValidationError("values must be an object.")
         if args is not None and not isinstance(args, list):
@@ -678,10 +760,30 @@ class AidooToolExec(models.AbstractModel):
         if not Model._transient:
             raise ValidationError(
                 "run_wizard only operates on transient (wizard) models.")
+        self._resolve_method(Model, method)
+        unknown = sorted(set(values or {}) - set(Model._fields))
+        if unknown:
+            raise ValidationError(
+                "Unknown field(s) %s on %s. Valid fields: %s. Call "
+                "wizard_describe for details." % (
+                    unknown, model, sorted(Model._fields)))
         Model.check_access("create")
-        wizard = Model.create(values or {})
-        result = getattr(wizard, method)(*(args or []), **(kwargs or {}))
-        return self._serialize_result(result)
+        # Create + run atomically: a failure rolls the wizard record back.
+        with self.env.cr.savepoint():
+            wizard = Model.create(values or {})
+            result = getattr(wizard, method)(*(args or []), **(kwargs or {}))
+            out = self._serialize_result(result)
+            wizard_id = wizard.id
+        out.update({"wizard_id": wizard_id, "method": method, "model": model})
+        action = out.get("action") if out.get("result_type") == "action" else None
+        if (isinstance(action, dict) and action.get("res_model") == model
+                and action.get("res_id") in (wizard_id, None, False)):
+            out["needs_followup"] = True
+            out["note"] = (
+                "The wizard returned a screen pointing back at itself, so the "
+                "operation may not be complete. Verify the outcome by reading "
+                "the affected records before telling the user it succeeded.")
+        return out
 
     def _t_run_server_action(self, session, action=None, ids=None, **kw):
         self._check_tool(session, "run_server_action")

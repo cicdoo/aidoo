@@ -13,6 +13,11 @@
         <field name="label">Inspect model fields &amp; access</field>
         <field name="readonly" eval="True"/>
     </record>
+    <record id="tool_wizard_describe" model="aidoo.tool">
+        <field name="name">wizard_describe</field>
+        <field name="label">Describe a wizard (methods, fields, example)</field>
+        <field name="readonly" eval="True"/>
+    </record>
     <record id="tool_orm_search_read" model="aidoo.tool">
         <field name="name">orm_search_read</field>
         <field name="label">Search &amp; read records</field>

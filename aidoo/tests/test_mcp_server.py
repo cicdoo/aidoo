@@ -115,6 +115,14 @@ class TestAidooMcp(HttpCase):
                  self._rpc("tools/list").json()["result"]["tools"]}
         self.assertEqual(names, {"orm_search_read"})
 
+    def test_wizard_describe_is_visible_when_granted(self):
+        tool = self.env["aidoo.tool"].search([("name", "=", "wizard_describe")])
+        self.assertTrue(tool)
+        self.user.aidoo_tool_ids = tool
+        names = {t["name"] for t in
+                 self._rpc("tools/list").json()["result"]["tools"]}
+        self.assertEqual(names, {"wizard_describe"})
+
     def test_search_read_and_audit(self):
         partner = self.env["res.partner"].create({"name": "MCP Probe Partner"})
         result = self._call("orm_search_read", {

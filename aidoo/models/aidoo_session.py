@@ -191,6 +191,7 @@ READ_TOOLS = [
     "orm_read",
     "orm_call",
     "model_introspect",
+    "wizard_describe",
     "sql_select",
 ]
 

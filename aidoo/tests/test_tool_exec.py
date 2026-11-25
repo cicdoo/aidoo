@@ -148,3 +148,76 @@ class TestToolExec(TransactionCase):
             self.env["aidoo.tool.exec"].sudo()._dispatch(
                 self.session, "orm_read",
                 {"model": "res.users", "ids": [self.user.id]})
+
+    # ------------------------------------------------------------------
+    # Wizard execution contract
+    # ------------------------------------------------------------------
+    MERGE = "base.partner.merge.automatic.wizard"
+
+    def _wizard_user(self):
+        self.user.sudo().group_ids = [
+            (4, self.env.ref("base.group_partner_manager").id),
+            (4, self.env.ref("base.group_system").id)]
+        self._grant("run_wizard", "wizard_describe", "orm_action",
+                    "model_introspect")
+
+    def test_run_wizard_unknown_method_lists_valid_and_rolls_back(self):
+        self._wizard_user()
+        before = self.env[self.MERGE].sudo().search_count([])
+        res = self.exec._dispatch(self.session, "run_wizard", {
+            "model": self.MERGE, "method": "action_merge_contacts"})
+        self.assertIn("error", res)
+        self.assertIn("action_merge", res["error"])
+        self.assertEqual(self.env[self.MERGE].sudo().search_count([]), before)
+
+    def test_run_wizard_unknown_value_key(self):
+        self._wizard_user()
+        res = self.exec._dispatch(self.session, "run_wizard", {
+            "model": self.MERGE, "method": "action_merge",
+            "values": {"bogus_field": 1}})
+        self.assertIn("error", res)
+        self.assertIn("Valid fields", res["error"])
+        self.assertIn("dst_partner_id", res["error"])
+
+    def test_run_wizard_merges_partners(self):
+        self._wizard_user()
+        a = self.env["res.partner"].create({"name": "Dup Merge Co"})
+        b = self.env["res.partner"].create({"name": "Dup Merge Co"})
+        res = self.exec._dispatch(self.session, "run_wizard", {
+            "model": self.MERGE, "method": "action_merge",
+            "values": {"partner_ids": [[6, 0, [a.id, b.id]]],
+                       "dst_partner_id": a.id}})
+        self.assertNotIn("error", res, res)
+        self.assertIn("wizard_id", res)
+        remaining = self.env["res.partner"].sudo().search(
+            [("id", "in", [a.id, b.id])])
+        self.assertEqual(len(remaining), 1)
+
+    def test_wizard_describe(self):
+        self._wizard_user()
+        res = self.exec._dispatch(
+            self.session, "wizard_describe", {"model": self.MERGE})
+        self.assertNotIn("error", res, res)
+        self.assertIn("action_merge", res["action_methods"])
+        self.assertEqual(res["usage_example"]["method"], "action_merge")
+        res = self.exec._dispatch(
+            self.session, "wizard_describe", {"model": "res.partner"})
+        self.assertIn("transient", res["error"])
+
+    def test_wizard_describe_requires_grant(self):
+        self._grant("orm_read")
+        res = self.exec._dispatch(
+            self.session, "wizard_describe", {"model": self.MERGE})
+        self.assertIn("error", res)
+
+    def test_orm_action_rejection_lists_patterns(self):
+        self._grant("orm_action")
+        res = self.exec._dispatch(self.session, "orm_action", {
+            "model": "res.partner", "method": "write_stuff"})
+        self.assertIn("action_*", res["error"])
+
+    def test_introspect_lists_action_methods(self):
+        self._wizard_user()
+        res = self.exec._dispatch(
+            self.session, "model_introspect", {"model": self.MERGE})
+        self.assertIn("action_merge", res["action_methods"])
