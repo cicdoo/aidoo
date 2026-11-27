@@ -46,6 +46,10 @@ class AidooScheduled(models.Model):
              "agent's own Provider / Run As credentials, and its personality "
              "and skills are injected into every run. Tools still execute "
              "with the Run As user's Odoo permissions.")
+    # The persona's Discuss partner, so the Scheduled Agents views can show its
+    # avatar. Related only: no column, nothing to migrate.
+    persona_partner_id = fields.Many2one(
+        related="persona_id.partner_id", string="Persona Identity")
     skill_ids = fields.Many2many(
         "aidoo.skill", "aidoo_scheduled_skill_rel", "scheduled_id", "skill_id",
         string="Skills",

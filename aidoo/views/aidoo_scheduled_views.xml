@@ -9,6 +9,8 @@
         <field name="model">aidoo.scheduled</field>
         <field name="arch" type="xml">
             <list>
+                <field name="persona_partner_id" string="Persona"
+                       widget="many2one_avatar" readonly="1"/>
                 <field name="name"/>
                 <field name="user_id"/>
                 <field name="provider"/>
@@ -96,11 +98,18 @@
         <field name="arch" type="xml">
             <kanban>
                 <field name="next_run"/>
+                <field name="persona_partner_id"/>
                 <templates>
                     <t t-name="card">
                         <div class="d-flex justify-content-between align-items-start">
-                            <a type="open">
-                                <field name="name" class="fw-bold fs-5"/>
+                            <a type="open" class="d-flex align-items-center text-truncate">
+                                <img t-if="record.persona_partner_id.raw_value"
+                                     t-att-src="'/web/image/res.partner/' + record.persona_partner_id.raw_value + '/avatar_128'"
+                                     t-att-alt="record.persona_partner_id.value"
+                                     t-att-title="record.persona_partner_id.value"
+                                     class="rounded-circle me-2 flex-shrink-0 o_avatar"
+                                     style="width: 32px; height: 32px; object-fit: cover;"/>
+                                <field name="name" class="fw-bold fs-5 text-truncate"/>
                             </a>
                             <span class="badge text-bg-secondary text-uppercase">
                                 <field name="provider"/>

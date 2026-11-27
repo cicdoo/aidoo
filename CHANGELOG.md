@@ -12,6 +12,7 @@ Odoo-style versioning (`18.0.MAJOR.MINOR.PATCH`). Add new entries under
 - **New module logo** — static/description/logo.svg is replaced by the new "aidoo" wordmark, now shown at the top of the module description page. The app icon (icon.png) is unchanged.
 
 ### Added
+- **Persona avatar on Scheduled Agents** — kanban cards and list rows show the avatar of the agent's persona (its Discuss partner, via the new related `persona_partner_id`), so a persona's agents are recognisable at a glance. Agents without a persona look as before.
 - **Per-persona extra action methods** — a persona's new *Extra Allowed Action Methods* field (`action_method_patterns`, comma-separated fnmatch patterns such as `message_post`) adds methods that `orm_action`/`run_wizard` may call in sessions driven by that persona, on top of the global AI Action Method Patterns. The global deny list still applies, and the persona prompt lists the extra methods. Change requests and remote MCP calls without a session use only the global list. Kwargs pass straight through, so `message_post` lets the persona choose the author, recipients and subtype.
 
 ### Removed
