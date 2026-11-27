@@ -93,6 +93,8 @@ class AidooProviderGemini(AidooProvider):
     # smooth chat. Admins who want pro can set aidoo.gemini.model = gemini-2.5-pro
     # (and keep aidoo.gemini.fallback_model = gemini-2.5-flash for graceful 429s).
     _default_model = "gemini-2.5-flash"
+    # Lighter model to fall back to on 429/404 (aidoo.<code>.fallback_model).
+    _default_fallback_model = "gemini-2.5-flash"
     _auth_ui_mode = "import_or_key"
     _uses_system_prompt_flag = False
     _is_native = True
@@ -155,17 +157,35 @@ class AidooProviderGemini(AidooProvider):
         return session._compose_prompt(body, paths)
 
     # ------------------------------------------------------------------
+    # Hooks for adapters that reuse this loop on the same v1internal API
+    # (Antigravity): client class, metadata, project policy, messages.
+    # ------------------------------------------------------------------
+    def _new_client(self, creds, **kw):
+        return CodeAssistClient(creds, **kw)
+
+    def _client_metadata(self):
+        return DEFAULT_METADATA
+
+    def _configured_project(self, user):
+        """An explicitly configured Code Assist project (authoritative), or ""."""
+        return ((user.aidoo_cloud_project or "").strip()
+                or (self._pconfig("cloud_project", "") or "").strip())
+
+    def _no_creds_message(self):
+        return _("Connect Gemini with your Google login (import your "
+                 "oauth_creds.json) to chat. API-key auth is not yet supported by "
+                 "the native Gemini adapter.")
+
+    # ------------------------------------------------------------------
     # The native turn: Code Assist streaming + in-process tool loop
     # ------------------------------------------------------------------
     def _run_stream(self, env, session, ctx):
         user = session._credential_user().sudo()
         creds = self._load_oauth(user)
         if not creds:
-            yield {"op": "error", "text": _(
-                "Connect Gemini with your Google login (import your "
-                "oauth_creds.json) to chat. API-key auth is not yet supported by "
-                "the native Gemini adapter.")}
+            yield {"op": "error", "text": self._no_creds_message()}
             return
+        label = self._provider_label
 
         def _save(new_creds):
             try:
@@ -175,8 +195,8 @@ class AidooProviderGemini(AidooProvider):
                 # Best-effort: the refreshed token still works for this turn, but
                 # losing it forces a re-auth next turn, so leave a trace.
                 _logger.warning(
-                    "Gemini: failed to persist refreshed OAuth creds for user %s",
-                    user.id, exc_info=True)
+                    "%s: failed to persist refreshed OAuth creds for user %s",
+                    label, user.id, exc_info=True)
 
         # Code Assist project resolution. A CONFIGURED project (the user's own
         # aidoo_cloud_project, else the shared aidoo.gemini.cloud_project) is
@@ -184,8 +204,7 @@ class AidooProviderGemini(AidooProvider):
         # which is granted on a specific GCP project + per-account license. With
         # no configured project we fall back to the cached/auto-onboarded one
         # (Google's individual/standard-tier managed project).
-        configured_project = ((user.aidoo_cloud_project or "").strip()
-                              or (self._pconfig("cloud_project", "") or "").strip())
+        configured_project = self._configured_project(user)
         cached_project = self._read_text(self._project_path(user))
         init_project = configured_project or cached_project or None
         runner = env["aidoo.runner"]
@@ -199,13 +218,15 @@ class AidooProviderGemini(AidooProvider):
             if attempt < 2 and delay < 8:
                 return
             if reason == 429:
-                text = _("Gemini is rate-limited — retrying in %ss…") % int(delay)
+                text = _("%(label)s is rate-limited — retrying in %(s)ss…") % {
+                    "label": label, "s": int(delay)}
             else:
-                text = _("Gemini is busy — retrying in %ss…") % int(delay)
+                text = _("%(label)s is busy — retrying in %(s)ss…") % {
+                    "label": label, "s": int(delay)}
             runner._emit_notice(ctx, text)
 
         rpm = int(self._pconfig("rpm_limit", 120) or 0)
-        client = CodeAssistClient(
+        client = self._new_client(
             creds, save_creds=_save, project=init_project,
             on_retry=_on_retry, rpm=rpm, deadline=ctx.get("deadline"))
         # The runner resolves the model (persona override, else config default).
@@ -213,14 +234,17 @@ class AidooProviderGemini(AidooProvider):
         # Lighter model to fall back to when the primary stays rate-limited (a
         # separate quota bucket). Empty disables fallback; same-as-primary is a
         # no-op. Mirrors the gemini CLI's onPersistent429 -> flash behaviour.
-        fallback_model = (self._pconfig("fallback_model", "gemini-2.5-flash")
+        fallback_model = (self._pconfig("fallback_model",
+                                        self._default_fallback_model)
                           or "").strip()
         fallback_used = False
 
         try:
-            project = client.ensure_project(DEFAULT_METADATA)
+            project = client.ensure_project(self._client_metadata())
         except CodeAssistError as e:
-            yield {"op": "error", "text": _("Gemini authentication failed: %s") % e}
+            yield {"op": "error", "text": _(
+                "%(label)s authentication failed: %(err)s") % {
+                    "label": label, "err": e}}
             return
         # Cache only an AUTO-resolved project; a configured one is authoritative
         # and must not be overwritten by/stored as a stale cache.
@@ -272,20 +296,23 @@ class AidooProviderGemini(AidooProvider):
                                      "%(fb)s instead…") % {
                                 "bad": model, "fb": fallback_model}
                         else:
-                            note = _("Gemini rate-limited — switching to %s for "
-                                     "this reply…") % fallback_model
+                            note = _("%(label)s rate-limited — switching to "
+                                     "%(fb)s for this reply…") % {
+                                "label": label, "fb": fallback_model}
                         model = fallback_model
                         runner._emit_notice(ctx, note)
                         continue  # retry this round on the fallback model
                     yield {"op": "error",
-                           "text": _("Gemini request failed: %s") % e}
+                           "text": _("%(label)s request failed: %(err)s") % {
+                               "label": label, "err": e}}
                     return
             else:
                 # Both attempts were consumed by retries without a clean stream —
                 # defensive backstop so the bounded loop can never fall through
                 # silently into the tool-handling code below.
                 yield {"op": "error", "text": _(
-                    "Gemini request failed after retrying on the fallback model.")}
+                    "%s request failed after retrying on the fallback model."
+                ) % label}
                 return
 
             if not func_calls:

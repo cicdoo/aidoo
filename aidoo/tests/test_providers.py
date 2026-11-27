@@ -506,26 +506,217 @@ class TestProviders(TransactionCase):
         self.assertNotIn("ODOO USER CONTEXT", retry_kw["instructions"])
 
     # ------------------------------------------------------------------
-    # Antigravity (experimental, opt-in, text-only CLI provider)
+    # Antigravity (experimental, opt-in, native Google-login provider)
     # ------------------------------------------------------------------
+    def _antigravity_home(self):
+        """Point the Antigravity per-user homes at this test's scratch dir."""
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.antigravity.home_root", self.scratch)
+
     def test_antigravity_descriptor_and_flags(self):
         adapter = self.env["aidoo.provider.antigravity"]
         d = adapter._descriptor()
         self.assertEqual(d["code"], "antigravity")
         self.assertTrue(d["label"])
-        self.assertIn(d["auth_mode"],
-                      ("oauth_code", "device_poll", "import_or_key"))
-        # It drives a CLI (not the native in-process path) and is gated as
-        # experimental/opt-in so it never shows up by default.
-        self.assertFalse(adapter._is_native)
+        self.assertEqual(d["auth_mode"], "oauth_code")
+        self.assertTrue(d["auth_code_help"])
+        # Native (no agy binary), still gated as experimental/opt-in.
+        self.assertTrue(adapter._is_native)
         self.assertTrue(adapter._experimental)
+        self.assertFalse(d["auth_key"])
 
-    def test_antigravity_normalize_event_is_text_only(self):
-        # agy emits no structured stream; _normalize_event must stay a no-op and
-        # never raise, whatever junk it is handed.
+    def test_antigravity_auth_start_url(self):
+        from urllib.parse import parse_qs, urlsplit
+        from odoo.addons.aidoo.models.providers import antigravity_client as ac
         adapter = self.env["aidoo.provider.antigravity"]
-        for junk in ({}, {"type": "x"}, {"foo": "bar"}):
-            self.assertEqual(adapter._normalize_event(junk, {}), [])
+        url = adapter._auth_start(self.env.user)["url"]
+        qs = parse_qs(urlsplit(url).query)
+        self.assertEqual(qs["client_id"], [ac.OAUTH_CLIENT_ID])
+        self.assertEqual(qs["code_challenge_method"], ["S256"])
+        self.assertEqual(qs["access_type"], ["offline"])
+        self.assertEqual(qs["redirect_uri"], [ac.OAUTH_REDIRECT_URI])
+        stored = json.loads(self.env["ir.config_parameter"].sudo().get_param(
+            "aidoo.antigravity.oauth_pkce.%s" % self.env.user.id))
+        self.assertEqual(qs["state"], [stored["state"]])
+        self.assertEqual(qs["code_challenge"], [ac._challenge(stored["verifier"])])
+
+    def test_antigravity_parse_pasted(self):
+        from odoo.addons.aidoo.models.providers.antigravity_client import (
+            parse_pasted)
+        url = ("http://localhost:51121/oauth-callback?state=st1&code=4/abc"
+               "&scope=email")
+        self.assertEqual(parse_pasted(url), ("4/abc", "st1"))
+        self.assertEqual(parse_pasted(url, expected_state="st1"), ("4/abc", "st1"))
+        self.assertEqual(parse_pasted("  4/bare-code "), ("4/bare-code", None))
+        with self.assertRaises(ValueError):
+            parse_pasted(url, expected_state="other")
+        with self.assertRaises(ValueError):
+            parse_pasted("http://localhost:51121/oauth-callback?error=access_denied")
+        with self.assertRaises(ValueError):
+            parse_pasted("")
+
+    def test_antigravity_auth_complete(self):
+        from odoo.addons.aidoo.models.providers import antigravity, antigravity_client
+        self._antigravity_home()
+        adapter = self.env["aidoo.provider.antigravity"]
+        user = self.env.user
+        adapter._auth_start(user)
+        ICP = self.env["ir.config_parameter"].sudo()
+        pkce = json.loads(ICP.get_param("aidoo.antigravity.oauth_pkce.%s" % user.id))
+        seen = {}
+
+        def fake_exchange(code, verifier):
+            seen["code"], seen["verifier"] = code, verifier
+            return {"access_token": "at", "refresh_token": "rt",
+                    "expiry_date": 4102444800000, "scope": "s",
+                    "token_type": "Bearer"}
+
+        # A wrong state is refused before anything is exchanged.
+        with patch.object(antigravity, "exchange_code", new=fake_exchange):
+            with self.assertRaises(UserError):
+                adapter._auth_complete(
+                    user, "http://localhost:51121/oauth-callback?code=c&state=bad")
+        self.assertFalse(seen)
+
+        with patch.object(antigravity, "exchange_code", new=fake_exchange), \
+                patch.object(antigravity_client.AntigravityClient, "ensure_project",
+                             new=lambda self, meta=None: "managed-proj"):
+            res = adapter._auth_complete(
+                user, "http://localhost:51121/oauth-callback?code=c1&state=%s"
+                % pkce["state"])
+        self.assertTrue(res["authenticated"])
+        self.assertEqual(seen, {"code": "c1", "verifier": pkce["verifier"]})
+        with open(adapter._oauth_creds_path(user)) as f:
+            creds = json.load(f)
+        self.assertEqual(creds["refresh_token"], "rt")
+        self.assertIn("expiry_date", creds)
+        self.assertEqual(oct(os.stat(adapter._oauth_creds_path(user)).st_mode & 0o777),
+                         "0o600")
+        with open(adapter._project_path(user)) as f:
+            self.assertEqual(f.read(), "managed-proj")
+        self.assertFalse(ICP.get_param("aidoo.antigravity.oauth_pkce.%s" % user.id))
+        self.assertTrue(adapter._is_authenticated(user))
+        # Import / API key are not offered; logout removes the login.
+        with self.assertRaises(UserError):
+            adapter._auth_import(user, "{}")
+        with self.assertRaises(UserError):
+            adapter._auth_set_key(user, "k")
+        adapter._auth_logout(user)
+        self.assertFalse(adapter._is_authenticated(user))
+
+    def test_antigravity_client_payload_and_headers(self):
+        from odoo.addons.aidoo.models.providers.antigravity_client import (
+            AntigravityClient)
+        c = AntigravityClient({"access_token": "x", "expiry_date": 4102444800000},
+                              project="p1")
+        body = c._wrap_payload("gemini-3-flash", {"contents": []}, "u")
+        self.assertEqual(body["project"], "p1")
+        self.assertEqual(body["model"], "gemini-3-flash")
+        self.assertEqual(body["userAgent"], "antigravity")
+        self.assertEqual(body["requestType"], "agent")
+        self.assertTrue(body["requestId"].startswith("agent-"))
+        h = c._headers()
+        self.assertEqual(h["Authorization"], "Bearer x")
+        self.assertTrue(h["User-Agent"].startswith("antigravity/"))
+        self.assertIn("ideType", AntigravityClient.METADATA)
+        self.assertTrue(c._method_url("loadCodeAssist").startswith(
+            AntigravityClient.ENDPOINTS[0] + "/v1internal:"))
+
+    def test_antigravity_endpoint_failover(self):
+        from odoo.addons.aidoo.models.providers import antigravity_client as ac
+        from odoo.addons.aidoo.models.providers.codeassist import (
+            CodeAssistClient, CodeAssistError)
+        daily, prod = ac.AntigravityClient.ENDPOINTS
+        urls = []
+
+        def fake_request(self, url, **kw):
+            urls.append(url)
+            if url.startswith(daily):
+                raise CodeAssistError("not here", status=404)
+            return '{"cloudaicompanionProject": "proj-x"}'
+
+        c = ac.AntigravityClient({"access_token": "x", "expiry_date": 4102444800000})
+        with patch.object(CodeAssistClient, "_request", new=fake_request):
+            self.assertEqual(c.ensure_project(c.METADATA), "proj-x")
+            self.assertEqual(c.ENDPOINT, prod)
+            c.load_code_assist(c.METADATA)  # goes straight to the remembered host
+        self.assertEqual(urls[0], daily + "/v1internal:loadCodeAssist")
+        self.assertEqual(urls[1:], [prod + "/v1internal:loadCodeAssist"] * 2)
+
+        # 429 is a quota answer: raised as-is, never failed over.
+        def rate_limited(self, url, **kw):
+            urls.append(url)
+            raise CodeAssistError("slow down", status=429)
+
+        urls.clear()
+        c = ac.AntigravityClient({"access_token": "x", "expiry_date": 4102444800000})
+        with patch.object(CodeAssistClient, "_request", new=rate_limited):
+            with self.assertRaises(CodeAssistError):
+                c.load_code_assist(c.METADATA)
+        self.assertEqual(len(urls), 1)
+
+    def test_antigravity_configured_project_ignored(self):
+        adapter = self.env["aidoo.provider.antigravity"]
+        user = self.env.user
+        user.sudo().aidoo_cloud_project = "enterprise-proj"
+        self.env["ir.config_parameter"].sudo().set_param(
+            "aidoo.antigravity.cloud_project", "shared-proj")
+        self.assertEqual(adapter._configured_project(user), "")
+        self.assertEqual(self.env["aidoo.provider.gemini"]._configured_project(user),
+                         "enterprise-proj")
+
+    def test_antigravity_native_tool_loop(self):
+        from odoo.addons.aidoo.models.providers import antigravity_client, gemini
+        self._antigravity_home()
+        user, user_env, session, adapter, ctx = self._native_user_env("antigravity")
+        rounds = [
+            # Round 0: some text, then a functionCall asking for orm_read.
+            [{"candidates": [{"content": {"parts": [
+                {"text": "Let me look."},
+                {"functionCall": {"name": "orm_read", "args": {
+                    "model": "res.users", "ids": [user.id],
+                    "fields": ["login"]}}}]}}]}],
+            # Round 1: a text part and stop.
+            [{"candidates": [{"content": {"parts": [
+                {"text": "Your login is aidoo_native_antigravity."}]}}]}],
+        ]
+        calls = {"n": 0, "models": [], "clients": []}
+
+        def fake_stream_generate(self, model, contents, **kw):
+            calls["models"].append(model)
+            calls["clients"].append(type(self).__name__)
+            i = calls["n"]
+            calls["n"] += 1
+            for resp in rounds[i]:
+                yield resp
+
+        dispatched = []
+        exec_cls = type(self.env["aidoo.tool.exec"])
+        orig_dispatch = exec_cls._dispatch
+
+        def spy_dispatch(self, session, name, args):
+            dispatched.append(name)
+            return orig_dispatch(self, session, name, args)
+
+        with patch.object(gemini.AidooProviderGemini, "_load_oauth",
+                          new=lambda self, u: {"access_token": "x"}), \
+                patch.object(antigravity_client.AntigravityClient, "ensure_project",
+                             new=lambda self, meta=None: "proj"), \
+                patch.object(antigravity_client.AntigravityClient,
+                             "stream_generate", new=fake_stream_generate), \
+                patch.object(exec_cls, "_dispatch", new=spy_dispatch), \
+                self._no_audit():
+            ops = list(adapter._run_stream(user_env, session, ctx))
+
+        kinds = [o["op"] for o in ops]
+        self.assertEqual(kinds, ["text", "tool_use", "tool_result", "text"])
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(calls["clients"], ["AntigravityClient"] * 2)
+        self.assertEqual(calls["models"], ["gemini-3-flash"] * 2)
+        self.assertEqual(dispatched, ["orm_read"])
+        tool_result = next(o for o in ops if o["op"] == "tool_result")
+        self.assertFalse(tool_result["is_error"])
+        self.assertIn("aidoo_native_antigravity", tool_result["text"])
 
     # ------------------------------------------------------------------
     # Code Assist 429 / rate-limit handling

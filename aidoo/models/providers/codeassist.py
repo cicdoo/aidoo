@@ -114,6 +114,12 @@ class CodeAssistClient:
     so the caller can persist it (mode 0600) for the next turn.
     """
 
+    # Backend host and OAuth client. Subclasses (e.g. the Antigravity client)
+    # override these to speak the same v1internal API through another client.
+    ENDPOINT = CODE_ASSIST_ENDPOINT
+    OAUTH_CLIENT_ID = OAUTH_CLIENT_ID
+    OAUTH_CLIENT_SECRET = OAUTH_CLIENT_SECRET
+
     def __init__(self, creds, save_creds=None, project=None, timeout=120,
                  on_retry=None, rpm=120, deadline=None):
         self._creds = dict(creds or {})
@@ -148,7 +154,7 @@ class CodeAssistClient:
     def _request(self, url, *, data=None, headers=None, method="POST", stream=False):
         # Proactive pacing for Code Assist calls only (not the OAuth token
         # endpoint), shared per project so concurrent runs stay under the RPM cap.
-        if self._rpm and url.startswith(CODE_ASSIST_ENDPOINT):
+        if self._rpm and self._is_api_url(url):
             _get_limiter(self._project or "_global", self._rpm).acquire()
         attempt = 0
         while True:
@@ -188,6 +194,10 @@ class CodeAssistClient:
                 return resp
             with resp:
                 return resp.read().decode("utf-8", "replace")
+
+    def _is_api_url(self, url):
+        """True for Code Assist API calls (rate-limited), False for OAuth."""
+        return url.startswith(self.ENDPOINT)
 
     def _can_wait(self, delay):
         """True if a backoff of ``delay`` seconds finishes before the caller's
@@ -276,8 +286,8 @@ class CodeAssistClient:
         form = urllib.parse.urlencode({
             "grant_type": "refresh_token",
             "refresh_token": rt,
-            "client_id": OAUTH_CLIENT_ID,
-            "client_secret": OAUTH_CLIENT_SECRET,
+            "client_id": self.OAUTH_CLIENT_ID,
+            "client_secret": self.OAUTH_CLIENT_SECRET,
         }).encode()
         raw = self._request(
             OAUTH_TOKEN_URL, data=form,
@@ -299,10 +309,16 @@ class CodeAssistClient:
         return self._creds["access_token"]
 
     def _headers(self):
-        return {"Authorization": "Bearer " + self._access_token()}
+        headers = {"Authorization": "Bearer " + self._access_token()}
+        headers.update(self._extra_headers())
+        return headers
+
+    def _extra_headers(self):
+        """Client-identifying headers added to every API call (none here)."""
+        return {}
 
     def _method_url(self, method, query=None):
-        url = "%s/%s:%s" % (CODE_ASSIST_ENDPOINT, CODE_ASSIST_API_VERSION, method)
+        url = "%s/%s:%s" % (self.ENDPOINT, CODE_ASSIST_API_VERSION, method)
         if query:
             url += "?" + urllib.parse.urlencode(query)
         return url
@@ -378,12 +394,7 @@ class CodeAssistClient:
             request["tools"] = tools
         if generation_config:
             request["generationConfig"] = generation_config
-        payload = {
-            "model": model,
-            "project": self._project,
-            "user_prompt_id": user_prompt_id or "",
-            "request": request,
-        }
+        payload = self._wrap_payload(model, request, user_prompt_id)
         url = self._method_url("streamGenerateContent", {"alt": "sse"})
         # default=str: functionResponse parts may carry datetime/Decimal/bytes
         # from Odoo .read() results — serialize them as strings rather than raise.
@@ -396,6 +407,15 @@ class CodeAssistClient:
             for obj in self._iter_sse(resp):
                 # Code Assist wraps the Vertex response under "response".
                 yield obj.get("response", obj)
+
+    def _wrap_payload(self, model, request, user_prompt_id=""):
+        """The v1internal envelope around a Vertex ``request``."""
+        return {
+            "model": model,
+            "project": self._project,
+            "user_prompt_id": user_prompt_id or "",
+            "request": request,
+        }
 
     @staticmethod
     def _iter_sse(resp):
