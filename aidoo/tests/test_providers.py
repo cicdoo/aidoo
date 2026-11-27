@@ -916,7 +916,8 @@ class TestClaudeStreaming(TransactionCase):
         return ops
 
     def test_deltas_then_final_replace(self):
-        se = lambda e: {"type": "stream_event", "event": e}
+        def se(e):
+            return {"type": "stream_event", "event": e}
         ops = self._run([
             se({"type": "message_start", "message": {"id": "m1"}}),
             se({"type": "content_block_delta",

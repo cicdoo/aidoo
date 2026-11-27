@@ -205,4 +205,3 @@ def exchange_code(code, verifier, timeout=30):
     if data.get("id_token"):
         creds["id_token"] = data["id_token"]
     return creds
-

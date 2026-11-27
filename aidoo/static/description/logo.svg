@@ -1,26 +1,71 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Copyright 2026 CICDoo (https://cicdoo.com)
-     SPDX-License-Identifier: LGPL-3.0-or-later OR LicenseRef-Aidoo-Commercial
-     Aidoo horizontal wordmark — Spark Bubble icon + "aidoo". -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" width="760" height="220">
-  <defs>
-    <linearGradient id="wm-bubble" x1="0" y1="0" x2="0.4" y2="1">
-      <stop offset="0" stop-color="#7b5170"/>
-      <stop offset="1" stop-color="#5d3d53"/>
-    </linearGradient>
-  </defs>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
 
-  <!-- icon: transparent Spark Bubble (no square), cropped glyph scaled to fit -->
-  <g transform="translate(6,14) scale(0.62) translate(-88,-102)">
-    <path fill="url(#wm-bubble)" d="M148 110 H364 A52 52 0 0 1 416 162 V268 A52 52 0 0 1 364 320
-      H232 L188 380 L182 320 H148 A52 52 0 0 1 96 268 V162 A52 52 0 0 1 148 110 Z"/>
-    <path fill="#ffffff" d="M256 122 Q271 197 346 212 Q271 227 256 302
-      Q241 227 166 212 Q241 197 256 122 Z"/>
-    <path fill="#ffffff" opacity="0.95" d="M350 150 Q356 174 380 180
-      Q356 186 350 210 Q344 186 320 180 Q344 174 350 150 Z"/>
+<svg
+   width="405.8443mm"
+   height="96.09417mm"
+   viewBox="0 0 405.8443 96.09417"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1"
+     transform="translate(70.331682,-181.10128)">
+    <g
+       id="g6">
+      <path
+         style="fill:none;fill-opacity:1;stroke:#831743;stroke-width:15.5014;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:0;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+         d="m 35.004749,193.84867 v 83.13811"
+         id="path24-5" />
+      <ellipse
+         style="fill:none;fill-opacity:1;stroke:#64758b;stroke-width:15.7802;stroke-linecap:butt;stroke-linejoin:bevel;stroke-miterlimit:1.9;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+         id="path4-8-2"
+         cx="196.10385"
+         cy="235.60997"
+         rx="33.932953"
+         ry="33.638306" />
+      <g
+         id="g4">
+        <path
+           style="fill:none;fill-opacity:1;stroke:#64758b;stroke-width:15.5014;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:0;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+           d="m 132.57978,181.10128 v 55.35186"
+           id="path24-5-40" />
+        <ellipse
+           style="fill:none;fill-opacity:1;stroke:#64758b;stroke-width:15.7802;stroke-linecap:butt;stroke-linejoin:bevel;stroke-miterlimit:1.9;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+           id="path4-8-2-9"
+           cx="98.51812"
+           cy="235.46797"
+           rx="33.932953"
+           ry="33.638306" />
+      </g>
+      <ellipse
+         style="fill:none;fill-opacity:1;stroke:#64758b;stroke-width:15.7802;stroke-linecap:butt;stroke-linejoin:bevel;stroke-miterlimit:1.9;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+         id="path4-8-1-9"
+         cx="293.68958"
+         cy="235.66705"
+         rx="33.932953"
+         ry="33.638306" />
+      <g
+         id="g5">
+        <g
+           id="g3"
+           transform="translate(0,-0.52916667)">
+          <ellipse
+             style="fill:none;fill-opacity:1;stroke:#831743;stroke-width:15.7802;stroke-linecap:butt;stroke-linejoin:bevel;stroke-miterlimit:1.9;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+             id="path4-8-1-9-4"
+             cx="-28.508625"
+             cy="236.14455"
+             rx="33.932953"
+             ry="33.638306" />
+        </g>
+        <path
+           style="fill:none;fill-opacity:1;stroke:#831743;stroke-width:15.5014;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:0;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+           d="m 5.5404198,235.77629 v 41.27285"
+           id="path24-5-4" />
+      </g>
+    </g>
   </g>
-
-  <!-- wordmark -->
-  <text x="240" y="148" font-family="'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
-        font-size="150" font-weight="700" letter-spacing="-4" fill="#5d3d53">aidoo</text>
 </svg>
