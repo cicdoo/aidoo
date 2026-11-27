@@ -240,9 +240,6 @@ class AidooProviderGrok(AidooProvider):
 
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-connection)."""
-        for path in (self._auth_path(user), self._api_key_path(user)):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        self._remove_user_files(
+            user, (self._auth_path(user), self._api_key_path(user)))
         return {"authenticated": False}

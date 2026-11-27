@@ -263,6 +263,23 @@ class AidooProvider(models.AbstractModel):
             self._cred_sync(user, force=True)
         return True
 
+    def _remove_user_files(self, user, paths):
+        """Delete per-user credential files (logout, cleared key, dropped cache).
+
+        The counterpart of _write_user_file: a removed login file is pushed to the
+        shared copy right away, so every node of a cluster drops the login now
+        instead of whenever this node next serves this user."""
+        removed = False
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                continue
+            removed = removed or self._is_credential_path(user, path)
+        if removed:
+            self._cred_sync(user, force=True)
+        return removed
+
     # ------------------------------------------------------------------
     # CLI resolution
     # ------------------------------------------------------------------

@@ -33,6 +33,7 @@ class TestClusterState(TransactionCase):
         """Switch to ``root`` as this node's home root (and forget which
         logins this transaction already synced, as a new request would)."""
         self.ICP.set_param("aidoo.claude.home_root", root)
+        self.ICP.set_param("aidoo.antigravity.home_root", root)
         self.env.cr.__dict__.pop("_aidoo_cred_synced", None)
 
     def _transcript(self, root, content):
@@ -134,9 +135,8 @@ class TestClusterState(TransactionCase):
         self.claude._home_dir(self.user)
         self.assertIn("b2", open(self._creds(self.node_a)).read())
 
-        # Logout on A is a logout everywhere.
+        # Logout on A is a logout everywhere (pushed by the logout itself).
         self.claude._auth_logout(self.user)
-        self.claude._cred_sync(self.user, force=True)
         self._on_node(self.node_b)
         self.assertFalse(self.claude._is_authenticated(self.user))
         self.assertFalse(os.path.exists(self._creds(self.node_b)))
@@ -176,3 +176,70 @@ class TestClusterState(TransactionCase):
         with patch("os.kill") as kill:
             self.session.action_stop()
             kill.assert_called_once_with(4242, 15)
+
+    # ------------------------------------------------------------------
+    # Antigravity (native, Google login)
+    # ------------------------------------------------------------------
+    def _agy_creds(self, token, expiry):
+        return json.dumps({"access_token": token, "refresh_token": "r-agy",
+                           "expiry_date": expiry, "token_type": "Bearer"})
+
+    def test_antigravity_login_refresh_and_logout_reach_every_node(self):
+        agy = self.env["aidoo.provider.antigravity"]
+        self._on_node(self.node_a)
+        agy._write_user_file(self.user, agy._oauth_creds_path(self.user),
+                             self._agy_creds("a1", 1000))
+        agy._write_user_file(self.user, agy._project_path(self.user), "proj-1")
+
+        self._on_node(self.node_b)
+        self.assertEqual(agy._load_oauth(self.user)["access_token"], "a1")
+        self.assertEqual(agy._read_text(agy._project_path(self.user)), "proj-1")
+
+        # A refresh on A (what CodeAssistClient's save_creds does mid-turn).
+        self._on_node(self.node_a)
+        agy._write_user_file(self.user, agy._oauth_creds_path(self.user),
+                             self._agy_creds("a2", 2000))
+        self._on_node(self.node_b)
+        self.assertEqual(agy._load_oauth(self.user)["access_token"], "a2")
+
+        # Logout on B removes the login on A at A's next request.
+        agy._auth_logout(self.user)
+        self._on_node(self.node_a)
+        self.assertFalse(agy._is_authenticated(self.user))
+        self.assertFalse(os.path.exists(agy._project_path(self.user)))
+
+    # ------------------------------------------------------------------
+    # Native runs honor a Stop made on any node
+    # ------------------------------------------------------------------
+    def test_native_run_ends_when_the_session_is_stopped(self):
+        runner = self.env["aidoo.runner"]
+        session = self.session
+        session.write({"state": "running"})
+        events = []
+
+        class FakeAdapter:
+            def _run_stream(self, env, sess, ctx):
+                try:
+                    yield {"op": "text", "msg_id": "m1", "text": "partial"}
+                    # The Stop, as another node would commit it.
+                    sess.write({"state": "idle", "last_run_host": False})
+                    yield {"op": "tool_use", "msg_id": "m1", "id": "t1",
+                           "name": "orm_read", "input": {}}
+                    events.append("ran past the stop")
+                except GeneratorExit:
+                    events.append("closed")
+                    raise
+
+        ctx = {"provider": "antigravity", "session_id": session.id,
+               "timeout_s": 60, "is_first": False}
+        with patch.object(type(runner), "_adapter", return_value=FakeAdapter()), \
+                patch("odoo.addons.aidoo.models.aidoo_runner._STOP_CHECK_S", 0), \
+                patch.object(self.env.cr, "commit", lambda: None):
+            runner._execute_native(self.env, session, ctx)
+
+        self.assertEqual(events, ["closed"])
+        self.assertEqual(session.state, "idle", "the Stop is not overwritten")
+        self.assertFalse(session.last_run_host)
+        calls = [c for m in session.message_ids for c in (m.tool_calls or [])]
+        self.assertFalse(calls, "no tool call after the Stop")
+        self.assertIn("partial", "".join(session.message_ids.mapped("body")))

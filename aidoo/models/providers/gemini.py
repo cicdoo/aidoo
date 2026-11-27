@@ -422,10 +422,7 @@ class AidooProviderGemini(AidooProvider):
         self._write_user_file(
             user, self._oauth_creds_path(user), json.dumps(data))
         # Drop any stale cached project so the next turn re-resolves it.
-        try:
-            os.remove(self._project_path(user))
-        except OSError:
-            pass
+        self._remove_user_files(user, (self._project_path(user),))
         return {"authenticated": True}
 
     def _auth_set_key(self, user, key):
@@ -433,20 +430,14 @@ class AidooProviderGemini(AidooProvider):
         key = (key or "").strip()
         path = self._api_key_path(user)
         if not key:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            self._remove_user_files(user, (path,))
         else:
             self._write_user_file(user, path, key)
         return {"authenticated": self._is_authenticated(user)}
 
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-connection)."""
-        for path in (self._oauth_creds_path(user), self._api_key_path(user),
-                     self._project_path(user)):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        self._remove_user_files(user, (
+            self._oauth_creds_path(user), self._api_key_path(user),
+            self._project_path(user)))
         return {"authenticated": False}

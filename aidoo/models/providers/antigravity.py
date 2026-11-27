@@ -26,7 +26,6 @@ restrictions. The previous ``agy`` CLI adapter is kept, unregistered, in
 """
 import json
 import logging
-import os
 import secrets
 
 from odoo import _
@@ -164,9 +163,6 @@ class AidooProviderAntigravity(AidooProvider):
                           "API key is needed."))
 
     def _auth_logout(self, user):
-        for path in (self._oauth_creds_path(user), self._project_path(user)):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        self._remove_user_files(
+            user, (self._oauth_creds_path(user), self._project_path(user)))
         return {"authenticated": False}

@@ -541,8 +541,5 @@ class AidooProviderCodex(AidooProvider):
     def _auth_logout(self, user):
         """Remove this user's stored credentials (forces re-authentication)."""
         self._cancel_login(user)
-        try:
-            os.remove(self._auth_path(user))
-        except OSError:
-            pass
+        self._remove_user_files(user, (self._auth_path(user),))
         return {"authenticated": False}

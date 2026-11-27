@@ -405,8 +405,13 @@ class AiAssistantRunner(models.AbstractModel):
         adapter = self._adapter(session)
         _logger.info("AI assistant: native run provider=%s (session %s)",
                      ctx["provider"], ctx["session_id"])
+        session.write({"last_run_host": socket.gethostname()})
         self._emit(session, {"kind": "started"})
         env.cr.commit()
+        # There is no child to signal: a Stop (from this node or another) only
+        # flips the session out of 'running', and the loop below notices.
+        next_stop_check = time.time() + _STOP_CHECK_S
+        stopped = False
 
         deadline = time.time() + ctx["timeout_s"]
         # Expose the wall-clock deadline so native adapters (and the HTTP clients
@@ -429,11 +434,23 @@ class AiAssistantRunner(models.AbstractModel):
             self._apply_op(env, session, op, msg_map, produced_text)
             return True
 
+        stream = adapter._run_stream(env, session, ctx)
         try:
             try:
-                for op in adapter._run_stream(env, session, ctx):
+                for op in stream:
                     if time.time() > deadline:
                         raise TimeoutError("Run exceeded timeout")
+                    if time.time() > next_stop_check:
+                        next_stop_check = time.time() + _STOP_CHECK_S
+                        _flush_pending()
+                        env.cr.commit()  # a fresh snapshot sees the other node's write
+                        session.invalidate_recordset(["state"])
+                        # 'done' is the adapter's own done op, not a Stop.
+                        if session.state not in ("running", "done"):
+                            _logger.info("AI assistant: session %s stopped, ending "
+                                         "its native run", ctx["session_id"])
+                            stopped = True
+                            break
                     dirty = False
                     if session.discuss_channel_id and time.time() > next_typing:
                         session._discuss_set_typing(True)
@@ -459,16 +476,20 @@ class AiAssistantRunner(models.AbstractModel):
                 if _flush_pending():
                     env.cr.commit()
         finally:
+            # Ends the adapter's generator now (GeneratorExit at its yield), so a
+            # stopped run makes no further model or tool calls.
+            stream.close()
             if ctx.get("routing_sid"):
                 env["aidoo.session"]._delete_routing_sid(ctx["routing_sid"])
 
         self._persist_turn_artifacts(
             env, session, env["aidoo.message"].browse(list(msg_map.values())))
-        session.write({"last_run_pid": False,
+        session.write({"last_run_pid": False, "last_run_host": False,
                        "turn_count": session.turn_count + 1})
         # An error op (yielded by the adapter) already set state="error" via
-        # _apply_op; otherwise settle the turn as done.
-        errored = session.state == "error"
+        # _apply_op; a stopped run settles its tool chips like a killed CLI does;
+        # otherwise the turn is done.
+        errored = stopped or session.state == "error"
         self._finalize_pending_tools(
             env, session, "error" if errored else "done", msg_map)
         if session.state == "running":

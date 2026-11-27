@@ -514,8 +514,5 @@ class AidooProviderClaude(AidooProvider):
         return {"authenticated": True}
 
     def _auth_logout(self, user):
-        try:
-            os.remove(self._credentials_path(user))
-        except OSError:
-            pass
+        self._remove_user_files(user, (self._credentials_path(user),))
         return {"authenticated": False}

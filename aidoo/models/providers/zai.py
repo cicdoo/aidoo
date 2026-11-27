@@ -271,10 +271,7 @@ class AidooProviderZai(AidooProvider):
         key = (key or "").strip()
         path = self._api_key_path(user)
         if not key:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            self._remove_user_files(user, (path,))
         else:
             self._write_user_file(user, path, key)
         return {"authenticated": self._is_authenticated(user)}
@@ -289,8 +286,5 @@ class AidooProviderZai(AidooProvider):
 
     def _auth_logout(self, user):
         """Remove this user's stored key (forces re-connection)."""
-        try:
-            os.remove(self._api_key_path(user))
-        except OSError:
-            pass
+        self._remove_user_files(user, (self._api_key_path(user),))
         return {"authenticated": False}
