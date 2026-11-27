@@ -82,12 +82,14 @@ are in scope for security reports include:
   (`aidoo.<provider>.api_key`, including `aidoo.zai.api_key`) live in
   `ir.config_parameter` and are readable by system-settings administrators —
   prefer per-user keys, and treat a shared key as an instance-wide secret.
-- **Antigravity is experimental / opt-in** — the Antigravity (`agy`) provider
-  ships built-in web tools (read_url_content / search_web / browser) that its
-  permission engine **cannot deny** — so it has ungated internet access, a
-  data-exfiltration vector under the untrusted-LLM threat model. It is hidden
-  from the picker unless `aidoo.antigravity.enabled` is set, and must not be
-  enabled for zero-trust deployments. Its shell + file-write tools *are* denied.
+- **Antigravity is experimental / opt-in** — the Antigravity provider is native
+  (in-process, no `agy` binary): like Gemini it has **no built-in web or shell
+  tools**, only the user's gated Odoo tools executed through `aidoo.tool.exec`.
+  It stays opt-in (hidden from the picker unless `aidoo.antigravity.enabled` is
+  set) because it signs users in through Antigravity's OAuth client outside the
+  official app, which may breach Google's terms of service and has led to
+  account restrictions. Tokens are stored per user (`.antigravity/oauth_creds.json`,
+  mode `0600`) and mirrored through `aidoo.credential` like the other logins.
 - **Background & bot runs act as a real user** — scheduled agents
   (`aidoo.scheduled`) and the Discuss bot (`models/discuss_channel.py`) do not add
   a new execution path: each goes through the same `aidoo.session.send_message` /

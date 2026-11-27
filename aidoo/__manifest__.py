@@ -28,8 +28,8 @@ code, Gemini/Grok by importing credentials or an API key — stored privately in
 per-user, per-provider config dir. Chatting is gated until the conversation's
 provider is connected.
 
-Claude drives its CLI on the server (binary required); Codex, Gemini, Grok
-and Z.AI are native in-process providers — they talk to the provider's backend
+Claude drives its CLI on the server (binary required); Codex, Gemini, Grok,
+Z.AI and the opt-in Antigravity are native in-process providers — they talk to the provider's backend
 directly from Python, no binary needed.
 """,
     'author': "CICDoo",

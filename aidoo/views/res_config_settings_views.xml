@@ -131,13 +131,10 @@
 
                     <block title="Antigravity (Google) — experimental" name="aidoo_antigravity">
                         <setting string="Enable Antigravity"
-                                 help="Web tools cannot be sandboxed (ungated internet access). Do not enable for zero-trust deployments — see SECURITY.md.">
+                                 help="Native, no binary: each user logs in with their Google account. Uses Antigravity's unofficial OAuth client, which may breach Google's terms and put the account at risk — see SECURITY.md.">
                             <field name="aidoo_antigravity_enabled"/>
                         </setting>
-                        <setting string="CLI Path" help="Empty = auto-detect (PATH).">
-                            <field name="aidoo_antigravity_cli_path" placeholder="auto-detect"/>
-                        </setting>
-                        <setting string="Model">
+                        <setting string="Model" help="Empty = gemini-3-flash.">
                             <field name="aidoo_antigravity_model"/>
                         </setting>
                     </block>
