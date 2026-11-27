@@ -125,6 +125,10 @@
                                     class="btn btn-primary btn-lg" t-on-click="_startAuth">
                                 <i class="fa fa-sign-in me-2"/> Login with <t t-esc="currentProvider.label"/>
                             </button>
+                            <div t-if="state.authStep === 'idle' and currentProvider.auth_code_help"
+                                 class="alert alert-info text-start mt-3 mb-0">
+                                <t t-esc="currentProvider.auth_code_help"/>
+                            </div>
                             <div t-if="state.authStep !== 'idle'" class="text-start">
                                 <p class="mb-2">
                                     1. Authorize in the tab that just opened.<br/>
@@ -133,7 +137,7 @@
                                 </p>
                                 <div class="input-group mb-2">
                                     <input type="text" class="form-control"
-                                           placeholder="Paste authorization code here"
+                                           t-att-placeholder="currentProvider.auth_code_placeholder or 'Paste authorization code here'"
                                            t-model="state.authCode"
                                            t-on-keydown="(ev) => ev.key === 'Enter' &amp;&amp; this._completeAuth()"/>
                                     <button class="btn btn-primary"

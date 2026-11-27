@@ -520,6 +520,8 @@ class TestProviders(TransactionCase):
         self.assertTrue(d["label"])
         self.assertEqual(d["auth_mode"], "oauth_code")
         self.assertTrue(d["auth_code_help"])
+        self.assertTrue(d["auth_code_placeholder"].startswith(
+            "http://localhost:51121/oauth-callback"))
         # Native (no agy binary), still gated as experimental/opt-in.
         self.assertTrue(adapter._is_native)
         self.assertTrue(adapter._experimental)
@@ -548,6 +550,14 @@ class TestProviders(TransactionCase):
         self.assertEqual(parse_pasted(url), ("4/abc", "st1"))
         self.assertEqual(parse_pasted(url, expected_state="st1"), ("4/abc", "st1"))
         self.assertEqual(parse_pasted("  4/bare-code "), ("4/bare-code", None))
+        # Real-world shape: iss before code, plus authuser/hd/prompt.
+        real = ("http://localhost:51121/oauth-callback?state=Sj_DPx-1"
+                "&iss=https://accounts.google.com&code=4/0AUn6Hd-xyz"
+                "&scope=email%20profile%20openid&authuser=6&hd=example.com"
+                "&prompt=consent")
+        self.assertEqual(parse_pasted(real), ("4/0AUn6Hd-xyz", "Sj_DPx-1"))
+        self.assertEqual(parse_pasted(real, expected_state="Sj_DPx-1"),
+                         ("4/0AUn6Hd-xyz", "Sj_DPx-1"))
         with self.assertRaises(ValueError):
             parse_pasted(url, expected_state="other")
         with self.assertRaises(ValueError):

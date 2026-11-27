@@ -298,13 +298,17 @@ class AidooPersona(models.Model):
     def action_auth_start(self):
         self.ensure_one()
         self._check_manager()
-        res = self._adapter()._auth_start(self.bot_user_id.sudo()) or {}
+        adapter = self._adapter()
+        res = adapter._auth_start(self.bot_user_id.sudo()) or {}
         url = res.get("url") or ""
         code = res.get("code")
         hint = url
         if code:
             hint = _("Open %(url)s and enter code %(code)s") % {
                 "url": url, "code": code}
+        help_text = getattr(adapter, "_auth_code_help", "")
+        if help_text and hint:
+            hint = "%s\n\n%s" % (hint, help_text)
         self.auth_hint = hint
         return self._notify(
             hint or _("Follow the provider login, then paste the code below."),

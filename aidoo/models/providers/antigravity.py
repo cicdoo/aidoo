@@ -62,8 +62,11 @@ class AidooProviderAntigravity(AidooProvider):
     _auth_ui_mode = "oauth_code"
     _auth_key_supported = False
     _auth_code_help = (
-        "After approving, the browser lands on a localhost page that will not "
-        "load. Copy the whole address-bar URL and paste it here.")
+        "Google will send you to http://localhost:51121/oauth-callback?… and "
+        "the browser will say \"This site can't be reached\". That is "
+        "expected. Copy the whole URL from the address bar and paste it below. "
+        "Use the most recent login tab only.")
+    _auth_code_placeholder = "http://localhost:51121/oauth-callback?state=…&code=…"
     _is_native = True
     # Opt-in: hidden from the picker unless aidoo.antigravity.enabled is set
     # (Google terms / account risk — see the module docstring and SECURITY.md).
@@ -72,6 +75,7 @@ class AidooProviderAntigravity(AidooProvider):
     def _descriptor(self):
         d = super()._descriptor()
         d["auth_code_help"] = self._auth_code_help
+        d["auth_code_placeholder"] = self._auth_code_placeholder
         return d
 
     # ------------------------------------------------------------------
@@ -119,8 +123,9 @@ class AidooProviderAntigravity(AidooProvider):
             code, _state = parse_pasted(pasted, expected_state=pkce.get("state"))
         except ValueError as e:
             if str(e) == "state mismatch":
-                raise UserError(_("Authorization state mismatch. Please log in "
-                                  "again."))
+                raise UserError(_("This URL belongs to an older login attempt. "
+                                  "Use the tab from your latest “Login with "
+                                  "Antigravity” click, or click Login again."))
             raise UserError(_("Could not read an authorization code from what "
                               "was pasted (%s). Paste the whole address-bar URL.")
                             % e)
