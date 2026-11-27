@@ -136,16 +136,15 @@ class ResConfigSettings(models.TransientModel):
     aidoo_antigravity_enabled = fields.Boolean(
         string="Enable Antigravity (experimental)",
         config_parameter="aidoo.antigravity.enabled", default=False,
-        help="Show the experimental Antigravity (agy) provider in the picker. "
-             "Its web tools cannot be sandboxed (ungated internet access) — do "
-             "not enable for zero-trust deployments. See SECURITY.md.")
-    aidoo_antigravity_cli_path = fields.Char(
-        string="Antigravity CLI Path",
-        config_parameter="aidoo.antigravity.cli_path",
-        help="Absolute path to the agy binary. Empty = auto-detect (PATH).")
+        help="Show the Antigravity provider in the picker. It is native (no "
+             "binary to install) and uses each user's Google subscription "
+             "through Antigravity's unofficial OAuth client. Opt-in because "
+             "using that client outside the official app may breach Google's "
+             "terms of service and put the Google account at risk. See "
+             "SECURITY.md.")
     aidoo_antigravity_model = fields.Char(
         string="Antigravity Model", config_parameter="aidoo.antigravity.model",
-        default="", help="Empty uses the account default model.")
+        default="", help="Empty uses gemini-3-flash.")
 
     # --- Shared run controls ---
     aidoo_max_turns = fields.Integer(

@@ -128,7 +128,8 @@
                             <div t-if="state.authStep !== 'idle'" class="text-start">
                                 <p class="mb-2">
                                     1. Authorize in the tab that just opened.<br/>
-                                    2. Copy the code shown and paste it below.
+                                    <t t-if="currentProvider.auth_code_help">2. <t t-esc="currentProvider.auth_code_help"/></t>
+                                    <t t-else="">2. Copy the code shown and paste it below.</t>
                                 </p>
                                 <div class="input-group mb-2">
                                     <input type="text" class="form-control"
